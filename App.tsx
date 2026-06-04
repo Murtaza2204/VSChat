@@ -1,45 +1,42 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
+import React, { useEffect } from 'react';
+import { StatusBar, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import RootNavigator from './src/navigation/RootNavigator';
+import { useThemeStore } from './src/stores/themeStore';
+import { useAuthStore } from './src/stores/authStore';
 
-import { NewAppScreen } from '@react-native/new-app-screen';
-import { StatusBar, StyleSheet, useColorScheme, View } from 'react-native';
-import {
-  SafeAreaProvider,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
+let GestureHandlerRootView: any;
+try {
+  GestureHandlerRootView = require('react-native-gesture-handler').GestureHandlerRootView;
+} catch (error) {
+  // Fallback if gesture handler isn't available
+  GestureHandlerRootView = View;
+}
 
-function App() {
-  const isDarkMode = useColorScheme() === 'dark';
+function App(): React.JSX.Element {
+  const { theme, isDark, initializeTheme } = useThemeStore();
+  const { initializeAuth } = useAuthStore();
+
+  useEffect(() => {
+    const initialize = async () => {
+      await initializeTheme();
+      await initializeAuth();
+    };
+    initialize();
+  }, []);
 
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <AppContent />
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <StatusBar
+          barStyle={isDark ? 'light-content' : 'dark-content'}
+          backgroundColor={theme.background}
+          translucent={false}
+        />
+        <RootNavigator />
+      </GestureHandlerRootView>
     </SafeAreaProvider>
   );
 }
-
-function AppContent() {
-  const safeAreaInsets = useSafeAreaInsets();
-
-  return (
-    <View style={styles.container}>
-      <NewAppScreen
-        templateFileName="App.tsx"
-        safeAreaInsets={safeAreaInsets}
-      />
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-});
 
 export default App;
