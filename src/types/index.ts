@@ -6,6 +6,14 @@ export interface User {
   bio?: string;
   status: 'online' | 'offline' | 'away';
   lastSeen?: Date;
+  profileCompleted?: boolean;
+  permissions?: {
+    contacts?: string;
+    notifications?: string;
+    photos?: string;
+    camera?: string;
+    microphone?: string;
+  };
 }
 
 export interface Message {
@@ -49,6 +57,7 @@ export interface Call {
 export interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
+  phoneVerified: boolean;
   isLoading: boolean;
   error: string | null;
 }

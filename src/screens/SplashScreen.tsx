@@ -11,7 +11,7 @@ import { useThemeStore } from '../stores/themeStore';
 import { FONT_SIZES, SPACING } from '../constants/colors';
 
 const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, phoneVerified, user } = useAuthStore();
   const { theme } = useThemeStore();
   const scaleAnim = new Animated.Value(0.5);
   const opacityAnim = new Animated.Value(0);
@@ -31,12 +31,20 @@ const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     ]).start();
 
     const timer = setTimeout(() => {
-      if (isAuthenticated) {
+      if (isAuthenticated && user?.profileCompleted) {
+        // User is logged in and profile is complete → Go to Main (Messages)
         navigation.reset({
           index: 0,
           routes: [{ name: 'Main' }],
         });
+      } else if (phoneVerified && !isAuthenticated) {
+        // Phone verified but profile not complete → Go to UserSetup
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'UserSetup' }],
+        });
       } else {
+        // No phone verified → Go to Login (Phone number entry)
         navigation.reset({
           index: 0,
           routes: [{ name: 'Login' }],
@@ -45,7 +53,7 @@ const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     }, 2500);
 
     return () => clearTimeout(timer);
-  }, [isAuthenticated, navigation]);
+  }, [isAuthenticated, phoneVerified, navigation, user]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>

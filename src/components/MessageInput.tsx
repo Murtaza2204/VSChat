@@ -5,6 +5,7 @@ import {
   TextInput,
   StyleSheet,
   ViewStyle,
+  Text,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { SPACING, BORDER_RADIUS, FONT_SIZES } from '../constants/colors';
@@ -16,6 +17,7 @@ interface MessageInputProps {
   onAttachmentPress?: () => void;
   onEmojiPress?: () => void;
   onCameraPress?: () => void;
+  onAttachmentOptionSelect?: (option: string) => void;
   style?: ViewStyle;
   theme: any;
   placeholder?: string;
@@ -29,12 +31,33 @@ const MessageInput: React.FC<MessageInputProps> = ({
   onAttachmentPress,
   onEmojiPress,
   onCameraPress,
+  onAttachmentOptionSelect,
   style,
   theme,
   placeholder = 'Type a message...',
   disabled = false,
 }) => {
   const [focused, setFocused] = useState(false);
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+
+  const attachmentOptions = [
+    { name: 'Gallery', icon: 'images', color: '#168DFF' },
+    { name: 'Camera', icon: 'camera', color: '#FF2F7D' },
+    { name: 'Location', icon: 'location', color: '#00C989' },
+    { name: 'Contact', icon: 'person', color: '#00A7E8' },
+    { name: 'Document', icon: 'document-text', color: '#8C69FF' },
+    { name: 'Poll', icon: 'reorder-three', color: '#F4A62A' },
+  ];
+
+  const handleAttachmentPress = () => {
+    setShowAttachmentMenu((visible) => !visible);
+    onAttachmentPress?.();
+  };
+
+  const handleAttachmentOptionSelect = (option: string) => {
+    setShowAttachmentMenu(false);
+    onAttachmentOptionSelect?.(option);
+  };
 
   return (
     <View
@@ -47,83 +70,132 @@ const MessageInput: React.FC<MessageInputProps> = ({
         style,
       ]}
     >
-      <TouchableOpacity
-        onPress={onEmojiPress}
-        disabled={disabled}
-        style={styles.iconButton}
-      >
-        <Icon name="happy" size={22} color={theme.primary} />
-      </TouchableOpacity>
+      <View style={styles.inputRow}>
+        <TouchableOpacity
+          onPress={onEmojiPress}
+          disabled={disabled}
+          style={styles.iconButton}
+        >
+          <Icon name="happy" size={22} color={theme.primary} />
+        </TouchableOpacity>
 
-      <View
-        style={[
-          styles.inputContainer,
-          {
-            backgroundColor: theme.inputBackground,
-            borderColor: focused ? theme.primary : theme.border,
-          },
-        ]}
-      >
-        <TextInput
-          placeholder={placeholder}
-          placeholderTextColor={theme.textSecondary}
-          value={value}
-          onChangeText={onChangeText}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
+        <View
           style={[
-            styles.input,
+            styles.inputContainer,
             {
-              color: theme.text,
+              backgroundColor: theme.inputBackground,
+              borderColor: focused ? theme.primary : theme.border,
             },
           ]}
-          multiline
-          editable={!disabled}
-        />
-        <TouchableOpacity
-          onPress={onAttachmentPress}
-          disabled={disabled}
-          style={styles.attachButton}
         >
-          <Icon name="attach" size={20} color={theme.primary} />
+          <TextInput
+            placeholder={placeholder}
+            placeholderTextColor={theme.textSecondary}
+            value={value}
+            onChangeText={onChangeText}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            style={[
+              styles.input,
+              {
+                color: theme.text,
+              },
+            ]}
+            multiline
+            editable={!disabled}
+          />
+          <TouchableOpacity
+            onPress={handleAttachmentPress}
+            disabled={disabled}
+            style={styles.attachButton}
+          >
+            <Icon
+              name="attach"
+              size={20}
+              color={showAttachmentMenu ? theme.primary : theme.textSecondary}
+            />
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          onPress={onCameraPress}
+          disabled={disabled}
+          style={styles.iconButton}
+        >
+          <Icon name="camera" size={22} color={theme.primary} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={onSend}
+          disabled={!value.trim() || disabled}
+          style={[
+            styles.sendButton,
+            {
+              backgroundColor: value.trim() ? theme.primary : theme.border,
+            },
+          ]}
+        >
+          <Icon
+            name="send"
+            size={18}
+            color={value.trim() ? theme.background : theme.textSecondary}
+          />
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity
-        onPress={onCameraPress}
-        disabled={disabled}
-        style={styles.iconButton}
-      >
-        <Icon name="camera" size={22} color={theme.primary} />
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        onPress={onSend}
-        disabled={!value.trim() || disabled}
-        style={[
-          styles.sendButton,
-          {
-            backgroundColor: value.trim() ? theme.primary : theme.border,
-          },
-        ]}
-      >
-        <Icon
-          name="send"
-          size={18}
-          color={value.trim() ? theme.background : theme.textSecondary}
-        />
-      </TouchableOpacity>
+      {showAttachmentMenu && (
+        <View
+          style={[
+            styles.attachmentTray,
+            {
+              backgroundColor: theme.surface,
+              borderTopColor: theme.border,
+            },
+          ]}
+        >
+          <View style={styles.attachmentGridContent}>
+            {attachmentOptions.map((option) => (
+              <TouchableOpacity
+                key={option.name}
+                style={styles.attachmentOption}
+                activeOpacity={0.75}
+                onPress={() => handleAttachmentOptionSelect(option.name)}
+              >
+                <View
+                  style={[
+                    styles.attachmentIconContainer,
+                    {
+                      backgroundColor: theme.inputBackground,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                >
+                  <Icon name={option.icon} size={24} color={option.color} />
+                </View>
+                <Text
+                  style={[styles.attachmentOptionText, { color: theme.textSecondary }]}
+                  numberOfLines={1}
+                >
+                  {option.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
+    borderTopWidth: 1,
+  },
+  inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.md,
-    borderTopWidth: 1,
   },
   iconButton: {
     padding: SPACING.sm,
@@ -156,6 +228,36 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: SPACING.xs,
+  },
+  attachmentTray: {
+    borderTopWidth: 1,
+    paddingTop: SPACING.lg,
+    paddingBottom: SPACING.xl,
+  },
+  attachmentGridContent: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: SPACING.md,
+    rowGap: SPACING.lg,
+  },
+  attachmentOption: {
+    width: '33.33%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachmentIconContainer: {
+    width: 54,
+    height: 54,
+    borderRadius: BORDER_RADIUS.lg,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: SPACING.sm,
+  },
+  attachmentOptionText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });
 

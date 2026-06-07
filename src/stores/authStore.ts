@@ -18,6 +18,7 @@ export const useAuthStore = create<AuthStore>((set) => {
   return {
     user: null,
     isAuthenticated: false,
+    phoneVerified: false,
     isLoading: false,
     error: null,
 
@@ -25,9 +26,11 @@ export const useAuthStore = create<AuthStore>((set) => {
       try {
         const storedUser = await AsyncStorage.getItem('user');
         if (storedUser) {
+          const parsedUser = JSON.parse(storedUser);
           set({
-            user: JSON.parse(storedUser),
-            isAuthenticated: true,
+            user: parsedUser,
+            isAuthenticated: !!parsedUser.profileCompleted,
+            phoneVerified: true,
             isLoading: false,
             error: null,
           });
@@ -85,10 +88,11 @@ export const useAuthStore = create<AuthStore>((set) => {
         // Mock OTP verification (any 6 digits work)
         const mockUser: User = {
           id: Math.random().toString(),
-          name: 'User',
+          name: '',
           phone,
           status: 'online',
           avatar: '👤',
+          profileCompleted: false,
         };
 
         try {
@@ -99,7 +103,8 @@ export const useAuthStore = create<AuthStore>((set) => {
 
         set({
           user: mockUser,
-          isAuthenticated: true,
+          isAuthenticated: false,
+          phoneVerified: true,
           isLoading: false,
         });
       } catch (error: any) {
@@ -130,6 +135,7 @@ export const useAuthStore = create<AuthStore>((set) => {
         const updatedUser = {
           ...currentUser,
           ...profileData,
+          profileCompleted: true,
         } as User;
 
         try {
@@ -140,6 +146,7 @@ export const useAuthStore = create<AuthStore>((set) => {
 
         set({
           user: updatedUser,
+          isAuthenticated: true,
           isLoading: false,
         });
       } catch (error: any) {
@@ -162,6 +169,7 @@ export const useAuthStore = create<AuthStore>((set) => {
         set({
           user: null,
           isAuthenticated: false,
+          phoneVerified: false,
           isLoading: false,
           error: null,
         });
@@ -185,6 +193,7 @@ export const useAuthStore = create<AuthStore>((set) => {
       set({
         user: null,
         isAuthenticated: false,
+        phoneVerified: false,
         isLoading: false,
         error: null,
       });

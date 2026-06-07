@@ -1,5 +1,12 @@
 import React from 'react';
-import { View, Text, StyleSheet, ViewStyle } from 'react-native';
+import {
+  Image,
+  TouchableOpacity,
+  View,
+  Text,
+  StyleSheet,
+  ViewStyle,
+} from 'react-native';
 import { SPACING, FONT_SIZES, BORDER_RADIUS } from '../constants/colors';
 
 interface AvatarProps {
@@ -9,6 +16,7 @@ interface AvatarProps {
   theme: any;
   badge?: number;
   online?: boolean;
+  onPress?: () => void;
 }
 
 const Avatar: React.FC<AvatarProps> = ({
@@ -18,6 +26,7 @@ const Avatar: React.FC<AvatarProps> = ({
   theme,
   badge,
   online,
+  onPress,
 }) => {
   const getSizeStyle = () => {
     switch (size) {
@@ -46,9 +55,16 @@ const Avatar: React.FC<AvatarProps> = ({
   };
 
   const sizeStyle = getSizeStyle();
+  const isImageSource =
+    !!source &&
+    (source.startsWith('file://') ||
+      source.startsWith('content://') ||
+      source.startsWith('http://') ||
+      source.startsWith('https://'));
+  const Wrapper = onPress ? TouchableOpacity : View;
 
   return (
-    <View style={[sizeStyle, style]}>
+    <Wrapper onPress={onPress} activeOpacity={0.75} style={[sizeStyle, style]}>
       <View
         style={[
           sizeStyle,
@@ -59,7 +75,11 @@ const Avatar: React.FC<AvatarProps> = ({
           },
         ]}
       >
-        <Text style={{ fontSize: getFontSize() }}>{source}</Text>
+        {isImageSource ? (
+          <Image source={{ uri: source }} style={sizeStyle} resizeMode="cover" />
+        ) : (
+          <Text style={{ fontSize: getFontSize() }}>{source}</Text>
+        )}
       </View>
 
       {online && (
@@ -93,7 +113,7 @@ const Avatar: React.FC<AvatarProps> = ({
           </Text>
         </View>
       )}
-    </View>
+    </Wrapper>
   );
 };
 

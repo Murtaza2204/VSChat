@@ -8,8 +8,11 @@ import {
   TouchableOpacity,
   Modal,
   Pressable,
+  Alert,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import { errorCodes, isErrorWithCode, pick } from '@react-native-documents/picker';
 import { useChatStore } from '../stores/chatStore';
 import { useThemeStore } from '../stores/themeStore';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
@@ -63,6 +66,116 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   };
 
+  const addAttachmentMessage = (
+    content: string,
+    type: Message['type'],
+    mediaUrl?: string,
+  ) => {
+    const newMessage: Message = {
+      id: Math.random().toString(),
+      senderId: 'me',
+      senderName: 'You',
+      content,
+      type,
+      timestamp: new Date(),
+      read: true,
+      mediaUrl,
+    };
+
+    addMessage(chat.id, newMessage);
+
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  };
+
+  const handleGalleryPress = async () => {
+    const result = await launchImageLibrary({
+      mediaType: 'mixed',
+      quality: 0.8,
+      selectionLimit: 1,
+    });
+
+    if (result.didCancel) {
+      return;
+    }
+
+    if (result.errorMessage) {
+      Alert.alert('Gallery', result.errorMessage);
+      return;
+    }
+
+    const asset = result.assets?.[0];
+    if (asset?.uri) {
+      const type = asset.type?.startsWith('video') ? 'video' : 'image';
+      addAttachmentMessage(
+        asset.fileName || (type === 'video' ? 'Video' : 'Photo'),
+        type,
+        asset.uri,
+      );
+    }
+  };
+
+  const handleCameraPress = async () => {
+    const result = await launchCamera({
+      mediaType: 'photo',
+      quality: 0.8,
+      saveToPhotos: true,
+    });
+
+    if (result.didCancel) {
+      return;
+    }
+
+    if (result.errorMessage) {
+      Alert.alert('Camera', result.errorMessage);
+      return;
+    }
+
+    const asset = result.assets?.[0];
+    if (asset?.uri) {
+      addAttachmentMessage(asset.fileName || 'Photo', 'image', asset.uri);
+    }
+  };
+
+  const handleDocumentPress = async () => {
+    try {
+      const [document] = await pick({
+        mode: 'open',
+        allowMultiSelection: false,
+      });
+
+      if (document?.uri) {
+        addAttachmentMessage(document.name || 'Document', 'file', document.uri);
+      }
+    } catch (error) {
+      if (
+        isErrorWithCode(error) &&
+        error.code === errorCodes.OPERATION_CANCELED
+      ) {
+        return;
+      }
+
+      Alert.alert('Document', 'Unable to open file picker.');
+    }
+  };
+
+  const handleAttachmentOption = async (option: string) => {
+    if (option === 'Gallery') {
+      await handleGalleryPress();
+      return;
+    }
+
+    if (option === 'Camera') {
+      await handleCameraPress();
+      return;
+    }
+
+    if (option === 'Document') {
+      await handleDocumentPress();
+    }
+  };
+
   useEffect(() => {
     flatListRef.current?.scrollToEnd({ animated: true });
   }, [messages]);
@@ -75,6 +188,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       theme={theme}
       read={item.read}
       type={item.type}
+      mediaUrl={item.mediaUrl}
     />
   );
 
@@ -186,7 +300,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         onSend={handleSendMessage}
         onEmojiPress={() => {}}
         onAttachmentPress={() => {}}
-        onCameraPress={() => {}}
+        onAttachmentOptionSelect={handleAttachmentOption}
+        onCameraPress={handleCameraPress}
         theme={theme}
         disabled={false}
       />
