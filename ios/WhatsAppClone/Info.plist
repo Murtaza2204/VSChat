@@ -35,7 +35,7 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>ChatApp needs location access so you can share current and live locations in chat.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>ChatApp needs camera access so you can take profile photos and share camera moments.</string>
 	<key>NSContactsUsageDescription</key>

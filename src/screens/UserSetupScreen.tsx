@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
+  Alert,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -185,15 +186,20 @@ const UserSetupScreen: React.FC = () => {
   };
 
   const handleChoosePhoto = async () => {
-    const result = await launchImageLibrary({
-      mediaType: 'photo',
-      quality: 0.85,
-      selectionLimit: 1,
-    });
+    try {
+      const result = await launchImageLibrary({
+        mediaType: 'photo',
+        quality: 0.85,
+        selectionLimit: 1,
+      });
 
-    const uri = result.assets?.[0]?.uri;
-    if (uri) {
-      setPhotoUri(uri);
+      const uri = result.assets?.[0]?.uri;
+      if (uri) {
+        setPhotoUri(uri);
+      }
+    } catch (error) {
+      console.error('Gallery error:', error);
+      Alert.alert('Gallery Error', 'An error occurred while accessing the gallery.');
     }
   };
 

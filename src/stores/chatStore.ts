@@ -12,6 +12,7 @@ interface ChatStore {
   setCurrentChat: (chat: Chat | null) => void;
   setMessages: (messages: Message[]) => void;
   addMessage: (chatId: string, message: Message) => void;
+  updateMessage: (messageId: string, updates: Partial<Message>) => void;
   createGroup: (title: string, participants: Chat[]) => Chat;
   addGroupMember: (groupChatId: string, member: Chat) => void;
   setSearchQuery: (query: string) => void;
@@ -49,6 +50,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set({
       chats: updatedChats,
       messages: updatedMessages,
+    });
+  },
+
+  updateMessage: (messageId, updates) => {
+    const { messages } = get();
+
+    set({
+      messages: messages.map((message) =>
+        message.id === messageId ? { ...message, ...updates } : message,
+      ),
     });
   },
 

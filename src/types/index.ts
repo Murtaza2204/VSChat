@@ -22,10 +22,16 @@ export interface Message {
   senderName: string;
   senderAvatar?: string;
   content: string;
-  type: 'text' | 'image' | 'video' | 'file';
+  type: 'text' | 'image' | 'video' | 'file' | 'location' | 'liveLocation';
   timestamp: Date;
   read: boolean;
   mediaUrl?: string;
+  location?: {
+    latitude: number;
+    longitude: number;
+    expiresAt?: number;
+    durationLabel?: string;
+  };
 }
 
 export interface Chat {

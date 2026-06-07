@@ -9,6 +9,8 @@ import {
   Platform,
   TouchableOpacity,
   Modal,
+  PermissionsAndroid,
+  Alert,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
@@ -49,35 +51,66 @@ const EditProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     setIsEditing(true);
   };
 
-  const handleTakePhoto = async () => {
-    const result = await launchCamera({
-      mediaType: 'photo',
-      quality: 0.85,
-      saveToPhotos: true,
-    });
-
-    if (result.assets && result.assets.length > 0) {
-      const photoUri = result.assets[0].uri;
-      if (photoUri) {
-        setAvatar(photoUri);
-        setShowAvatarOptions(false);
+  const requestCameraPermission = async () => {
+    try {
+      if (Platform.OS === 'android') {
+        const status = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.CAMERA,
+        );
+        return status === PermissionsAndroid.RESULTS.GRANTED;
       }
+      return true;
+    } catch (error) {
+      console.error('Camera permission error:', error);
+      return false;
+    }
+  };
+
+  const handleTakePhoto = async () => {
+    try {
+      const hasPermission = await requestCameraPermission();
+      if (!hasPermission) {
+        Alert.alert('Camera Permission', 'Camera permission is required to take photos.');
+        return;
+      }
+
+      const result = await launchCamera({
+        mediaType: 'photo',
+        quality: 0.85,
+        saveToPhotos: true,
+      });
+
+      if (result.assets && result.assets.length > 0) {
+        const photoUri = result.assets[0].uri;
+        if (photoUri) {
+          setAvatar(photoUri);
+          setShowAvatarOptions(false);
+        }
+      }
+    } catch (error) {
+      console.error('Camera error:', error);
+      Alert.alert('Camera Error', 'An error occurred while accessing the camera.');
     }
   };
 
   const handleChooseFromGallery = async () => {
-    const result = await launchImageLibrary({
-      mediaType: 'photo',
-      quality: 0.85,
-      selectionLimit: 1,
-    });
+    try {
+      const result = await launchImageLibrary({
+        mediaType: 'photo',
+        quality: 0.85,
+        selectionLimit: 1,
+      });
 
-    if (result.assets && result.assets.length > 0) {
-      const photoUri = result.assets[0].uri;
-      if (photoUri) {
-        setAvatar(photoUri);
-        setShowAvatarOptions(false);
+      if (result.assets && result.assets.length > 0) {
+        const photoUri = result.assets[0].uri;
+        if (photoUri) {
+          setAvatar(photoUri);
+          setShowAvatarOptions(false);
+        }
       }
+    } catch (error) {
+      console.error('Gallery error:', error);
+      Alert.alert('Gallery Error', 'An error occurred while accessing the gallery.');
     }
   };
 

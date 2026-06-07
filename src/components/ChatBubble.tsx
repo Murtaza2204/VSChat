@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,9 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import MapView, { Marker } from 'react-native-maps';
 import { SPACING, FONT_SIZES, BORDER_RADIUS, SHADOWS } from '../constants/colors';
+import { Message } from '../types';
 
 interface ChatBubbleProps {
   message: string;
@@ -18,7 +20,8 @@ interface ChatBubbleProps {
   read?: boolean;
   onLongPress?: () => void;
   mediaUrl?: string;
-  type?: 'text' | 'image' | 'video' | 'file';
+  type?: Message['type'];
+  location?: Message['location'];
 }
 
 const ChatBubble: React.FC<ChatBubbleProps> = ({
@@ -31,7 +34,19 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   onLongPress,
   mediaUrl,
   type = 'text',
+  location,
 }) => {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (type !== 'liveLocation' || !location?.expiresAt) {
+      return undefined;
+    }
+
+    const interval = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(interval);
+  }, [location?.expiresAt, type]);
+
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -40,6 +55,8 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   };
 
   const bubbleColor = isOwn ? theme.messageGreen : theme.messageBlue;
+  const liveLocationActive =
+    type === 'liveLocation' && !!location?.expiresAt && now < location.expiresAt;
 
   return (
     <View
@@ -60,7 +77,48 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         ]}
         activeOpacity={0.7}
       >
-        {type === 'image' && mediaUrl ? (
+        {(type === 'location' || type === 'liveLocation') && location ? (
+          <View style={styles.locationContent}>
+            <View style={styles.mapPreview}>
+              <MapView
+                style={styles.map}
+                pointerEvents="none"
+                initialRegion={{
+                  latitude: location.latitude,
+                  longitude: location.longitude,
+                  latitudeDelta: 0.01,
+                  longitudeDelta: 0.01,
+                }}
+              >
+                <Marker
+                  coordinate={{
+                    latitude: location.latitude,
+                    longitude: location.longitude,
+                  }}
+                />
+              </MapView>
+            </View>
+            <View style={styles.locationMeta}>
+              <Icon
+                name={type === 'liveLocation' ? 'navigate-circle' : 'location'}
+                size={20}
+                color={theme.primary}
+              />
+              <View style={styles.locationTextBlock}>
+                <Text style={[styles.locationTitle, { color: theme.text }]}>
+                  {type === 'liveLocation' ? 'Live location' : 'Current location'}
+                </Text>
+                <Text style={[styles.locationSubtitle, { color: theme.textSecondary }]}>
+                  {type === 'liveLocation'
+                    ? liveLocationActive
+                      ? `Active for ${location.durationLabel}`
+                      : 'Live location ended'
+                    : message}
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : type === 'image' && mediaUrl ? (
           <View
             style={[
               styles.mediaContainer,
@@ -143,6 +201,34 @@ const styles = StyleSheet.create({
   mediaText: {
     fontSize: FONT_SIZES.sm,
     marginTop: SPACING.sm,
+  },
+  locationContent: {
+    width: 230,
+  },
+  mapPreview: {
+    height: 140,
+    overflow: 'hidden',
+    borderRadius: BORDER_RADIUS.md,
+    marginBottom: SPACING.sm,
+  },
+  map: {
+    ...StyleSheet.absoluteFill,
+  },
+  locationMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  locationTextBlock: {
+    flex: 1,
+    marginLeft: SPACING.sm,
+  },
+  locationTitle: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '700',
+  },
+  locationSubtitle: {
+    fontSize: FONT_SIZES.sm,
+    marginTop: 2,
   },
 });
 

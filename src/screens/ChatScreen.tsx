@@ -9,10 +9,13 @@ import {
   Modal,
   Pressable,
   Alert,
+  PermissionsAndroid,
+  Platform,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { errorCodes, isErrorWithCode, pick } from '@react-native-documents/picker';
+import Geolocation from 'react-native-geolocation-service';
 import { useChatStore } from '../stores/chatStore';
 import { useThemeStore } from '../stores/themeStore';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
@@ -27,12 +30,22 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 }) => {
   const { chat: routeChat } = route.params;
   const { theme } = useThemeStore();
-  const { chats, messages, addMessage } = useChatStore();
+  const { chats, messages, addMessage, updateMessage } = useChatStore();
   const chat = chats.find((item) => item.id === routeChat.id) || routeChat;
   const groupMemberCount = (chat.participants?.length || 0) + (chat.isGroup ? 1 : 0);
   const [messageText, setMessageText] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
+  const [locationMenuVisible, setLocationMenuVisible] = useState(false);
+  const [liveDurationVisible, setLiveDurationVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const liveLocationWatchRef = useRef<number | null>(null);
+  const liveLocationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const liveLocationDurations = [
+    { label: '15 min', value: 15 * 60 * 1000 },
+    { label: '1 hr', value: 60 * 60 * 1000 },
+    { label: '8 hr', value: 8 * 60 * 60 * 1000 },
+  ];
 
   const menuOptions = [
     'New group',
@@ -89,6 +102,125 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }, 100);
   };
 
+  const addLocationMessage = (
+    content: string,
+    type: 'location' | 'liveLocation',
+    latitude: number,
+    longitude: number,
+    durationLabel?: string,
+    expiresAt?: number,
+  ) => {
+    const newMessage: Message = {
+      id: Math.random().toString(),
+      senderId: 'me',
+      senderName: 'You',
+      content,
+      type,
+      timestamp: new Date(),
+      read: true,
+      location: {
+        latitude,
+        longitude,
+        durationLabel,
+        expiresAt,
+      },
+    };
+
+    addMessage(chat.id, newMessage);
+
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+
+    return newMessage.id;
+  };
+
+  const clearLiveLocationWatch = () => {
+    if (liveLocationWatchRef.current !== null) {
+      Geolocation.clearWatch(liveLocationWatchRef.current);
+      liveLocationWatchRef.current = null;
+    }
+
+    if (liveLocationTimeoutRef.current) {
+      clearTimeout(liveLocationTimeoutRef.current);
+      liveLocationTimeoutRef.current = null;
+    }
+  };
+
+  const requestCameraPermission = async () => {
+    try {
+      if (Platform.OS === 'android') {
+        const status = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.CAMERA,
+        );
+        return status === PermissionsAndroid.RESULTS.GRANTED;
+      }
+      return true;
+    } catch (error) {
+      console.error('Camera permission error:', error);
+      return false;
+    }
+  };
+
+  const requestLocationPermission = async () => {
+    try {
+      if (Platform.OS === 'ios') {
+        const status = await Geolocation.requestAuthorization('whenInUse');
+        return status === 'granted';
+      }
+
+      if (Platform.OS === 'android') {
+        const status = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        );
+        return status === PermissionsAndroid.RESULTS.GRANTED;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Location permission error:', error);
+      Alert.alert('Permission Error', 'Unable to request location permission.');
+      return false;
+    }
+  };
+
+  const getCurrentPosition = async () => {
+    try {
+      const hasPermission = await requestLocationPermission();
+
+      if (!hasPermission) {
+        Alert.alert('Location Permission', 'Location permission is required to share your location.');
+        return null;
+      }
+
+      return new Promise<Geolocation.GeoPosition | null>((resolve) => {
+        try {
+          Geolocation.getCurrentPosition(
+            (position) => resolve(position),
+            (error) => {
+              console.error('Geolocation error:', error);
+              Alert.alert('Location Error', error.message || 'Unable to get your location. Please try again.');
+              resolve(null);
+            },
+            {
+              enableHighAccuracy: true,
+              timeout: 15000,
+              maximumAge: 10000,
+            },
+          );
+        } catch (err) {
+          console.error('Geolocation exception:', err);
+          Alert.alert('Location Error', 'An error occurred while getting your location.');
+          resolve(null);
+        }
+      });
+    } catch (error) {
+      console.error('getCurrentPosition error:', error);
+      Alert.alert('Location Error', 'Unable to access location service.');
+      return null;
+    }
+  };
+
   const handleGalleryPress = async () => {
     const result = await launchImageLibrary({
       mediaType: 'mixed',
@@ -117,24 +249,35 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const handleCameraPress = async () => {
-    const result = await launchCamera({
-      mediaType: 'photo',
-      quality: 0.8,
-      saveToPhotos: true,
-    });
+    try {
+      const hasPermission = await requestCameraPermission();
+      if (!hasPermission) {
+        Alert.alert('Camera Permission', 'Camera permission is required to take photos.');
+        return;
+      }
 
-    if (result.didCancel) {
-      return;
-    }
+      const result = await launchCamera({
+        mediaType: 'photo',
+        quality: 0.8,
+        saveToPhotos: true,
+      });
 
-    if (result.errorMessage) {
-      Alert.alert('Camera', result.errorMessage);
-      return;
-    }
+      if (result.didCancel) {
+        return;
+      }
 
-    const asset = result.assets?.[0];
-    if (asset?.uri) {
-      addAttachmentMessage(asset.fileName || 'Photo', 'image', asset.uri);
+      if (result.errorMessage) {
+        Alert.alert('Camera', result.errorMessage);
+        return;
+      }
+
+      const asset = result.assets?.[0];
+      if (asset?.uri) {
+        addAttachmentMessage(asset.fileName || 'Photo', 'image', asset.uri);
+      }
+    } catch (error) {
+      console.error('Camera error:', error);
+      Alert.alert('Camera Error', 'An error occurred while accessing the camera.');
     }
   };
 
@@ -160,6 +303,86 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   };
 
+  const handleCurrentLocationPress = async () => {
+    try {
+      setLocationMenuVisible(false);
+      const position = await getCurrentPosition();
+
+      if (!position) {
+        return;
+      }
+
+      addLocationMessage(
+        'Current location',
+        'location',
+        position.coords.latitude,
+        position.coords.longitude,
+      );
+    } catch (error) {
+      console.error('handleCurrentLocationPress error:', error);
+      Alert.alert('Location Error', 'An error occurred while sharing your location.');
+    }
+  };
+
+  const handleLiveLocationDurationPress = async (durationMs: number, label: string) => {
+    try {
+      setLiveDurationVisible(false);
+      clearLiveLocationWatch();
+
+      const position = await getCurrentPosition();
+
+      if (!position) {
+        return;
+      }
+
+      const expiresAt = Date.now() + durationMs;
+      const messageId = addLocationMessage(
+        `Live location - ${label}`,
+        'liveLocation',
+        position.coords.latitude,
+        position.coords.longitude,
+        label,
+        expiresAt,
+      );
+
+      liveLocationWatchRef.current = Geolocation.watchPosition(
+        (nextPosition) => {
+          try {
+            updateMessage(messageId, {
+              location: {
+                latitude: nextPosition.coords.latitude,
+                longitude: nextPosition.coords.longitude,
+                durationLabel: label,
+                expiresAt,
+              },
+            });
+          } catch (err) {
+            console.error('Error updating location message:', err);
+          }
+        },
+        (error) => {
+          console.error('Live location watch error:', error);
+          Alert.alert('Live Location', error.message || 'Unable to update live location.');
+          clearLiveLocationWatch();
+        },
+        {
+          enableHighAccuracy: true,
+          distanceFilter: 10,
+          interval: 30000,
+          fastestInterval: 10000,
+        },
+      );
+
+      liveLocationTimeoutRef.current = setTimeout(() => {
+        clearLiveLocationWatch();
+      }, durationMs);
+    } catch (error) {
+      console.error('handleLiveLocationDurationPress error:', error);
+      Alert.alert('Location Error', 'An error occurred while starting live location.');
+      clearLiveLocationWatch();
+    }
+  };
+
   const handleAttachmentOption = async (option: string) => {
     if (option === 'Gallery') {
       await handleGalleryPress();
@@ -173,12 +396,21 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
     if (option === 'Document') {
       await handleDocumentPress();
+      return;
+    }
+
+    if (option === 'Location') {
+      setLocationMenuVisible(true);
     }
   };
 
   useEffect(() => {
     flatListRef.current?.scrollToEnd({ animated: true });
   }, [messages]);
+
+  useEffect(() => {
+    return () => clearLiveLocationWatch();
+  }, []);
 
   const renderMessage = ({ item }: { item: Message }) => (
     <ChatBubble
@@ -189,6 +421,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       read={item.read}
       type={item.type}
       mediaUrl={item.mediaUrl}
+      location={item.location}
     />
   );
 
@@ -282,6 +515,112 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
               </TouchableOpacity>
             ))}
           </View>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={locationMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLocationMenuVisible(false)}
+      >
+        <Pressable
+          style={styles.locationBackdrop}
+          onPress={() => setLocationMenuVisible(false)}
+        >
+          <Pressable
+            style={[
+              styles.locationSheet,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+              },
+            ]}
+          >
+            <Text style={[styles.locationSheetTitle, { color: theme.text }]}>
+              Share location
+            </Text>
+
+            <TouchableOpacity
+              style={styles.locationAction}
+              activeOpacity={0.75}
+              onPress={handleCurrentLocationPress}
+            >
+              <View style={[styles.locationActionIcon, { backgroundColor: theme.inputBackground }]}>
+                <Icon name="location" size={22} color={theme.primary} />
+              </View>
+              <View style={styles.locationActionTextBlock}>
+                <Text style={[styles.locationActionTitle, { color: theme.text }]}>
+                  Send current location
+                </Text>
+                <Text style={[styles.locationActionSubtitle, { color: theme.textSecondary }]}>
+                  Share your location once
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.locationAction}
+              activeOpacity={0.75}
+              onPress={() => {
+                setLocationMenuVisible(false);
+                setLiveDurationVisible(true);
+              }}
+            >
+              <View style={[styles.locationActionIcon, { backgroundColor: theme.inputBackground }]}>
+                <Icon name="navigate-circle" size={22} color={theme.primary} />
+              </View>
+              <View style={styles.locationActionTextBlock}>
+                <Text style={[styles.locationActionTitle, { color: theme.text }]}>
+                  Share live location
+                </Text>
+                <Text style={[styles.locationActionSubtitle, { color: theme.textSecondary }]}>
+                  Updates until the selected time ends
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={liveDurationVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLiveDurationVisible(false)}
+      >
+        <Pressable
+          style={styles.locationBackdrop}
+          onPress={() => setLiveDurationVisible(false)}
+        >
+          <Pressable
+            style={[
+              styles.locationSheet,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+              },
+            ]}
+          >
+            <Text style={[styles.locationSheetTitle, { color: theme.text }]}>
+              Live location duration
+            </Text>
+
+            {liveLocationDurations.map((duration) => (
+              <TouchableOpacity
+                key={duration.label}
+                style={styles.durationOption}
+                activeOpacity={0.75}
+                onPress={() =>
+                  handleLiveLocationDurationPress(duration.value, duration.label)
+                }
+              >
+                <Text style={[styles.durationText, { color: theme.text }]}>
+                  {duration.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </Pressable>
         </Pressable>
       </Modal>
 
@@ -391,6 +730,55 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingVertical: SPACING.md,
     justifyContent: 'flex-end',
+  },
+  locationBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+  },
+  locationSheet: {
+    borderTopLeftRadius: BORDER_RADIUS.lg,
+    borderTopRightRadius: BORDER_RADIUS.lg,
+    borderWidth: 1,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.lg,
+    paddingBottom: SPACING.xl,
+  },
+  locationSheetTitle: {
+    fontSize: FONT_SIZES.xl,
+    fontWeight: '700',
+    marginBottom: SPACING.md,
+  },
+  locationAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: SPACING.md,
+  },
+  locationActionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: SPACING.md,
+  },
+  locationActionTextBlock: {
+    flex: 1,
+  },
+  locationActionTitle: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '700',
+  },
+  locationActionSubtitle: {
+    fontSize: FONT_SIZES.sm,
+    marginTop: SPACING.xs,
+  },
+  durationOption: {
+    paddingVertical: SPACING.lg,
+  },
+  durationText: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: '600',
   },
 });
 
