@@ -27,7 +27,7 @@ interface ChatBubbleProps {
   mediaItems?: Message['mediaItems'];
   type?: Message['type'];
   location?: Message['location'];
-  onMediaPress?: () => void;
+  onMediaPress?: (index?: number) => void;
   onForwardPress?: () => void;
   isSelected?: boolean;
   reaction?: string;
@@ -111,6 +111,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         styles.container,
         showSenderInfo && styles.groupContainer,
         isOwn ? styles.ownContainer : styles.otherContainer,
+        reaction && { marginBottom: SPACING.lg + SPACING.sm },
         style,
       ]}
     >
@@ -219,58 +220,68 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
 
         {/* Media */}
         {isMediaMessage ? (
-          <View style={[styles.mediaStack, { width: mediaWidth }]}>
-            <TouchableOpacity
-              activeOpacity={0.9}
-              onPress={onMediaPress}
-              onLongPress={onLongPress}
-              style={styles.mediaStackButton}
-            >
-              {resolvedMediaItems.map((item) => (
-                <View key={item.id} style={styles.mediaItemWrap}>
-                  <View
-                    style={[
-                      styles.mediaTile,
-                      { width: mediaWidth },
-                      resolvedMediaItems.length === 1 && styles.singleMediaTile,
-                    ]}
-                  >
-                    {item.type === 'image' ? (
-                      <Image source={{ uri: item.uri }} style={styles.image} resizeMode="cover" />
-                    ) : (
-                      <View style={[styles.videoTile, { backgroundColor: theme.inputBackground }]}>
-                        <Icon name="play-circle" size={46} color={theme.primary} />
-                        <TouchableOpacity
-                          activeOpacity={0.75}
-                          style={[styles.videoPlayButton, { backgroundColor: theme.primary }]}
-                          onPress={() => Linking.openURL(item.uri)}
-                        >
-                          <Icon name="play" size={16} color={theme.background} />
-                          <Text style={[styles.videoPlayText, { color: theme.background }]}>
-                            Play
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </View>
-                  {onForwardPress && (
-                    <TouchableOpacity
-                      activeOpacity={0.75}
-                      onPress={onForwardPress}
-                      style={[
-                        styles.forwardButton,
-                        {
-                          backgroundColor: theme.inputBackground,
-                          borderColor: theme.border,
-                        },
-                      ]}
-                    >
-                      <Icon name="arrow-redo" size={18} color={theme.textSecondary} />
-                    </TouchableOpacity>
-                  )}
+          <View style={[styles.mediaStack, { width: mediaWidth }]}> 
+            {/* 1 image: single large */}
+            {resolvedMediaItems.length === 1 && (
+              <TouchableOpacity activeOpacity={0.95} onPress={() => onMediaPress?.(0)} onLongPress={onLongPress}>
+                <View style={[styles.mediaTile, styles.singleMediaTile]}>
+                  <Image source={{ uri: resolvedMediaItems[0].uri }} style={styles.image} resizeMode="cover" />
                 </View>
-              ))}
-            </TouchableOpacity>
+              </TouchableOpacity>
+            )}
+
+            {/* 2 images: stacked one below another */}
+            {resolvedMediaItems.length === 2 && (
+              <View>
+                {resolvedMediaItems.map((item, idx) => (
+                  <TouchableOpacity key={item.id} activeOpacity={0.95} onPress={() => onMediaPress?.(idx)} onLongPress={onLongPress}>
+                    <View style={[styles.mediaTile, { height: mediaWidth / 2, marginBottom: SPACING.sm }]}>
+                      <Image source={{ uri: item.uri }} style={styles.image} resizeMode="cover" />
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* 3 images: big left + two small stacked right */}
+            {resolvedMediaItems.length === 3 && (
+              <View style={{ flexDirection: 'row' }}>
+                <TouchableOpacity activeOpacity={0.95} onPress={() => onMediaPress?.(0)} onLongPress={onLongPress} style={{ flex: 2, marginRight: SPACING.sm }}>
+                  <View style={[styles.mediaTile, { height: mediaWidth }]}>
+                    <Image source={{ uri: resolvedMediaItems[0].uri }} style={styles.image} resizeMode="cover" />
+                  </View>
+                </TouchableOpacity>
+                <View style={{ flex: 1, justifyContent: 'space-between' }}>
+                  <TouchableOpacity activeOpacity={0.95} onPress={() => onMediaPress?.(1)} onLongPress={onLongPress}>
+                    <View style={[styles.mediaTile, { height: mediaWidth / 2, marginBottom: SPACING.sm }]}>
+                      <Image source={{ uri: resolvedMediaItems[1].uri }} style={styles.image} resizeMode="cover" />
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity activeOpacity={0.95} onPress={() => onMediaPress?.(2)} onLongPress={onLongPress}>
+                    <View style={[styles.mediaTile, { height: mediaWidth / 2 }]}>
+                      <Image source={{ uri: resolvedMediaItems[2].uri }} style={styles.image} resizeMode="cover" />
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* 4+ images: 2x2 grid showing all (wrap) */}
+            {resolvedMediaItems.length >= 4 && (
+              <View style={styles.gridContainer}>
+                {resolvedMediaItems.slice(0, 4).map((item, idx) => (
+                  <TouchableOpacity key={item.id} activeOpacity={0.95} onPress={() => onMediaPress?.(idx)} onLongPress={onLongPress} style={styles.gridTile}>
+                    <Image source={{ uri: item.uri }} style={styles.gridImage} resizeMode="cover" />
+                    {idx === 3 && resolvedMediaItems.length > 4 ? (
+                      <View style={styles.moreOverlay}>
+                        <Text style={styles.moreOverlayText}>+{resolvedMediaItems.length - 4}</Text>
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
             {message ? (
               <Text style={[styles.mediaCaption, { color: theme.text }]}>{message}</Text>
             ) : null}
@@ -402,6 +413,21 @@ const styles = StyleSheet.create({
   timestamp: { fontSize: FONT_SIZES.xs, marginRight: SPACING.xs },
   mediaStack: {
     maxWidth: '100%',
+  },
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  gridTile: {
+    width: '50%',
+    aspectRatio: 1,
+    padding: 2,
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: BORDER_RADIUS.md,
   },
   mediaStackButton: {
     gap: 6,

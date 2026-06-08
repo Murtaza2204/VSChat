@@ -74,6 +74,51 @@ const MessageInput: React.FC<MessageInputProps> = ({
         style,
       ]}
     >
+      {replyTo && (
+        <View
+          style={[
+            styles.replyPreview,
+            {
+              backgroundColor: theme.surface,
+              borderTopColor: theme.border,
+            },
+          ]}
+        >
+          <View style={styles.replyPreviewLeft}>
+            <View
+              style={[
+                styles.replyPreviewBorder,
+                { borderLeftColor: theme.primary },
+              ]}
+            />
+            <View style={styles.replyPreviewContent}>
+              <Text style={[styles.replyPreviewSender, { color: theme.primary }]} numberOfLines={1}>
+                {replyTo.senderName}
+              </Text>
+              <Text
+                style={[styles.replyPreviewMessage, { color: theme.text }]}
+                numberOfLines={1}
+              >
+                {replyTo.type === 'image' || replyTo.type === 'video'
+                  ? `📎 ${replyTo.type === 'image' ? 'Photo' : 'Video'}`
+                  : replyTo.type === 'location'
+                    ? '📍 Location'
+                    : replyTo.type === 'file'
+                      ? '📄 Document'
+                      : replyTo.content}
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            onPress={onCancelReply}
+            style={styles.replyPreviewClose}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Icon name="close" size={22} color={theme.textSecondary} />
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={styles.inputRow}>
         <TouchableOpacity
           onPress={onEmojiPress}
@@ -185,50 +230,6 @@ const MessageInput: React.FC<MessageInputProps> = ({
               </TouchableOpacity>
             ))}
           </View>
-        </View>
-      )}
-      {replyTo && (
-        <View
-          style={[
-            styles.replyPreview,
-            {
-              backgroundColor: theme.surface,
-              borderTopColor: theme.border,
-            },
-          ]}
-        >
-          <View style={styles.replyPreviewLeft}>
-            <View
-              style={[
-                styles.replyPreviewBorder,
-                { borderLeftColor: theme.primary },
-              ]}
-            />
-            <View style={styles.replyPreviewContent}>
-              <Text style={[styles.replyPreviewSender, { color: theme.primary }]} numberOfLines={1}>
-                {replyTo.senderName}
-              </Text>
-              <Text
-                style={[styles.replyPreviewMessage, { color: theme.text }]}
-                numberOfLines={1}
-              >
-                {replyTo.type === 'image' || replyTo.type === 'video'
-                  ? `📎 ${replyTo.type === 'image' ? 'Photo' : 'Video'}`
-                  : replyTo.type === 'location'
-                    ? '📍 Location'
-                    : replyTo.type === 'file'
-                      ? '📄 Document'
-                      : replyTo.content}
-              </Text>
-            </View>
-          </View>
-          <TouchableOpacity
-            onPress={onCancelReply}
-            style={styles.replyPreviewClose}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Icon name="close" size={22} color={theme.textSecondary} />
-          </TouchableOpacity>
         </View>
       )}
     </View>

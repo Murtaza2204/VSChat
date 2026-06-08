@@ -58,6 +58,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [pendingMedia, setPendingMedia] = useState<MediaItem[]>([]);
   const [mediaCaption, setMediaCaption] = useState('');
   const [viewerMessage, setViewerMessage] = useState<Message | null>(null);
+  const [viewerStartIndex, setViewerStartIndex] = useState(0);
+  const viewerScrollRef = React.useRef<ScrollView | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const liveLocationWatchRef = useRef<number | null>(null);
   const liveLocationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -655,7 +657,10 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         mediaUrl={item.mediaUrl}
         mediaItems={item.mediaItems}
         location={item.location}
-        onMediaPress={() => setViewerMessage(item)}
+        onMediaPress={(index?: number) => {
+          setViewerMessage(item);
+          setViewerStartIndex(index || 0);
+        }}
         onForwardPress={() => openForwardForMessage(item)}
         isSelected={actionMessage?.id === item.id}
         reaction={item.reaction}
@@ -1268,7 +1273,14 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             </View>
           </View>
 
-          <ScrollView contentContainerStyle={styles.viewerScrollContent}>
+          <ScrollView ref={viewerScrollRef} contentContainerStyle={styles.viewerScrollContent} onLayout={() => {
+            // scroll to selected start index
+            setTimeout(() => {
+              if (!viewerScrollRef.current) return;
+              const y = viewerStartIndex * (440); // approximate item height (viewerImage 420 + margin)
+              viewerScrollRef.current.scrollTo({ y, animated: false });
+            }, 50);
+          }}>
             {viewerMediaItems.map((item) => (
               <View key={item.id} style={styles.viewerItem}>
                 {item.type === 'image' ? (
