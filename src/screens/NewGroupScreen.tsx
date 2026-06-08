@@ -14,11 +14,15 @@ import { useThemeStore } from '../stores/themeStore';
 import { useChatStore } from '../stores/chatStore';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
 import Avatar from '../components/Avatar';
-import { Chat } from '../types';
+import { Chat, Message } from '../types';
 
-const NewGroupScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+const NewGroupScreen: React.FC<{ navigation: any; route: any }> = ({
+  navigation,
+  route,
+}) => {
   const { theme } = useThemeStore();
   const { chats } = useChatStore();
+  const forwardMessage = route.params?.forwardMessage as Message | undefined;
   const groupContacts = useMemo(
     () => chats.filter((chat) => !chat.isGroup).slice(0, 4),
     [chats],
@@ -50,7 +54,7 @@ const NewGroupScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       return;
     }
 
-    navigation.navigate('NewGroupDetails', { selectedIds });
+    navigation.navigate('NewGroupDetails', { selectedIds, forwardMessage });
   };
 
   const renderAvatar = (contact: Chat, spaced = true) => (

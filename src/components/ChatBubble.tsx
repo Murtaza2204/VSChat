@@ -13,6 +13,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import MapView, { Marker } from 'react-native-maps';
 import { SPACING, FONT_SIZES, BORDER_RADIUS, SHADOWS } from '../constants/colors';
 import { Message } from '../types';
+import Avatar from './Avatar';
 
 interface ChatBubbleProps {
   message: string;
@@ -32,6 +33,10 @@ interface ChatBubbleProps {
   reaction?: string;
   replyTo?: Message | null;
   onReplyPress?: () => void;
+  forwarded?: boolean;
+  senderName?: string;
+  senderAvatar?: string;
+  showSenderInfo?: boolean;
 }
 
 const ChatBubble: React.FC<ChatBubbleProps> = ({
@@ -52,6 +57,10 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   reaction,
   replyTo,
   onReplyPress,
+  forwarded = false,
+  senderName,
+  senderAvatar,
+  showSenderInfo = false,
 }) => {
   const [now, setNow] = useState(Date.now());
   const { width: screenWidth } = useWindowDimensions();
@@ -84,6 +93,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     (type === 'image' || type === 'video' || type === 'mediaGroup') &&
     resolvedMediaItems.length > 0;
   const mediaWidth = Math.min(268, Math.max(214, screenWidth * 0.64));
+  const senderColor = getSenderColor(senderName || '');
 
   // helpers
   const filenameFrom = (val?: string) => {
@@ -96,24 +106,57 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   };
 
   return (
-    <View style={[styles.container, isOwn ? styles.ownContainer : styles.otherContainer, style]}>
+    <View
+      style={[
+        styles.container,
+        showSenderInfo && styles.groupContainer,
+        isOwn ? styles.ownContainer : styles.otherContainer,
+        style,
+      ]}
+    >
+      {showSenderInfo ? (
+        <Avatar
+          source={senderAvatar || senderName?.charAt(0)}
+          size="small"
+          theme={theme}
+          style={styles.groupSenderAvatar}
+        />
+      ) : null}
       <TouchableOpacity
         onLongPress={onLongPress}
         style={[
           styles.bubble,
+          showSenderInfo && styles.groupBubble,
           isMediaMessage && styles.mediaBubble,
           { 
             backgroundColor: isSelected
               ? isOwn
                 ? 'rgba(96, 160, 84, 0.7)'
                 : 'rgba(66, 133, 244, 0.7)'
-              : bubbleColor
+              : showSenderInfo
+                ? theme.surface
+                : bubbleColor
           },
           isSelected && styles.selectedBubble,
           isOwn && SHADOWS.sm,
         ]}
         activeOpacity={0.8}
       >
+        {showSenderInfo && senderName ? (
+          <Text style={[styles.groupSenderName, { color: senderColor }]} numberOfLines={1}>
+            {senderName}
+          </Text>
+        ) : null}
+
+        {forwarded ? (
+          <View style={styles.forwardedLabel}>
+            <Icon name="arrow-redo" size={13} color={theme.textSecondary} />
+            <Text style={[styles.forwardedText, { color: theme.textSecondary }]}>
+              Forwarded
+            </Text>
+          </View>
+        ) : null}
+
         {/* Reply Context */}
         {replyTo && (
           <TouchableOpacity
@@ -274,10 +317,21 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   );
 };
 
+const getSenderColor = (name: string) => {
+  const colors = ['#53BDEB', '#FF7AA2', '#B18CFE', '#06CF9C', '#F9A825'];
+  const total = name.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return colors[total % colors.length];
+};
+
 const styles = StyleSheet.create({
   container: {
     marginVertical: SPACING.xs,
     marginHorizontal: SPACING.md,
+  },
+  groupContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginTop: SPACING.sm,
   },
   ownContainer: { alignItems: 'flex-end' },
   otherContainer: { alignItems: 'flex-start' },
@@ -288,6 +342,19 @@ const styles = StyleSheet.create({
     borderRadius: BORDER_RADIUS.lg,
     overflow: 'visible',
   },
+  groupBubble: {
+    maxWidth: '76%',
+    marginLeft: SPACING.sm,
+    borderTopLeftRadius: BORDER_RADIUS.md,
+  },
+  groupSenderAvatar: {
+    marginBottom: 2,
+  },
+  groupSenderName: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '800',
+    marginBottom: SPACING.xs,
+  },
   mediaBubble: {
     paddingHorizontal: SPACING.xs,
     paddingVertical: SPACING.xs,
@@ -295,6 +362,17 @@ const styles = StyleSheet.create({
   selectedBubble: {
     opacity: 0.95,
     elevation: 4,
+  },
+  forwardedLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.xs,
+    gap: 4,
+  },
+  forwardedText: {
+    fontSize: FONT_SIZES.xs,
+    fontStyle: 'italic',
+    fontWeight: '600',
   },
   replyContext: {
     borderLeftWidth: 4,

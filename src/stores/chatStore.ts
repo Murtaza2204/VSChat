@@ -36,63 +36,99 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setMessages: (messages) => set({ messages }),
   
   addMessage: (chatId, message) => {
-    const { chats, messages } = get();
+    const { chats } = get();
+    const lastMessage =
+      message.content ||
+      (message.type === 'image'
+        ? 'Photo'
+        : message.type === 'video'
+          ? 'Video'
+          : message.type === 'mediaGroup'
+            ? 'Media'
+            : message.type === 'file'
+              ? 'Document'
+              : message.type === 'location' || message.type === 'liveLocation'
+                ? 'Location'
+                : 'Message');
     const updatedChats = chats.map((chat) => {
       if (chat.id === chatId) {
         return {
           ...chat,
-          lastMessage: message.content,
+          messages: [...(chat.messages || []), message],
+          lastMessage,
           lastMessageTime: message.timestamp,
         };
       }
       return chat;
     });
 
-    const updatedMessages = [...messages, message];
-
     set({
       chats: updatedChats,
-      messages: updatedMessages,
     });
   },
 
   // Forward a message into another chat
   forwardMessage: (targetChatId, message) => {
-    const { chats, messages } = get();
+    const { chats } = get();
+    const lastMessage =
+      message.content ||
+      (message.type === 'image'
+        ? 'Photo'
+        : message.type === 'video'
+          ? 'Video'
+          : message.type === 'mediaGroup'
+            ? 'Media'
+            : message.type === 'file'
+              ? 'Document'
+              : message.type === 'location' || message.type === 'liveLocation'
+                ? 'Location'
+                : 'Message');
     const forwardedMessage: Message = {
       ...message,
       id: Math.random().toString(),
+      senderId: 'me',
+      senderName: 'You',
       timestamp: new Date(),
+      read: true,
       forwarded: true,
       forwardedFrom: { senderName: message.senderName, originalContent: message.content },
+      replyToId: undefined,
+      reaction: undefined,
+      starred: undefined,
     };
 
     const updatedChats = chats.map((chat) => {
       if (chat.id === targetChatId) {
         return {
           ...chat,
-          lastMessage: forwardedMessage.content,
+          messages: [...(chat.messages || []), forwardedMessage],
+          lastMessage,
           lastMessageTime: forwardedMessage.timestamp,
         };
       }
       return chat;
     });
 
-    set({ chats: updatedChats, messages: [...messages, forwardedMessage] });
+    set({ chats: updatedChats });
   },
 
   // Delete chat locally (for me)
   deleteChatForMe: (chatId) => {
-    const { chats, messages } = get();
+    const { chats } = get();
     const remainingChats = chats.filter((c) => c.id !== chatId);
-    const remainingMessages = messages.filter(() => !remainingChats.some((c) => c.id === chatId));
-    set({ chats: remainingChats, messages: remainingMessages });
+    set({ chats: remainingChats });
   },
 
   updateMessage: (messageId, updates) => {
-    const { messages } = get();
+    const { chats, messages } = get();
 
     set({
+      chats: chats.map((chat) => ({
+        ...chat,
+        messages: (chat.messages || []).map((message) =>
+          message.id === messageId ? { ...message, ...updates } : message,
+        ),
+      })),
       messages: messages.map((message) =>
         message.id === messageId ? { ...message, ...updates } : message,
       ),
@@ -100,8 +136,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   deleteMessage: (messageId) => {
-    const { messages } = get();
+    const { chats, messages } = get();
     set({
+      chats: chats.map((chat) => {
+        const nextMessages = (chat.messages || []).filter(
+          (message) => message.id !== messageId,
+        );
+        const lastChatMessage = nextMessages[nextMessages.length - 1];
+
+        return {
+          ...chat,
+          messages: nextMessages,
+          lastMessage: lastChatMessage ? lastChatMessage.content : chat.lastMessage,
+          lastMessageTime: lastChatMessage ? lastChatMessage.timestamp : chat.lastMessageTime,
+        };
+      }),
       messages: messages.filter((message) => message.id !== messageId),
     });
   },

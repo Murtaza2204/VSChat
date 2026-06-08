@@ -89,6 +89,59 @@ export const MOCK_MESSAGES: Message[] = [
   },
 ];
 
+export const DEV_TEAM_MESSAGES: Message[] = [
+  {
+    id: 'dev-1',
+    senderId: '1',
+    senderName: 'John Doe',
+    senderAvatar: 'J',
+    content: 'Can someone review the forward flow today?',
+    type: 'text',
+    timestamp: new Date(now.getTime() - 4200000),
+    read: true,
+  },
+  {
+    id: 'dev-2',
+    senderId: 'me',
+    senderName: 'You',
+    content: 'Yes, I am checking the group chat UI first.',
+    type: 'text',
+    timestamp: new Date(now.getTime() - 3900000),
+    read: true,
+  },
+  {
+    id: 'dev-3',
+    senderId: '2',
+    senderName: 'Jane Smith',
+    senderAvatar: 'J',
+    content: 'Please keep the sender name visible above every incoming group message.',
+    type: 'text',
+    timestamp: new Date(now.getTime() - 3600000),
+    read: true,
+  },
+  {
+    id: 'dev-4',
+    senderId: '3',
+    senderName: 'Mike Johnson',
+    senderAvatar: 'M',
+    content: 'Also add the profile picture on the left side. It looks different from individual chat.',
+    type: 'text',
+    timestamp: new Date(now.getTime() - 3300000),
+    read: true,
+    replyToId: 'dev-2',
+  },
+  {
+    id: 'dev-5',
+    senderId: '5',
+    senderName: 'Alex Brown',
+    senderAvatar: 'A',
+    content: 'Dummy data is enough for now, backend can connect later.',
+    type: 'text',
+    timestamp: new Date(now.getTime() - 3000000),
+    read: true,
+  },
+];
+
 export const MOCK_CHATS: Chat[] = [
   {
     id: '1',
@@ -117,12 +170,12 @@ export const MOCK_CHATS: Chat[] = [
     groupId: 'g1',
     title: 'Dev Team',
     avatar: '👥',
-    lastMessage: 'Mike: Let\'s schedule the meeting',
-    lastMessageTime: new Date(now.getTime() - 900000),
+    lastMessage: 'Alex: Dummy data is enough for now, backend can connect later.',
+    lastMessageTime: new Date(now.getTime() - 3000000),
     unreadCount: 0,
     isGroup: true,
-    participants: MOCK_USERS.slice(0, 3),
-    messages: [],
+    participants: [MOCK_USERS[0], MOCK_USERS[1], MOCK_USERS[2], MOCK_USERS[4]],
+    messages: DEV_TEAM_MESSAGES,
   },
   {
     id: '4',

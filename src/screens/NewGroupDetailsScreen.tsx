@@ -13,19 +13,20 @@ import Avatar from '../components/Avatar';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
 import { useChatStore } from '../stores/chatStore';
 import { useThemeStore } from '../stores/themeStore';
-import { Chat } from '../types';
+import { Chat, Message } from '../types';
 
 const NewGroupDetailsScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
   route,
 }) => {
   const { theme } = useThemeStore();
-  const { chats, createGroup, setCurrentChat } = useChatStore();
+  const { chats, createGroup, forwardMessage, setCurrentChat } = useChatStore();
   const [groupName, setGroupName] = useState('');
   const selectedIds = useMemo<string[]>(
     () => route.params?.selectedIds || [],
     [route.params],
   );
+  const pendingForwardMessage = route.params?.forwardMessage as Message | undefined;
 
   const selectedMembers = useMemo(
     () => chats.filter((chat) => selectedIds.includes(chat.id)),
@@ -38,12 +39,20 @@ const NewGroupDetailsScreen: React.FC<{ navigation: any; route: any }> = ({
     }
 
     const newGroup = createGroup(groupName, selectedMembers);
-    setCurrentChat(newGroup);
+
+    if (pendingForwardMessage) {
+      forwardMessage(newGroup.id, pendingForwardMessage);
+    }
+
+    const openedGroup =
+      useChatStore.getState().chats.find((chat) => chat.id === newGroup.id) || newGroup;
+
+    setCurrentChat(openedGroup);
     navigation.reset({
       index: 1,
       routes: [
         { name: 'ChatList' },
-        { name: 'Chat', params: { chat: newGroup } },
+        { name: 'Chat', params: { chat: openedGroup } },
       ],
     });
   };

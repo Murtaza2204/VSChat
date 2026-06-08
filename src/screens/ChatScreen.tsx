@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -36,14 +36,21 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 }) => {
   const { chat: routeChat } = route.params;
   const { theme } = useThemeStore();
-  const { chats, messages, addMessage, updateMessage, deleteMessage } = useChatStore();
+  const { chats, addMessage, updateMessage, deleteMessage } = useChatStore();
   const chat = chats.find((item) => item.id === routeChat.id) || routeChat;
+  const chatMessages = useMemo(() => chat.messages || [], [chat.messages]);
   const groupMemberCount = (chat.participants?.length || 0) + (chat.isGroup ? 1 : 0);
+  const groupSubtitle =
+    chat.isGroup && chat.participants?.length
+      ? chat.participants.map((participant) => participant.name).join(', ')
+      : `${groupMemberCount} members`;
   const [messageText, setMessageText] = useState('');
   const [replyMessage, setReplyMessage] = useState<Message | null>(null);
   const [actionMessage, setActionMessage] = useState<Message | null>(null);
   const [forwardTargetMessage, setForwardTargetMessage] = useState<Message | null>(null);
   const [forwardModalVisible, setForwardModalVisible] = useState(false);
+  const [selectedForwardTargets, setSelectedForwardTargets] = useState<string[]>([]);
+  const [forwardNote, setForwardNote] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
   const [locationMenuVisible, setLocationMenuVisible] = useState(false);
   const [liveDurationVisible, setLiveDurationVisible] = useState(false);
@@ -491,19 +498,86 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     setActionMessage(message);
   };
 
-  const handleSelectForwardTarget = (targetChatId: string) => {
-    if (!forwardTargetMessage) return;
-    const { forwardMessage } = useChatStore.getState();
-    forwardMessage(targetChatId, forwardTargetMessage);
+  const forwardTargetChats = chats.filter((c) => c.id !== chat.id);
+  const frequentForwardTargets = forwardTargetChats.slice(0, 4);
+  const recentForwardTargets = forwardTargetChats.slice(4);
+  const selectedForwardNames = selectedForwardTargets
+    .map((targetId) => chats.find((item) => item.id === targetId)?.title)
+    .filter(Boolean)
+    .join(', ');
+
+  const getForwardTargetSubtitle = (targetChat: typeof chats[number]) => {
+    if (targetChat.isGroup) {
+      const participantNames =
+        targetChat.participants?.map((participant) => participant.name).join(', ') || 'Group chat';
+      return participantNames;
+    }
+
+    return targetChat.lastMessage || 'Tap to select';
+  };
+
+  const closeForwardPicker = () => {
     setForwardModalVisible(false);
     setForwardTargetMessage(null);
+    setSelectedForwardTargets([]);
+    setForwardNote('');
+  };
+
+  const handleToggleForwardTarget = (targetChatId: string) => {
+    setSelectedForwardTargets((current) =>
+      current.includes(targetChatId)
+        ? current.filter((id) => id !== targetChatId)
+        : [...current, targetChatId],
+    );
+  };
+
+  const handleSendForward = () => {
+    if (!forwardTargetMessage || !selectedForwardTargets.length) return;
+    const targetChatIdToOpen = selectedForwardTargets[0];
+    const { forwardMessage, setCurrentChat } = useChatStore.getState();
+
+    selectedForwardTargets.forEach((targetChatId) => {
+      forwardMessage(targetChatId, forwardTargetMessage);
+
+      if (forwardNote.trim()) {
+        addMessage(targetChatId, {
+          id: Math.random().toString(),
+          senderId: 'me',
+          senderName: 'You',
+          content: forwardNote.trim(),
+          type: 'text',
+          timestamp: new Date(),
+          read: true,
+        });
+      }
+    });
+
+    const targetChatToOpen = useChatStore
+      .getState()
+      .chats.find((targetChat) => targetChat.id === targetChatIdToOpen);
+
+    closeForwardPicker();
     setActionMessage(null);
-    Alert.alert('Message forwarded');
+
+    if (targetChatToOpen) {
+      setCurrentChat(targetChatToOpen);
+      navigation.navigate('Chat', { chat: targetChatToOpen });
+    }
   };
 
   const openForwardForMessage = (message: Message) => {
     setForwardTargetMessage(message);
+    setSelectedForwardTargets([]);
+    setForwardNote('');
     setForwardModalVisible(true);
+  };
+
+  const handleForwardNewGroupPress = () => {
+    const messageToForward = forwardTargetMessage;
+
+    closeForwardPicker();
+    setActionMessage(null);
+    navigation.navigate('NewGroup', { forwardMessage: messageToForward });
   };
 
   const handleReplyToActionMessage = () => {
@@ -557,7 +631,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   useEffect(() => {
     flatListRef.current?.scrollToEnd({ animated: true });
-  }, [messages]);
+  }, [chatMessages]);
 
   useEffect(() => {
     return () => clearLiveLocationWatch();
@@ -565,8 +639,10 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const renderMessage = ({ item }: { item: Message }) => {
     const repliedMessage = item.replyToId
-      ? messages.find((m) => m.id === item.replyToId)
+      ? chatMessages.find((m) => m.id === item.replyToId)
       : null;
+    const sender =
+      chat.participants?.find((participant) => participant.id === item.senderId) || null;
 
     return (
       <ChatBubble
@@ -583,11 +659,15 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         onForwardPress={() => openForwardForMessage(item)}
         isSelected={actionMessage?.id === item.id}
         reaction={item.reaction}
+        forwarded={item.forwarded}
+        showSenderInfo={!!chat.isGroup && item.senderId !== 'me'}
+        senderName={item.senderName}
+        senderAvatar={item.senderAvatar || sender?.avatar}
         onLongPress={() => handleLongPressMessage(item)}
         replyTo={repliedMessage}
         onReplyPress={() => {
           if (repliedMessage) {
-            const messageIndex = messages.findIndex((m) => m.id === repliedMessage.id);
+            const messageIndex = chatMessages.findIndex((m) => m.id === repliedMessage.id);
             if (messageIndex !== -1) {
               flatListRef.current?.scrollToIndex({
                 index: messageIndex,
@@ -617,6 +697,47 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           } as MediaItem,
         ]
       : []);
+
+  const getForwardCheckStyle = (selected: boolean) => [
+    styles.forwardCheck,
+    selected
+      ? { borderColor: theme.primary, backgroundColor: theme.primary }
+      : { borderColor: theme.textSecondary },
+  ];
+
+  const renderForwardTargetRow = (targetChat: typeof chats[number]) => {
+    const selected = selectedForwardTargets.includes(targetChat.id);
+
+    return (
+      <TouchableOpacity
+        key={targetChat.id}
+        activeOpacity={0.75}
+        onPress={() => handleToggleForwardTarget(targetChat.id)}
+        style={styles.forwardTargetRow}
+      >
+        <Avatar
+          source={targetChat.avatar}
+          size="medium"
+          theme={theme}
+          style={styles.forwardAvatar}
+        />
+        <View style={styles.forwardTargetTextBlock}>
+          <Text style={[styles.forwardTargetTitle, { color: theme.text }]} numberOfLines={1}>
+            {targetChat.title}
+          </Text>
+          <Text
+            style={[styles.forwardTargetSubtitle, { color: theme.textSecondary }]}
+            numberOfLines={1}
+          >
+            {getForwardTargetSubtitle(targetChat)}
+          </Text>
+        </View>
+        <View style={getForwardCheckStyle(selected)}>
+          {selected ? <Icon name="checkmark" size={22} color={theme.background} /> : null}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -694,7 +815,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                     style={[styles.headerSubtitle, { color: theme.textSecondary }]}
                     numberOfLines={1}
                   >
-                    {groupMemberCount} members
+                    {groupSubtitle}
                   </Text>
                 )}
               </View>
@@ -870,7 +991,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
       <FlatList
         ref={flatListRef}
-        data={messages}
+        data={chatMessages}
         renderItem={renderMessage}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.messageList}
@@ -912,20 +1033,113 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         </View>
       )}
 
-      <Modal visible={forwardModalVisible} animationType="slide" transparent>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center' }}>
-          <View style={{ margin: 20, backgroundColor: theme.surface, borderRadius: BORDER_RADIUS.md, padding: 16 }}>
-            <Text style={{ fontWeight: '700', marginBottom: 8, color: theme.text }}>Forward to</Text>
-            {chats.filter((c) => c.id !== chat.id).map((c) => (
-              <Pressable key={c.id} onPress={() => handleSelectForwardTarget(c.id)} style={{ paddingVertical: 8 }}>
-                <Text style={{ color: theme.text }}>{c.title}</Text>
-              </Pressable>
-            ))}
-            <Pressable onPress={() => setForwardModalVisible(false)} style={{ marginTop: 12 }}>
-              <Text style={{ color: theme.primary }}>Cancel</Text>
-            </Pressable>
+      <Modal
+        visible={forwardModalVisible}
+        animationType="slide"
+        onRequestClose={closeForwardPicker}
+      >
+        <SafeAreaView style={[styles.forwardContainer, { backgroundColor: theme.background }]}>
+          <View
+            style={[
+              styles.forwardHeader,
+              { backgroundColor: theme.surface, borderBottomColor: theme.border },
+            ]}
+          >
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={closeForwardPicker}
+              style={styles.backButton}
+            >
+              <Icon name="arrow-back" size={28} color={theme.text} />
+            </TouchableOpacity>
+            <View style={styles.forwardHeaderTextBlock}>
+              <Text style={[styles.forwardHeaderTitle, { color: theme.text }]} numberOfLines={1}>
+                Forward to...
+              </Text>
+              <Text style={[styles.forwardHeaderSubtitle, { color: theme.textSecondary }]}>
+                {selectedForwardTargets.length} selected
+              </Text>
+            </View>
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={handleForwardNewGroupPress}
+              style={styles.forwardHeaderIcon}
+            >
+              <Icon name="people-outline" size={28} color={theme.text} />
+            </TouchableOpacity>
+            <TouchableOpacity activeOpacity={0.75} style={styles.forwardHeaderIcon}>
+              <Icon name="search" size={30} color={theme.text} />
+            </TouchableOpacity>
           </View>
-        </View>
+
+          <ScrollView
+            style={styles.forwardList}
+            contentContainerStyle={styles.forwardListContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {frequentForwardTargets.length ? (
+              <>
+                <Text style={[styles.forwardSectionTitle, { color: theme.textSecondary }]}>
+                  Frequently contacted
+                </Text>
+                {frequentForwardTargets.map(renderForwardTargetRow)}
+              </>
+            ) : null}
+
+            {recentForwardTargets.length ? (
+              <>
+                <Text style={[styles.forwardSectionTitle, { color: theme.textSecondary }]}>
+                  Recent chats
+                </Text>
+                {recentForwardTargets.map(renderForwardTargetRow)}
+              </>
+            ) : null}
+          </ScrollView>
+
+          <View
+            style={[
+              styles.forwardFooter,
+              { backgroundColor: theme.surface, borderTopColor: theme.border },
+            ]}
+          >
+            <TextInput
+              value={forwardNote}
+              onChangeText={setForwardNote}
+              placeholder="Add a message..."
+              placeholderTextColor={theme.textSecondary}
+              style={[
+                styles.forwardNoteInput,
+                {
+                  backgroundColor: theme.inputBackground,
+                  color: theme.text,
+                },
+              ]}
+            />
+            <View style={styles.forwardSelectedBar}>
+              <Text
+                style={[styles.forwardSelectedNames, { color: theme.text }]}
+                numberOfLines={1}
+              >
+                {selectedForwardNames || 'Select chats to forward'}
+              </Text>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                disabled={!selectedForwardTargets.length}
+                onPress={handleSendForward}
+                style={[
+                  styles.forwardSendButton,
+                  {
+                    backgroundColor: selectedForwardTargets.length
+                      ? theme.primary
+                      : theme.border,
+                  },
+                ]}
+              >
+                <Icon name="send" size={28} color={theme.background} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </SafeAreaView>
       </Modal>
 
       <Modal
@@ -1241,6 +1455,118 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  forwardContainer: {
+    flex: 1,
+  },
+  forwardHeader: {
+    minHeight: 72,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: SPACING.sm,
+  },
+  forwardHeaderTextBlock: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+  },
+  forwardHeaderTitle: {
+    fontSize: FONT_SIZES.xxl,
+    fontWeight: '600',
+  },
+  forwardHeaderSubtitle: {
+    fontSize: FONT_SIZES.base,
+    marginTop: 2,
+  },
+  forwardHeaderIcon: {
+    width: 46,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  forwardList: {
+    flex: 1,
+  },
+  forwardListContent: {
+    paddingBottom: 132,
+  },
+  forwardTargetRow: {
+    minHeight: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+  },
+  forwardAvatar: {
+    marginRight: SPACING.lg,
+  },
+  forwardTargetTextBlock: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+  },
+  forwardTargetTitle: {
+    fontSize: FONT_SIZES.xl,
+    fontWeight: '600',
+  },
+  forwardTargetSubtitle: {
+    fontSize: FONT_SIZES.base,
+    marginTop: SPACING.xs,
+  },
+  forwardCheck: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: SPACING.lg,
+  },
+  forwardSectionTitle: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '700',
+    marginTop: SPACING.md,
+    marginBottom: SPACING.xs,
+    paddingHorizontal: SPACING.lg,
+  },
+  forwardFooter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderTopWidth: 1,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.lg,
+  },
+  forwardNoteInput: {
+    minHeight: 56,
+    maxHeight: 96,
+    borderRadius: BORDER_RADIUS.md,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    fontSize: FONT_SIZES.xl,
+  },
+  forwardSelectedBar: {
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: SPACING.md,
+  },
+  forwardSelectedNames: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: FONT_SIZES.lg,
+    fontWeight: '600',
+    marginRight: SPACING.lg,
+  },
+  forwardSendButton: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
     alignItems: 'center',
     justifyContent: 'center',
   },
