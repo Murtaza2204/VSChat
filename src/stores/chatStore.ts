@@ -53,6 +53,39 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     });
   },
 
+  // Forward a message into another chat
+  forwardMessage: (targetChatId, message) => {
+    const { chats, messages } = get();
+    const forwardedMessage: Message = {
+      ...message,
+      id: Math.random().toString(),
+      timestamp: new Date(),
+      forwarded: true,
+      forwardedFrom: { senderName: message.senderName, originalContent: message.content },
+    };
+
+    const updatedChats = chats.map((chat) => {
+      if (chat.id === targetChatId) {
+        return {
+          ...chat,
+          lastMessage: forwardedMessage.content,
+          lastMessageTime: forwardedMessage.timestamp,
+        };
+      }
+      return chat;
+    });
+
+    set({ chats: updatedChats, messages: [...messages, forwardedMessage] });
+  },
+
+  // Delete chat locally (for me)
+  deleteChatForMe: (chatId) => {
+    const { chats, messages } = get();
+    const remainingChats = chats.filter((c) => c.id !== chatId);
+    const remainingMessages = messages.filter((m) => !remainingChats.some((c) => c.id === chatId));
+    set({ chats: remainingChats, messages: remainingMessages });
+  },
+
   updateMessage: (messageId, updates) => {
     const { messages } = get();
 

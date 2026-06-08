@@ -34,6 +34,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const chat = chats.find((item) => item.id === routeChat.id) || routeChat;
   const groupMemberCount = (chat.participants?.length || 0) + (chat.isGroup ? 1 : 0);
   const [messageText, setMessageText] = useState('');
+  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+  const [forwardModalVisible, setForwardModalVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [locationMenuVisible, setLocationMenuVisible] = useState(false);
   const [liveDurationVisible, setLiveDurationVisible] = useState(false);
@@ -69,6 +71,10 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         timestamp: new Date(),
         read: true,
       };
+      if (selectedMessage) {
+        newMessage.replyToId = selectedMessage.id;
+        setSelectedMessage(null);
+      }
 
       addMessage(chat.id, newMessage);
       setMessageText('');
@@ -96,6 +102,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     };
 
     addMessage(chat.id, newMessage);
+
+    if (selectedMessage) {
+      updateMessage(newMessage.id, { replyToId: selectedMessage.id });
+      setSelectedMessage(null);
+    }
 
     setTimeout(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
@@ -383,6 +394,24 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   };
 
+  const handleLongPressMessage = (message: Message) => {
+    Alert.alert('Message actions', undefined, [
+      { text: 'Reply', onPress: () => setSelectedMessage(message) },
+      { text: 'Forward', onPress: () => { setSelectedMessage(message); setForwardModalVisible(true); } },
+      { text: 'Delete for me', onPress: () => { /* could remove message locally */ Alert.alert('Deleted for me'); } },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const handleSelectForwardTarget = (targetChatId: string) => {
+    if (!selectedMessage) return;
+    const { forwardMessage } = useChatStore.getState();
+    forwardMessage(targetChatId, selectedMessage);
+    setForwardModalVisible(false);
+    setSelectedMessage(null);
+    Alert.alert('Message forwarded');
+  };
+
   const handleAttachmentOption = async (option: string) => {
     if (option === 'Gallery') {
       await handleGalleryPress();
@@ -422,6 +451,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       type={item.type}
       mediaUrl={item.mediaUrl}
       location={item.location}
+      onLongPress={() => handleLongPressMessage(item)}
     />
   );
 
@@ -633,6 +663,22 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         onEndReachedThreshold={0.1}
       />
 
+      <Modal visible={forwardModalVisible} animationType="slide" transparent>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center' }}>
+          <View style={{ margin: 20, backgroundColor: theme.surface, borderRadius: BORDER_RADIUS.md, padding: 16 }}>
+            <Text style={{ fontWeight: '700', marginBottom: 8, color: theme.text }}>Forward to</Text>
+            {chats.filter((c) => c.id !== chat.id).map((c) => (
+              <Pressable key={c.id} onPress={() => handleSelectForwardTarget(c.id)} style={{ paddingVertical: 8 }}>
+                <Text style={{ color: theme.text }}>{c.title}</Text>
+              </Pressable>
+            ))}
+            <Pressable onPress={() => setForwardModalVisible(false)} style={{ marginTop: 12 }}>
+              <Text style={{ color: theme.primary }}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <MessageInput
         value={messageText}
         onChangeText={setMessageText}
@@ -642,6 +688,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         onAttachmentOptionSelect={handleAttachmentOption}
         onCameraPress={handleCameraPress}
         theme={theme}
+        replyTo={selectedMessage}
+        onCancelReply={() => setSelectedMessage(null)}
         disabled={false}
       />
     </SafeAreaView>

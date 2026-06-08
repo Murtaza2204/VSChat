@@ -14,6 +14,8 @@ interface MessageInputProps {
   value: string;
   onChangeText: (text: string) => void;
   onSend: () => void;
+  replyTo?: any;
+  onCancelReply?: () => void;
   onAttachmentPress?: () => void;
   onEmojiPress?: () => void;
   onCameraPress?: () => void;
@@ -28,6 +30,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
   value,
   onChangeText,
   onSend,
+  replyTo,
+  onCancelReply,
   onAttachmentPress,
   onEmojiPress,
   onCameraPress,
@@ -181,6 +185,15 @@ const MessageInput: React.FC<MessageInputProps> = ({
               </TouchableOpacity>
             ))}
           </View>
+        </View>
+      )}
+      {replyTo && (
+        <View style={{ padding: 8, backgroundColor: theme.surface, borderTopWidth: 1, borderColor: theme.border }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <Text style={{ color: theme.textSecondary }}>Replying to {replyTo.senderName}</Text>
+            <TouchableOpacity onPress={onCancelReply}><Text style={{ color: theme.primary }}>Cancel</Text></TouchableOpacity>
+          </View>
+          <Text numberOfLines={1} style={{ color: theme.text }}>{replyTo.content}</Text>
         </View>
       )}
     </View>

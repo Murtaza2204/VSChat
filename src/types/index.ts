@@ -32,6 +32,13 @@ export interface Message {
     expiresAt?: number;
     durationLabel?: string;
   };
+  // Reply/forward support
+  replyToId?: string;
+  forwarded?: boolean;
+  forwardedFrom?: {
+    senderName: string;
+    originalContent: string;
+  } | null;
 }
 
 export interface Chat {
