@@ -1,11 +1,14 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, AuthState } from '../types';
-import { MOCK_USERS } from '../constants/mockData';
+import { API_BASE_URL } from '../config/api';
+
+type AuthFlow = 'login' | 'register';
 
 interface AuthStore extends AuthState {
-  login: (phone: string) => Promise<void>;
-  verifyOTP: (otp: string) => Promise<void>;
+  authFlow: AuthFlow | null;
+  login: (countryCode: string, phoneNumber: string) => Promise<AuthFlow>;
+  verifyOTP: (phoneNumber: string, otp: string) => Promise<void>;
   setupProfile: (user: Partial<User>) => Promise<void>;
   logout: () => Promise<void>;
   initializeAuth: () => Promise<void>;
@@ -21,10 +24,12 @@ export const useAuthStore = create<AuthStore>((set) => {
     phoneVerified: false,
     isLoading: false,
     error: null,
+    authFlow: null,
 
     initializeAuth: async () => {
       try {
         const storedUser = await AsyncStorage.getItem('user');
+        const storedAuthFlow = await AsyncStorage.getItem('authFlow');
         if (storedUser) {
           const parsedUser = JSON.parse(storedUser);
           set({
@@ -33,6 +38,7 @@ export const useAuthStore = create<AuthStore>((set) => {
             phoneVerified: true,
             isLoading: false,
             error: null,
+            authFlow: storedAuthFlow === 'login' || storedAuthFlow === 'register' ? storedAuthFlow : null,
           });
         }
       } catch (error) {
@@ -40,72 +46,101 @@ export const useAuthStore = create<AuthStore>((set) => {
       }
     },
 
-    login: async (phone: string) => {
+    login: async (countryCode: string, phoneNumber: string) => {
       set({ isLoading: true, error: null });
       try {
-        // Simulate API call
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        // Mock: Find user by phone or create new one
-        const existingUser = MOCK_USERS.find((u) => u.phone.includes(phone.slice(-4)));
-        if (existingUser) {
-          try {
-            await AsyncStorage.setItem('phone', phone);
-          } catch (e) {
-            console.warn('Could not save phone to storage');
-          }
-          set({ isLoading: false });
-        } else {
-          try {
-            await AsyncStorage.setItem('phone', phone);
-          } catch (e) {
-            console.warn('Could not save phone to storage');
-          }
-          set({ isLoading: false });
+        const response = await fetch(`${API_BASE_URL}/auth/send-otp`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ countryCode, phoneNumber }),
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || 'Failed to send OTP');
         }
+
+        const authFlow = data.flow as AuthFlow;
+        const phone = `${countryCode}${phoneNumber}`;
+
+        try {
+          await AsyncStorage.setItem('phone', phone);
+          await AsyncStorage.setItem('authFlow', authFlow);
+        } catch (e) {
+          console.warn('Could not save auth details to storage');
+        }
+
+        set({ isLoading: false, authFlow });
+        return authFlow;
       } catch (error: any) {
         set({
-          error: error.message || 'Login failed',
+          error: error.message || 'Failed to send OTP',
           isLoading: false,
         });
         throw error;
       }
     },
 
-    verifyOTP: async (otp: string) => {
+    verifyOTP: async (phoneNumber: string, otp: string) => {
       set({ isLoading: true, error: null });
       try {
-        // Simulate API call
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        
-        let phone = '+1234567890';
-        try {
-          const storedPhone = await AsyncStorage.getItem('phone');
-          if (storedPhone) phone = storedPhone;
-        } catch (e) {
-          console.warn('Could not retrieve phone from storage');
+        const response = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ phoneNumber, otp }),
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || 'OTP verification failed');
+        }
+        // If backend returned tokens + user (existing user), persist them
+        if (data.flow === 'login' && data.user && data.accessToken && data.refreshToken) {
+          const backendUser: User = {
+            id: data.user.id,
+            name: data.user.displayName || '',
+            phone: data.user.phoneNumber,
+            status: data.user.status?.online ? 'online' : 'offline',
+            avatar: data.user.profilePictureUrl || '👤',
+            profileCompleted: true,
+          };
+
+          try {
+            await AsyncStorage.setItem('user', JSON.stringify(backendUser));
+            await AsyncStorage.setItem('accessToken', data.accessToken);
+            await AsyncStorage.setItem('refreshToken', data.refreshToken);
+          } catch (e) {
+            console.warn('Could not save user or tokens to storage');
+          }
+
+          set({
+            user: backendUser,
+            isAuthenticated: true,
+            phoneVerified: true,
+            isLoading: false,
+            authFlow: 'login',
+          });
+          return;
         }
 
-        // Mock OTP verification (any 6 digits work)
-        const mockUser: User = {
-          id: Math.random().toString(),
-          name: '',
-          phone,
-          status: 'online',
-          avatar: '👤',
-          profileCompleted: false,
-        };
-
+        // Otherwise, it's a registration flow — save phone and flow and let UI navigate to profile setup
         try {
-          await AsyncStorage.setItem('user', JSON.stringify(mockUser));
+          await AsyncStorage.setItem('phone', phoneNumber);
+          await AsyncStorage.setItem('authFlow', data.flow);
         } catch (e) {
-          console.warn('Could not save user to storage');
+          console.warn('Could not save auth details to storage');
         }
 
         set({
-          user: mockUser,
+          user: null,
           isAuthenticated: false,
           phoneVerified: true,
           isLoading: false,
+          authFlow: data.flow,
         });
       } catch (error: any) {
         set({
@@ -119,41 +154,79 @@ export const useAuthStore = create<AuthStore>((set) => {
     setupProfile: async (profileData: Partial<User>) => {
       set({ isLoading: true, error: null });
       try {
-        // Simulate API call
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        // Read phone from storage (set during verifyOTP)
+        const phone = (await AsyncStorage.getItem('phone')) || profileData.phone;
+        if (!phone) throw new Error('Phone number missing for registration');
 
-        let currentUser: any = {};
-        try {
-          const storedUser = await AsyncStorage.getItem('user');
-          if (storedUser) {
-            currentUser = JSON.parse(storedUser);
+        // If the selected image is a local file URI (file://...), do not send it
+        // Frontend should upload images to a CDN or serve them over http(s) before sending.
+        let profilePictureUrl: string | undefined;
+        if (profileData.avatar && typeof profileData.avatar === 'string') {
+          const val = profileData.avatar;
+          if (!val.startsWith('file://')) profilePictureUrl = val;
+        }
+
+        let profilePictureUrlToSend = profilePictureUrl;
+
+        // If we have a local file URI, upload it to backend Cloudinary endpoint first
+        if (!profilePictureUrlToSend && profileData.avatar && String(profileData.avatar).startsWith('file://')) {
+          const uri = profileData.avatar as string;
+          try {
+            console.info('Uploading local file URI to backend:', uri);
+            const form = new FormData();
+            // React Native expects an object with uri, name and type
+            // @ts-ignore
+            form.append('file', { uri, name: 'profile.jpg', type: 'image/jpeg' });
+
+            const uploadRes = await fetch(`${API_BASE_URL}/auth/upload-profile`, {
+              method: 'POST',
+              // Note: do NOT set Content-Type header; fetch will set the multipart boundary
+              body: form,
+            });
+
+            const uploadData = await uploadRes.json();
+            console.info('UPLOAD_PROFILE response', uploadRes.status, uploadData);
+            if (uploadRes.ok && uploadData.success) profilePictureUrlToSend = uploadData.url;
+          } catch (e) {
+            console.warn('Profile image upload failed, continuing without image', e);
           }
-        } catch (e) {
-          console.warn('Could not retrieve user from storage');
         }
 
-        const updatedUser = {
-          ...currentUser,
-          ...profileData,
+        const body = {
+          phoneNumber: phone,
+          displayName: profileData.name || profileData.displayName || '',
+          profilePictureUrl: profilePictureUrlToSend,
+        };
+
+        const response = await fetch(`${API_BASE_URL}/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || 'Registration failed');
+
+        const newUser: User = {
+          id: data.user.id,
+          name: data.user.displayName || '',
+          phone: data.user.phoneNumber,
+          status: data.user.status?.online ? 'online' : 'offline',
+          avatar: data.user.profilePictureUrl || '👤',
           profileCompleted: true,
-        } as User;
+        };
 
         try {
-          await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+          await AsyncStorage.setItem('user', JSON.stringify(newUser));
+          await AsyncStorage.setItem('accessToken', data.accessToken);
+          await AsyncStorage.setItem('refreshToken', data.refreshToken);
         } catch (e) {
-          console.warn('Could not save user to storage');
+          console.warn('Could not save registered user or tokens to storage');
         }
 
-        set({
-          user: updatedUser,
-          isAuthenticated: true,
-          isLoading: false,
-        });
+        set({ user: newUser, isAuthenticated: true, isLoading: false, authFlow: null });
       } catch (error: any) {
-        set({
-          error: error.message || 'Profile setup failed',
-          isLoading: false,
-        });
+        set({ error: error.message || 'Profile setup failed', isLoading: false });
         throw error;
       }
     },
@@ -162,7 +235,7 @@ export const useAuthStore = create<AuthStore>((set) => {
       set({ isLoading: true });
       try {
         try {
-          await AsyncStorage.multiRemove(['user', 'phone']);
+          await AsyncStorage.multiRemove(['user', 'phone', 'authFlow']);
         } catch (e) {
           console.warn('Could not clear storage');
         }
@@ -172,6 +245,7 @@ export const useAuthStore = create<AuthStore>((set) => {
           phoneVerified: false,
           isLoading: false,
           error: null,
+          authFlow: null,
         });
       } catch (error: any) {
         set({
@@ -196,6 +270,7 @@ export const useAuthStore = create<AuthStore>((set) => {
         phoneVerified: false,
         isLoading: false,
         error: null,
+        authFlow: null,
       });
     },
   };

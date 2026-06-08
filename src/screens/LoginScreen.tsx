@@ -45,7 +45,7 @@ const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       setIsLoading(true);
       try {
         const fullPhone = `${selectedCountry.code}${phone}`;
-        await login(fullPhone);
+        await login(selectedCountry.code, phone);
         navigation.navigate('OTPVerification', { phone: fullPhone });
       } catch (error: any) {
         setError(error.message);
@@ -58,7 +58,7 @@ const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <Header
-        title="Login"
+        title="Register or Login"
         subtitle="Enter your phone number to continue"
         showBackButton={false}
         theme={theme}

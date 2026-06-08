@@ -1,4 +1,5 @@
 export { default as SplashScreen } from './SplashScreen';
+export { default as WelcomeScreen } from './WelcomeScreen';
 export { default as LoginScreen } from './LoginScreen';
 export { default as OTPVerificationScreen } from './OTPVerificationScreen';
 export { default as UserSetupScreen } from './UserSetupScreen';

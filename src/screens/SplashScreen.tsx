@@ -44,10 +44,10 @@ const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           routes: [{ name: 'UserSetup' }],
         });
       } else {
-        // No phone verified → Go to Login (Phone number entry)
+        // No phone verified → Go to Welcome screen
         navigation.reset({
           index: 0,
-          routes: [{ name: 'Login' }],
+          routes: [{ name: 'Welcome' }],
         });
       }
     }, 2500);

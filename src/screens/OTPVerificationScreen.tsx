@@ -86,7 +86,7 @@ const OTPVerificationScreen: React.FC<{ navigation: any; route: any }> = ({
     setIsLoading(true);
     setErrorState('');
     try {
-      await verifyOTP(otpString);
+      await verifyOTP(phone, otpString);
       navigation.reset({
         index: 0,
         routes: [{ name: 'UserSetup' }],
@@ -199,9 +199,6 @@ const OTPVerificationScreen: React.FC<{ navigation: any; route: any }> = ({
             </TouchableOpacity>
           </View>
 
-          <Text style={[styles.manualOtpHint, { color: theme.textSecondary }]}>
-            💡 Tip: For demo, enter any 6 digits to proceed
-          </Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -266,12 +263,6 @@ const styles = StyleSheet.create({
   resendLink: {
     fontSize: FONT_SIZES.base,
     fontWeight: '600',
-  },
-  manualOtpHint: {
-    textAlign: 'center',
-    fontSize: FONT_SIZES.sm,
-    marginTop: SPACING.lg,
-    fontStyle: 'italic',
   },
 });
 

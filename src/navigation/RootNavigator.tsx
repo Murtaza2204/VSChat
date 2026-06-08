@@ -10,6 +10,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 
 // Screens
 import SplashScreen from '../screens/SplashScreen';
+import WelcomeScreen from '../screens/WelcomeScreen';
 import LoginScreen from '../screens/LoginScreen';
 import OTPVerificationScreen from '../screens/OTPVerificationScreen';
 import UserSetupScreen from '../screens/UserSetupScreen';
@@ -44,6 +45,7 @@ const AuthStack = () => {
       }}
     >
       <Stack.Screen name="Splash" component={SplashScreen} />
+      <Stack.Screen name="Welcome" component={WelcomeScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="OTPVerification" component={OTPVerificationScreen} />
       <Stack.Screen name="UserSetup" component={UserSetupScreen} />
