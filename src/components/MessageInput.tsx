@@ -188,12 +188,47 @@ const MessageInput: React.FC<MessageInputProps> = ({
         </View>
       )}
       {replyTo && (
-        <View style={{ padding: 8, backgroundColor: theme.surface, borderTopWidth: 1, borderColor: theme.border }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={{ color: theme.textSecondary }}>Replying to {replyTo.senderName}</Text>
-            <TouchableOpacity onPress={onCancelReply}><Text style={{ color: theme.primary }}>Cancel</Text></TouchableOpacity>
+        <View
+          style={[
+            styles.replyPreview,
+            {
+              backgroundColor: theme.surface,
+              borderTopColor: theme.border,
+            },
+          ]}
+        >
+          <View style={styles.replyPreviewLeft}>
+            <View
+              style={[
+                styles.replyPreviewBorder,
+                { borderLeftColor: theme.primary },
+              ]}
+            />
+            <View style={styles.replyPreviewContent}>
+              <Text style={[styles.replyPreviewSender, { color: theme.primary }]} numberOfLines={1}>
+                {replyTo.senderName}
+              </Text>
+              <Text
+                style={[styles.replyPreviewMessage, { color: theme.text }]}
+                numberOfLines={1}
+              >
+                {replyTo.type === 'image' || replyTo.type === 'video'
+                  ? `📎 ${replyTo.type === 'image' ? 'Photo' : 'Video'}`
+                  : replyTo.type === 'location'
+                    ? '📍 Location'
+                    : replyTo.type === 'file'
+                      ? '📄 Document'
+                      : replyTo.content}
+              </Text>
+            </View>
           </View>
-          <Text numberOfLines={1} style={{ color: theme.text }}>{replyTo.content}</Text>
+          <TouchableOpacity
+            onPress={onCancelReply}
+            style={styles.replyPreviewClose}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Icon name="close" size={22} color={theme.textSecondary} />
+          </TouchableOpacity>
         </View>
       )}
     </View>
@@ -272,6 +307,42 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
+  replyPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderTopWidth: 1,
+    justifyContent: 'space-between',
+    gap: SPACING.md,
+  },
+  replyPreviewLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+  },
+  replyPreviewBorder: {
+    borderLeftWidth: 4,
+    height: 44,
+    marginRight: SPACING.md,
+  },
+  replyPreviewContent: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  replyPreviewSender: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '700',
+  },
+  replyPreviewMessage: {
+    fontSize: FONT_SIZES.sm,
+  },
+  replyPreviewClose: {
+    padding: SPACING.sm,
+    marginLeft: SPACING.sm,
+  }
 });
 
 export default MessageInput;

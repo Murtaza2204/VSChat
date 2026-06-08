@@ -22,10 +22,13 @@ export interface Message {
   senderName: string;
   senderAvatar?: string;
   content: string;
-  type: 'text' | 'image' | 'video' | 'file' | 'location' | 'liveLocation';
+  type: 'text' | 'image' | 'video' | 'mediaGroup' | 'file' | 'location' | 'liveLocation';
   timestamp: Date;
   read: boolean;
   mediaUrl?: string;
+  mediaItems?: MediaItem[];
+  reaction?: string;
+  starred?: boolean;
   location?: {
     latitude: number;
     longitude: number;
@@ -39,6 +42,14 @@ export interface Message {
     senderName: string;
     originalContent: string;
   } | null;
+}
+
+export interface MediaItem {
+  id: string;
+  uri: string;
+  type: 'image' | 'video';
+  name: string;
+  loading?: boolean;
 }
 
 export interface Chat {

@@ -13,6 +13,9 @@ interface ChatStore {
   setMessages: (messages: Message[]) => void;
   addMessage: (chatId: string, message: Message) => void;
   updateMessage: (messageId: string, updates: Partial<Message>) => void;
+  deleteMessage: (messageId: string) => void;
+  forwardMessage: (targetChatId: string, message: Message) => void;
+  deleteChatForMe: (chatId: string) => void;
   createGroup: (title: string, participants: Chat[]) => Chat;
   addGroupMember: (groupChatId: string, member: Chat) => void;
   setSearchQuery: (query: string) => void;
@@ -82,7 +85,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   deleteChatForMe: (chatId) => {
     const { chats, messages } = get();
     const remainingChats = chats.filter((c) => c.id !== chatId);
-    const remainingMessages = messages.filter((m) => !remainingChats.some((c) => c.id === chatId));
+    const remainingMessages = messages.filter(() => !remainingChats.some((c) => c.id === chatId));
     set({ chats: remainingChats, messages: remainingMessages });
   },
 
@@ -93,6 +96,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       messages: messages.map((message) =>
         message.id === messageId ? { ...message, ...updates } : message,
       ),
+    });
+  },
+
+  deleteMessage: (messageId) => {
+    const { messages } = get();
+    set({
+      messages: messages.filter((message) => message.id !== messageId),
     });
   },
 

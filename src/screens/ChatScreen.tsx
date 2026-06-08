@@ -11,15 +11,21 @@ import {
   Alert,
   PermissionsAndroid,
   Platform,
+  Image,
+  ScrollView,
+  TextInput,
+  ActivityIndicator,
+  Dimensions,
+  Linking,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import { Asset, launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { errorCodes, isErrorWithCode, pick } from '@react-native-documents/picker';
 import Geolocation from 'react-native-geolocation-service';
 import { useChatStore } from '../stores/chatStore';
 import { useThemeStore } from '../stores/themeStore';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
-import { Message } from '../types';
+import { MediaItem, Message } from '../types';
 import Avatar from '../components/Avatar';
 import ChatBubble from '../components/ChatBubble';
 import MessageInput from '../components/MessageInput';
@@ -30,15 +36,21 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 }) => {
   const { chat: routeChat } = route.params;
   const { theme } = useThemeStore();
-  const { chats, messages, addMessage, updateMessage } = useChatStore();
+  const { chats, messages, addMessage, updateMessage, deleteMessage } = useChatStore();
   const chat = chats.find((item) => item.id === routeChat.id) || routeChat;
   const groupMemberCount = (chat.participants?.length || 0) + (chat.isGroup ? 1 : 0);
   const [messageText, setMessageText] = useState('');
-  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+  const [replyMessage, setReplyMessage] = useState<Message | null>(null);
+  const [actionMessage, setActionMessage] = useState<Message | null>(null);
+  const [forwardTargetMessage, setForwardTargetMessage] = useState<Message | null>(null);
   const [forwardModalVisible, setForwardModalVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [locationMenuVisible, setLocationMenuVisible] = useState(false);
   const [liveDurationVisible, setLiveDurationVisible] = useState(false);
+  const [mediaPreviewVisible, setMediaPreviewVisible] = useState(false);
+  const [pendingMedia, setPendingMedia] = useState<MediaItem[]>([]);
+  const [mediaCaption, setMediaCaption] = useState('');
+  const [viewerMessage, setViewerMessage] = useState<Message | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const liveLocationWatchRef = useRef<number | null>(null);
   const liveLocationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -59,6 +71,60 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     'Chat theme',
     'More',
   ];
+  const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏', '😭'];
+
+  const screenWidth = Dimensions.get('window').width;
+
+  const mapAssetToMediaItem = (asset: Asset, index: number): MediaItem | null => {
+    if (!asset.uri) {
+      return null;
+    }
+
+    const type = asset.type?.startsWith('video') ? 'video' : 'image';
+
+    return {
+      id: `${Date.now()}-${index}-${asset.fileName || asset.uri}`,
+      uri: asset.uri,
+      type,
+      name: asset.fileName || (type === 'video' ? 'Video' : 'Photo'),
+      loading: true,
+    };
+  };
+
+  const openMediaPreview = (assets?: Asset[]) => {
+    const mediaItems = (assets || [])
+      .map(mapAssetToMediaItem)
+      .filter((item): item is MediaItem => !!item);
+
+    if (!mediaItems.length) {
+      return;
+    }
+
+    setPendingMedia(mediaItems);
+    setMediaCaption('');
+    setMediaPreviewVisible(true);
+
+    setTimeout(() => {
+      setPendingMedia((items) => items.map((item) => ({ ...item, loading: false })));
+    }, 600);
+  };
+
+  const closeMediaPreview = () => {
+    setMediaPreviewVisible(false);
+    setPendingMedia([]);
+    setMediaCaption('');
+  };
+
+  const removePendingMedia = (id: string) => {
+    setPendingMedia((items) => {
+      const nextItems = items.filter((item) => item.id !== id);
+      if (!nextItems.length) {
+        setMediaPreviewVisible(false);
+        setMediaCaption('');
+      }
+      return nextItems;
+    });
+  };
 
   const handleSendMessage = () => {
     if (messageText.trim()) {
@@ -71,9 +137,9 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         timestamp: new Date(),
         read: true,
       };
-      if (selectedMessage) {
-        newMessage.replyToId = selectedMessage.id;
-        setSelectedMessage(null);
+      if (replyMessage) {
+        newMessage.replyToId = replyMessage.id;
+        setReplyMessage(null);
       }
 
       addMessage(chat.id, newMessage);
@@ -83,6 +149,41 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
+  };
+
+  const handleSendMedia = () => {
+    if (!pendingMedia.length) {
+      return;
+    }
+
+    const newMessage: Message = {
+      id: Math.random().toString(),
+      senderId: 'me',
+      senderName: 'You',
+      content: mediaCaption.trim(),
+      type:
+        pendingMedia.length > 1
+          ? 'mediaGroup'
+          : pendingMedia[0].type === 'video'
+            ? 'video'
+            : 'image',
+      timestamp: new Date(),
+      read: true,
+      mediaUrl: pendingMedia[0].uri,
+      mediaItems: pendingMedia.map((item) => ({ ...item, loading: false })),
+    };
+
+    if (replyMessage) {
+      newMessage.replyToId = replyMessage.id;
+      setReplyMessage(null);
+    }
+
+    addMessage(chat.id, newMessage);
+    closeMediaPreview();
+
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
   };
 
   const addAttachmentMessage = (
@@ -103,9 +204,9 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
     addMessage(chat.id, newMessage);
 
-    if (selectedMessage) {
-      updateMessage(newMessage.id, { replyToId: selectedMessage.id });
-      setSelectedMessage(null);
+    if (replyMessage) {
+      updateMessage(newMessage.id, { replyToId: replyMessage.id });
+      setReplyMessage(null);
     }
 
     setTimeout(() => {
@@ -236,7 +337,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     const result = await launchImageLibrary({
       mediaType: 'mixed',
       quality: 0.8,
-      selectionLimit: 1,
+      selectionLimit: 0,
     });
 
     if (result.didCancel) {
@@ -248,15 +349,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       return;
     }
 
-    const asset = result.assets?.[0];
-    if (asset?.uri) {
-      const type = asset.type?.startsWith('video') ? 'video' : 'image';
-      addAttachmentMessage(
-        asset.fileName || (type === 'video' ? 'Video' : 'Photo'),
-        type,
-        asset.uri,
-      );
-    }
+    openMediaPreview(result.assets);
   };
 
   const handleCameraPress = async () => {
@@ -284,7 +377,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
       const asset = result.assets?.[0];
       if (asset?.uri) {
-        addAttachmentMessage(asset.fileName || 'Photo', 'image', asset.uri);
+        openMediaPreview([asset]);
       }
     } catch (error) {
       console.error('Camera error:', error);
@@ -395,21 +488,50 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const handleLongPressMessage = (message: Message) => {
-    Alert.alert('Message actions', undefined, [
-      { text: 'Reply', onPress: () => setSelectedMessage(message) },
-      { text: 'Forward', onPress: () => { setSelectedMessage(message); setForwardModalVisible(true); } },
-      { text: 'Delete for me', onPress: () => { /* could remove message locally */ Alert.alert('Deleted for me'); } },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    setActionMessage(message);
   };
 
   const handleSelectForwardTarget = (targetChatId: string) => {
-    if (!selectedMessage) return;
+    if (!forwardTargetMessage) return;
     const { forwardMessage } = useChatStore.getState();
-    forwardMessage(targetChatId, selectedMessage);
+    forwardMessage(targetChatId, forwardTargetMessage);
     setForwardModalVisible(false);
-    setSelectedMessage(null);
+    setForwardTargetMessage(null);
+    setActionMessage(null);
     Alert.alert('Message forwarded');
+  };
+
+  const openForwardForMessage = (message: Message) => {
+    setForwardTargetMessage(message);
+    setForwardModalVisible(true);
+  };
+
+  const handleReplyToActionMessage = () => {
+    if (!actionMessage) return;
+    setReplyMessage(actionMessage);
+    setActionMessage(null);
+  };
+
+  const handleToggleStarActionMessage = () => {
+    if (!actionMessage) return;
+    updateMessage(actionMessage.id, { starred: !actionMessage.starred });
+    setActionMessage((message) =>
+      message ? { ...message, starred: !message.starred } : message,
+    );
+  };
+
+  const handleDeleteActionMessage = () => {
+    if (!actionMessage) return;
+    deleteMessage(actionMessage.id);
+    setActionMessage(null);
+  };
+
+  const handleReactToActionMessage = (reaction: string) => {
+    if (!actionMessage) return;
+    const nextReaction = actionMessage.reaction === reaction ? undefined : reaction;
+    updateMessage(actionMessage.id, { reaction: nextReaction });
+    // Clear action message after reacting to return to original state
+    setActionMessage(null);
   };
 
   const handleAttachmentOption = async (option: string) => {
@@ -441,19 +563,60 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     return () => clearLiveLocationWatch();
   }, []);
 
-  const renderMessage = ({ item }: { item: Message }) => (
-    <ChatBubble
-      message={item.content}
-      timestamp={item.timestamp}
-      isOwn={item.senderId === 'me'}
-      theme={theme}
-      read={item.read}
-      type={item.type}
-      mediaUrl={item.mediaUrl}
-      location={item.location}
-      onLongPress={() => handleLongPressMessage(item)}
-    />
-  );
+  const renderMessage = ({ item }: { item: Message }) => {
+    const repliedMessage = item.replyToId
+      ? messages.find((m) => m.id === item.replyToId)
+      : null;
+
+    return (
+      <ChatBubble
+        message={item.content}
+        timestamp={item.timestamp}
+        isOwn={item.senderId === 'me'}
+        theme={theme}
+        read={item.read}
+        type={item.type}
+        mediaUrl={item.mediaUrl}
+        mediaItems={item.mediaItems}
+        location={item.location}
+        onMediaPress={() => setViewerMessage(item)}
+        onForwardPress={() => openForwardForMessage(item)}
+        isSelected={actionMessage?.id === item.id}
+        reaction={item.reaction}
+        onLongPress={() => handleLongPressMessage(item)}
+        replyTo={repliedMessage}
+        onReplyPress={() => {
+          if (repliedMessage) {
+            const messageIndex = messages.findIndex((m) => m.id === repliedMessage.id);
+            if (messageIndex !== -1) {
+              flatListRef.current?.scrollToIndex({
+                index: messageIndex,
+                animated: true,
+                viewPosition: 0.5,
+              });
+              // Highlight the original message
+              setActionMessage(repliedMessage);
+              setTimeout(() => setActionMessage(null), 1500);
+            }
+          }
+        }}
+      />
+    );
+  };
+
+  const viewerMediaItems =
+    viewerMessage?.mediaItems ||
+    (viewerMessage?.mediaUrl &&
+    (viewerMessage.type === 'image' || viewerMessage.type === 'video')
+      ? [
+          {
+            id: viewerMessage.mediaUrl,
+            uri: viewerMessage.mediaUrl,
+            type: viewerMessage.type,
+            name: viewerMessage.content,
+          } as MediaItem,
+        ]
+      : []);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -463,50 +626,101 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           { backgroundColor: theme.surface, borderBottomColor: theme.border },
         ]}
       >
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Icon name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.headerProfileButton}
-          activeOpacity={0.75}
-          onPress={() => navigation.navigate('ContactInfo', { chat })}
-        >
-          <Avatar source={chat.avatar || chat.title.charAt(0)} size="medium" theme={theme} />
-          <View style={styles.headerTextBlock}>
-            <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-              {chat.title}
-            </Text>
-            {!!chat.isGroup && (
-              <Text
-                style={[styles.headerSubtitle, { color: theme.textSecondary }]}
-                numberOfLines={1}
+        {actionMessage ? (
+          <>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => setActionMessage(null)}
+            >
+              <Icon name="arrow-back" size={26} color={theme.text} />
+            </TouchableOpacity>
+            <Text style={[styles.selectionCount, { color: theme.text }]}>1</Text>
+            <View style={styles.selectionActions}>
+              <TouchableOpacity
+                style={styles.selectionActionButton}
+                activeOpacity={0.75}
+                onPress={handleReplyToActionMessage}
               >
-                {groupMemberCount} members
-              </Text>
-            )}
-          </View>
-        </TouchableOpacity>
+                <Icon name="arrow-undo" size={24} color={theme.text} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.selectionActionButton}
+                activeOpacity={0.75}
+                onPress={handleToggleStarActionMessage}
+              >
+                <Icon
+                  name={actionMessage.starred ? 'star' : 'star-outline'}
+                  size={25}
+                  color={theme.text}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.selectionActionButton}
+                activeOpacity={0.75}
+                onPress={handleDeleteActionMessage}
+              >
+                <Icon name="trash-outline" size={25} color={theme.text} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.selectionActionButton}
+                activeOpacity={0.75}
+                onPress={() => openForwardForMessage(actionMessage)}
+              >
+                <Icon name="arrow-redo" size={25} color={theme.text} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.selectionActionButton} activeOpacity={0.75}>
+                <Icon name="ellipsis-vertical" size={22} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+              <Icon name="arrow-back" size={24} color={theme.text} />
+            </TouchableOpacity>
 
-        <TouchableOpacity style={styles.headerIconButton} activeOpacity={0.75}>
-          <Icon name="videocam-outline" size={26} color={theme.primary} />
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerProfileButton}
+              activeOpacity={0.75}
+              onPress={() => navigation.navigate('ContactInfo', { chat })}
+            >
+              <Avatar source={chat.avatar || chat.title.charAt(0)} size="medium" theme={theme} />
+              <View style={styles.headerTextBlock}>
+                <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
+                  {chat.title}
+                </Text>
+                {!!chat.isGroup && (
+                  <Text
+                    style={[styles.headerSubtitle, { color: theme.textSecondary }]}
+                    numberOfLines={1}
+                  >
+                    {groupMemberCount} members
+                  </Text>
+                )}
+              </View>
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.headerIconButton}
-          activeOpacity={0.75}
-          onPress={() => navigation.navigate('IncomingCall')}
-        >
-          <Icon name="call-outline" size={24} color={theme.primary} />
-        </TouchableOpacity>
+            <TouchableOpacity style={styles.headerIconButton} activeOpacity={0.75}>
+              <Icon name="videocam-outline" size={26} color={theme.primary} />
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.headerIconButton}
-          activeOpacity={0.75}
-          onPress={() => setMenuVisible(true)}
-        >
-          <Icon name="ellipsis-vertical" size={22} color={theme.primary} />
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerIconButton}
+              activeOpacity={0.75}
+              onPress={() => navigation.navigate('IncomingCall')}
+            >
+              <Icon name="call-outline" size={24} color={theme.primary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.headerIconButton}
+              activeOpacity={0.75}
+              onPress={() => setMenuVisible(true)}
+            >
+              <Icon name="ellipsis-vertical" size={22} color={theme.primary} />
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       <Modal
@@ -663,6 +877,41 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         onEndReachedThreshold={0.1}
       />
 
+      {actionMessage && (
+        <View
+          style={[
+            styles.reactionTray,
+            {
+              backgroundColor: theme.surface,
+              shadowColor: theme.text,
+            },
+          ]}
+        >
+          {quickReactions.map((reaction) => (
+            <TouchableOpacity
+              key={reaction}
+              activeOpacity={0.75}
+              onPress={() => handleReactToActionMessage(reaction)}
+              style={[
+                styles.reactionButton,
+                actionMessage.reaction === reaction && {
+                  backgroundColor: theme.inputBackground,
+                },
+              ]}
+            >
+              <Text style={styles.reactionEmoji}>{reaction}</Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={() => handleReactToActionMessage('👍')}
+            style={[styles.reactionPlusButton, { backgroundColor: theme.border }]}
+          >
+            <Icon name="add" size={22} color={theme.text} />
+          </TouchableOpacity>
+        </View>
+      )}
+
       <Modal visible={forwardModalVisible} animationType="slide" transparent>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center' }}>
           <View style={{ margin: 20, backgroundColor: theme.surface, borderRadius: BORDER_RADIUS.md, padding: 16 }}>
@@ -679,6 +928,170 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         </View>
       </Modal>
 
+      <Modal
+        visible={mediaPreviewVisible}
+        animationType="slide"
+        onRequestClose={closeMediaPreview}
+      >
+        <SafeAreaView style={[styles.mediaPreviewContainer, { backgroundColor: theme.background }]}>
+          <View style={[styles.mediaPreviewHeader, { borderBottomColor: theme.border }]}>
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={closeMediaPreview}
+              style={styles.previewHeaderButton}
+            >
+              <Icon name="close" size={30} color={theme.text} />
+            </TouchableOpacity>
+            <Text style={[styles.previewTitle, { color: theme.text }]}>
+              Recents
+            </Text>
+            <View style={[styles.hdBadge, { borderColor: theme.text }]}>
+              <Text style={[styles.hdText, { color: theme.text }]}>HD</Text>
+            </View>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.previewGridContent}>
+            {pendingMedia.map((item, index) => (
+              <View key={item.id} style={styles.previewTile}>
+                {item.type === 'image' ? (
+                  <Image source={{ uri: item.uri }} style={styles.previewImage} resizeMode="cover" />
+                ) : (
+                  <View style={[styles.previewVideo, { backgroundColor: theme.inputBackground }]}>
+                    <Icon name="play-circle" size={44} color={theme.primary} />
+                    <Text style={[styles.previewVideoText, { color: theme.textSecondary }]}>
+                      Video
+                    </Text>
+                  </View>
+                )}
+
+                {item.loading && (
+                  <View style={styles.loadingOverlay}>
+                    <ActivityIndicator color="#FFFFFF" />
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  onPress={() => removePendingMedia(item.id)}
+                  style={styles.removeMediaButton}
+                >
+                  <Icon name="close" size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+
+                <View style={[styles.selectionBadge, { backgroundColor: theme.primary }]}>
+                  <Text style={styles.selectionBadgeText}>{index + 1}</Text>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+
+          <View style={[styles.captionBar, { backgroundColor: theme.surface }]}>
+            <View style={styles.captionThumbWrap}>
+              {pendingMedia[0]?.type === 'image' ? (
+                <Image source={{ uri: pendingMedia[0].uri }} style={styles.captionThumb} />
+              ) : (
+                <View style={[styles.captionThumb, styles.captionVideoThumb]}>
+                  <Icon name="play" size={20} color="#FFFFFF" />
+                </View>
+              )}
+              <View style={styles.captionAttachBadge}>
+                <Icon name="attach" size={18} color="#FFFFFF" />
+              </View>
+            </View>
+
+            <TextInput
+              value={mediaCaption}
+              onChangeText={setMediaCaption}
+              placeholder="Add a caption..."
+              placeholderTextColor={theme.textSecondary}
+              style={[
+                styles.captionInput,
+                {
+                  backgroundColor: theme.inputBackground,
+                  color: theme.text,
+                },
+              ]}
+              multiline
+            />
+
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={handleSendMedia}
+              style={[styles.mediaSendButton, { backgroundColor: theme.primary }]}
+            >
+              <Icon name="send" size={28} color={theme.background} />
+              {pendingMedia.length > 1 && (
+                <View style={styles.sendCountBadge}>
+                  <Text style={styles.sendCountText}>{pendingMedia.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      <Modal
+        visible={!!viewerMessage}
+        animationType="slide"
+        onRequestClose={() => setViewerMessage(null)}
+      >
+        <SafeAreaView style={[styles.viewerContainer, { backgroundColor: theme.background }]}>
+          <View style={[styles.viewerHeader, { backgroundColor: theme.surface }]}>
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => setViewerMessage(null)}
+              style={styles.backButton}
+            >
+              <Icon name="arrow-back" size={26} color={theme.text} />
+            </TouchableOpacity>
+            <View style={styles.headerTextBlock}>
+              <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
+                {viewerMessage?.senderName || 'You'}
+              </Text>
+              <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>
+                {viewerMediaItems.length} {viewerMediaItems.length === 1 ? 'item' : 'items'}
+              </Text>
+            </View>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.viewerScrollContent}>
+            {viewerMediaItems.map((item) => (
+              <View key={item.id} style={styles.viewerItem}>
+                {item.type === 'image' ? (
+                  <Image
+                    source={{ uri: item.uri }}
+                    style={[styles.viewerImage, { width: screenWidth }]}
+                    resizeMode="contain"
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.viewerVideo,
+                      {
+                        width: screenWidth,
+                        backgroundColor: theme.inputBackground,
+                      },
+                    ]}
+                  >
+                    <Icon name="play-circle" size={72} color={theme.primary} />
+                    <TouchableOpacity
+                      activeOpacity={0.75}
+                      onPress={() => Linking.openURL(item.uri)}
+                      style={[styles.viewerPlayButton, { backgroundColor: theme.primary }]}
+                    >
+                      <Icon name="play" size={18} color={theme.background} />
+                      <Text style={[styles.viewerPlayText, { color: theme.background }]}>
+                        Play video
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ))}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
       <MessageInput
         value={messageText}
         onChangeText={setMessageText}
@@ -688,8 +1101,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         onAttachmentOptionSelect={handleAttachmentOption}
         onCameraPress={handleCameraPress}
         theme={theme}
-        replyTo={selectedMessage}
-        onCancelReply={() => setSelectedMessage(null)}
+        replyTo={replyMessage}
+        onCancelReply={() => setReplyMessage(null)}
         disabled={false}
       />
     </SafeAreaView>
@@ -742,6 +1155,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  selectionCount: {
+    minWidth: 30,
+    fontSize: 26,
+    fontWeight: '600',
+    marginLeft: SPACING.sm,
+  },
+  selectionActions: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  selectionActionButton: {
+    width: 42,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   menuBackdrop: {
     flex: 1,
     backgroundColor: 'transparent',
@@ -778,6 +1209,40 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingVertical: SPACING.md,
     justifyContent: 'flex-end',
+  },
+  reactionTray: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 92,
+    minHeight: 46,
+    borderRadius: 23,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 6,
+    elevation: 14,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    zIndex: 30,
+  },
+  reactionButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reactionEmoji: {
+    fontSize: 22,
+  },
+  reactionPlusButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   locationBackdrop: {
     flex: 1,
@@ -827,6 +1292,210 @@ const styles = StyleSheet.create({
   durationText: {
     fontSize: FONT_SIZES.lg,
     fontWeight: '600',
+  },
+  mediaPreviewContainer: {
+    flex: 1,
+  },
+  mediaPreviewHeader: {
+    minHeight: 72,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+  },
+  previewHeaderButton: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 28,
+    fontWeight: '600',
+  },
+  hdBadge: {
+    width: 38,
+    height: 30,
+    borderRadius: 4,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hdText: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '800',
+  },
+  previewGridContent: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingBottom: 108,
+  },
+  previewTile: {
+    width: '33.33%',
+    aspectRatio: 1,
+    borderWidth: 1,
+    borderColor: '#0B141A',
+    overflow: 'hidden',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  previewVideo: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewVideoText: {
+    marginTop: SPACING.xs,
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '700',
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.38)',
+  },
+  removeMediaButton: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(0, 0, 0, 0.58)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectionBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    minWidth: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.xs,
+  },
+  selectionBadgeText: {
+    color: '#FFFFFF',
+    fontSize: FONT_SIZES.base,
+    fontWeight: '800',
+  },
+  captionBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    minHeight: 96,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+  },
+  captionThumbWrap: {
+    width: 58,
+    height: 58,
+    marginRight: SPACING.sm,
+  },
+  captionThumb: {
+    width: 58,
+    height: 58,
+    borderRadius: BORDER_RADIUS.md,
+  },
+  captionVideoThumb: {
+    backgroundColor: '#263238',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  captionAttachBadge: {
+    position: 'absolute',
+    right: -4,
+    bottom: -4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  captionInput: {
+    flex: 1,
+    minHeight: 56,
+    maxHeight: 96,
+    borderRadius: 28,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    fontSize: FONT_SIZES.xl,
+  },
+  mediaSendButton: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: SPACING.md,
+  },
+  sendCountBadge: {
+    position: 'absolute',
+    right: -2,
+    top: -2,
+    minWidth: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.xs,
+  },
+  sendCountText: {
+    color: '#111B21',
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '800',
+  },
+  viewerContainer: {
+    flex: 1,
+  },
+  viewerHeader: {
+    minHeight: 70,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: SPACING.md,
+  },
+  viewerScrollContent: {
+    paddingBottom: SPACING.xl,
+  },
+  viewerItem: {
+    marginBottom: SPACING.md,
+  },
+  viewerImage: {
+    height: 420,
+  },
+  viewerVideo: {
+    height: 360,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerPlayButton: {
+    marginTop: SPACING.lg,
+    borderRadius: BORDER_RADIUS.full,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  viewerPlayText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '800',
   },
 });
 
