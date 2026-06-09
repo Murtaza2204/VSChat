@@ -8,11 +8,12 @@ import { Platform } from 'react-native';
 // - After editing this file, rebuild the app so the change takes effect.
 
 // Replace this with your PC's LAN IP when using a real device.
-const ANDROID_HOST = '192.168.31.150';
+// Your provided IPv4: 192.168.1.40
+const ANDROID_HOST = 'emulator';
 
 const host = Platform.select({
-  // Emulator loopback (keep if you use emulator)
-  android: ANDROID_HOST === 'REPLACE_WITH_YOUR_PC_IP' ? '10.0.2.2' : ANDROID_HOST,
+  // For Android emulator use 10.0.2.2; for physical device use your LAN IP
+  android: Platform.OS === 'android' && ANDROID_HOST === 'emulator' ? '10.0.2.2' : ANDROID_HOST,
   ios: 'localhost',
   default: 'localhost',
 });
