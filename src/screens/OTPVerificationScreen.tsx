@@ -92,8 +92,9 @@ const OTPVerificationScreen: React.FC<{ navigation: any; route: any }> = ({
         routes: [{ name: 'UserSetup' }],
       });
     } catch (err: any) {
-      setErrorState('Invalid OTP. Please try again.');
-      setError(err.message);
+      const message = err?.message || 'Invalid OTP. Please try again.';
+      setErrorState(message);
+      setError(message);
     } finally {
       setIsLoading(false);
     }

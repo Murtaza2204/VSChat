@@ -2,11 +2,13 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, AuthState } from '../types';
 import { API_BASE_URL } from '../config/api';
+import auth from '@react-native-firebase/auth';
 
 type AuthFlow = 'login' | 'register';
 
 interface AuthStore extends AuthState {
   authFlow: AuthFlow | null;
+  confirmation: any | null;
   login: (countryCode: string, phoneNumber: string) => Promise<AuthFlow>;
   verifyOTP: (phoneNumber: string, otp: string) => Promise<void>;
   setupProfile: (user: Partial<User>) => Promise<void>;
@@ -25,6 +27,7 @@ export const useAuthStore = create<AuthStore>((set) => {
     isLoading: false,
     error: null,
     authFlow: null,
+    confirmation: null,
 
     initializeAuth: async () => {
       try {
@@ -49,30 +52,35 @@ export const useAuthStore = create<AuthStore>((set) => {
     login: async (countryCode: string, phoneNumber: string) => {
       set({ isLoading: true, error: null });
       try {
-        const response = await fetch(`${API_BASE_URL}/auth/send-otp`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ countryCode, phoneNumber }),
-        });
-        const data = await response.json();
+        // Build E.164 phone number
+        const e164 = `${countryCode}${phoneNumber}`;
 
-        if (!response.ok || !data.success) {
-          throw new Error(data.message || 'Failed to send OTP');
+        // Use Firebase Phone Auth to send SMS
+        const confirmation = await auth().signInWithPhoneNumber(e164);
+
+        // Also notify backend to create a server-side OTP (helps fallback verification)
+        try {
+          const url = `${API_BASE_URL}/auth/send-otp`;
+          await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ countryCode, phoneNumber }),
+          });
+        } catch (e: any) {
+          console.warn('Backend send-otp failed (non-fatal):', e?.message || e);
         }
 
-        const authFlow = data.flow as AuthFlow;
-        const phone = `${countryCode}${phoneNumber}`;
+        // Determine flow by asking backend (optional) — we can let backend decide after token exchange.
+        const authFlow: AuthFlow = 'register';
 
         try {
-          await AsyncStorage.setItem('phone', phone);
+          await AsyncStorage.setItem('phone', e164);
           await AsyncStorage.setItem('authFlow', authFlow);
         } catch (e) {
           console.warn('Could not save auth details to storage');
         }
 
-        set({ isLoading: false, authFlow });
+        set({ isLoading: false, authFlow, confirmation });
         return authFlow;
       } catch (error: any) {
         set({
@@ -86,18 +94,58 @@ export const useAuthStore = create<AuthStore>((set) => {
     verifyOTP: async (phoneNumber: string, otp: string) => {
       set({ isLoading: true, error: null });
       try {
-        const response = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ phoneNumber, otp }),
-        });
-        const data = await response.json();
+        // Use confirmation object from login to confirm the code
+        const state = (await AsyncStorage.getItem('authState')) || null;
+        // Prefer in-memory confirmation
+        // @ts-ignore
+        const confirmation = (useAuthStore.getState && useAuthStore.getState().confirmation) || null;
 
-        if (!response.ok || !data.success) {
-          throw new Error(data.message || 'OTP verification failed');
+        if (!confirmation) {
+          throw new Error('No confirmation object found. Please request a fresh OTP.');
         }
+
+        // Try Firebase confirmation first
+        let data: any = null;
+        try {
+          const userCredential = await confirmation.confirm(otp);
+
+          // Get Firebase ID token
+          const idToken = await userCredential.user.getIdToken();
+
+          // Exchange ID token with backend for app tokens
+          const url = `${API_BASE_URL}/auth/verify-firebase-token`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken }),
+          });
+
+          data = await response.json();
+          if (!response.ok || !data.success) {
+            throw new Error(data.message || 'OTP verification failed');
+          }
+        } catch (firebaseErr) {
+          // Firebase confirmation or backend exchange failed — try server-side OTP verification as fallback
+          try {
+            const url = `${API_BASE_URL}/auth/verify-otp`;
+            const resp = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phoneNumber, otp }),
+            });
+            data = await resp.json();
+            if (!resp.ok || !data.success) {
+              throw new Error(data.message || 'Server OTP verification failed');
+            }
+          } catch (serverErr) {
+            // Log both errors for easier debugging
+            console.error('Firebase confirm error:', firebaseErr?.message || firebaseErr);
+            console.error('Server verify-otp error:', serverErr?.message || serverErr);
+            // Re-throw the most specific error
+            throw serverErr || firebaseErr;
+          }
+        }
+
         // If backend returned tokens + user (existing user), persist them
         if (data.flow === 'login' && data.user && data.accessToken && data.refreshToken) {
           const backendUser: User = {
@@ -127,7 +175,7 @@ export const useAuthStore = create<AuthStore>((set) => {
           return;
         }
 
-        // Otherwise, it's a registration flow — save phone and flow and let UI navigate to profile setup
+        // Otherwise, registration flow
         try {
           await AsyncStorage.setItem('phone', phoneNumber);
           await AsyncStorage.setItem('authFlow', data.flow);

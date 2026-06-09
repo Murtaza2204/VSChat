@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "757781336831",
+    "project_id": "vschat-aad6c",
+    "storage_bucket": "vschat-aad6c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:757781336831:android:bc2bfbc96901e3a6ee32ca",
+        "android_client_info": {
+          "package_name": "com.whatsappclone"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCoDbxpgWuE25AUVejA93paxoAvoaJkGSo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

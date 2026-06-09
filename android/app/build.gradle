@@ -123,3 +123,6 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+// Add the Google services plugin to enable google-services.json integration
+apply plugin: 'com.google.gms.google-services'
