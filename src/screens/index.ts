@@ -12,6 +12,7 @@ export { default as NewGroupDetailsScreen } from './NewGroupDetailsScreen';
 export { default as CallsListScreen } from './CallsListScreen';
 export { default as DialPadScreen } from './DialPadScreen';
 export { default as IncomingCallScreen } from './IncomingCallScreen';
+export { default as ReceiverCallScreen } from './ReceiverCallScreen';
 export { default as ActiveCallScreen } from './ActiveCallScreen';
 export { default as ProfileScreen } from './ProfileScreen';
 export { default as EditProfileScreen } from './EditProfileScreen';
