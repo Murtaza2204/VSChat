@@ -1,19 +1,21 @@
 import { Platform } from 'react-native';
 
 // IMPORTANT:
-// - When testing on a PHYSICAL device, set `ANDROID_HOST` below to your
-//   development machine's LAN IP (eg. 192.168.1.42). The emulator uses
-//   special loopback addresses (10.0.2.2 for Android emulator) but a
-//   physical device cannot reach `localhost` on your PC.
-// - After editing this file, rebuild the app so the change takes effect.
+// For physical device via ADB reverse (USB debugging):
+// - Run: adb reverse tcp:5000 tcp:5000
+// - Use localhost to connect (tunnel forwards to PC's backend)
+// - After editing this file, rebuild the app
+//
+// For direct LAN connection (Wi-Fi):
+// - Ensure phone and PC are on same Wi-Fi network
+// - Set ANDROID_HOST to your PC's LAN IP (192.168.1.40)
+// - Uncomment USE_ADB_REVERSE = false below
 
-// Replace this with your PC's LAN IP when using a real device.
-// Your provided IPv4: 192.168.1.40
-const ANDROID_HOST = 'emulator';
+const ANDROID_HOST = '192.168.31.150'; // Your PC's LAN IP
+const USE_ADB_REVERSE = true; // Set to true when using adb reverse tcp:5000 tcp:5000
 
 const host = Platform.select({
-  // For Android emulator use 10.0.2.2; for physical device use your LAN IP
-  android: Platform.OS === 'android' && ANDROID_HOST === 'emulator' ? '10.0.2.2' : ANDROID_HOST,
+  android: USE_ADB_REVERSE ? 'localhost' : ANDROID_HOST,
   ios: 'localhost',
   default: 'localhost',
 });
