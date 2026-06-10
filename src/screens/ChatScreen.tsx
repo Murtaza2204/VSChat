@@ -160,6 +160,15 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   };
 
+  const handleStartCall = (callType: 'audio' | 'video') => {
+    navigation.navigate('ActiveCall', {
+      callType,
+      callerName: chat.title,
+      callerAvatar: chat.avatar,
+      chatId: chat.id,
+    });
+  };
+
   const handleSendMedia = () => {
     if (!pendingMedia.length) {
       return;
@@ -654,6 +663,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         theme={theme}
         read={item.read}
         type={item.type}
+        call={item.call}
         mediaUrl={item.mediaUrl}
         mediaItems={item.mediaItems}
         location={item.location}
@@ -826,14 +836,18 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.headerIconButton} activeOpacity={0.75}>
+            <TouchableOpacity
+              style={styles.headerIconButton}
+              activeOpacity={0.75}
+              onPress={() => handleStartCall('video')}
+            >
               <Icon name="videocam-outline" size={26} color={theme.primary} />
             </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.headerIconButton}
               activeOpacity={0.75}
-              onPress={() => navigation.navigate('IncomingCall')}
+              onPress={() => handleStartCall('audio')}
             >
               <Icon name="call-outline" size={24} color={theme.primary} />
             </TouchableOpacity>

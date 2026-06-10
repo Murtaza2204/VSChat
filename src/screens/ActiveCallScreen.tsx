@@ -1,206 +1,314 @@
 import React from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
   SafeAreaView,
+  StyleSheet,
+  Text,
   TouchableOpacity,
+  View,
+  useWindowDimensions,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import Avatar from '../components/Avatar';
+import { BORDER_RADIUS, FONT_SIZES, SHADOWS, SPACING } from '../constants/colors';
+import { useChatStore } from '../stores/chatStore';
 import { useThemeStore } from '../stores/themeStore';
-import { SPACING, FONT_SIZES } from '../constants/colors';
+import { Message } from '../types';
 
 const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
   route,
 }) => {
   const { theme } = useThemeStore();
+  const { addMessage } = useChatStore();
+  const { width } = useWindowDimensions();
+  const callType = route.params?.callType || 'audio';
+  const callerName = route.params?.callerName || 'Ammi';
+  const chatId = route.params?.chatId;
   const [isMuted, setIsMuted] = React.useState(false);
-  const callType = route.params?.callType || 'video';
-  const callerName = route.params?.callerName || 'John Doe';
-  const callerAvatar = route.params?.callerAvatar;
+  const [isSpeakerOn, setIsSpeakerOn] = React.useState(false);
   const [isVideoOn, setIsVideoOn] = React.useState(callType === 'video');
-  const [callDuration, setCallDuration] = React.useState('00:00');
+  const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
+  const startedAtRef = React.useRef(Date.now());
+  const didLogCallRef = React.useRef(false);
 
   React.useEffect(() => {
-    let startTime = Date.now();
     const timer = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const minutes = Math.floor(elapsed / 60);
-      const seconds = elapsed % 60;
-      setCallDuration(
-        `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-      );
+      setElapsedSeconds(Math.floor((Date.now() - startedAtRef.current) / 1000));
     }, 1000);
 
     return () => clearInterval(timer);
   }, []);
 
+  const initials = callerName
+    .split(' ')
+    .filter(Boolean)
+    .map((part: string) => part.charAt(0))
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+  const avatarSize = Math.min(width * 0.54, 220);
+  const callStatus = elapsedSeconds < 4 ? 'Ringing...' : formatDuration(elapsedSeconds);
+
+  const handleEndCall = () => {
+    if (chatId && !didLogCallRef.current) {
+      didLogCallRef.current = true;
+      const durationSeconds = Math.max(1, elapsedSeconds);
+      const callMessage: Message = {
+        id: Math.random().toString(),
+        senderId: 'me',
+        senderName: 'You',
+        content: callType === 'video' ? 'Video call' : 'Voice call',
+        type: 'call',
+        timestamp: new Date(),
+        read: true,
+        call: {
+          type: callType === 'video' ? 'video' : 'voice',
+          status: durationSeconds < 4 ? 'noAnswer' : 'completed',
+          durationSeconds,
+          direction: 'outgoing',
+        },
+      };
+
+      addMessage(chatId, callMessage);
+    }
+
+    navigation.goBack();
+  };
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={styles.remoteVideoContainer}>
-        <View style={[styles.videoPlaceholder, { backgroundColor: theme.surface }]}>
-          {callType === 'video' ? (
-            <Icon name="videocam" size={48} color={theme.textSecondary} />
-          ) : (
-            <Avatar
-              source={callerAvatar || callerName.charAt(0)}
-              size="extra-large"
-              theme={theme}
-            />
-          )}
-          <Text style={[styles.videoText, { color: theme.textSecondary }]}>
-            {callerName}
-          </Text>
-        </View>
-      </View>
-
-      {callType === 'video' && (
-        <View
-          style={[
-            styles.localVideoContainer,
-            { backgroundColor: theme.surface },
-          ]}
-        >
-          <Icon name="videocam" size={24} color={theme.textSecondary} />
-          <Text style={[styles.localVideoText, { color: theme.textSecondary }]}>
-            You
-          </Text>
-        </View>
-      )}
-
-      <View style={styles.topBar}>
-        <Text style={[styles.duration, { color: theme.text }]}>
-          {callDuration}
-        </Text>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.closeButton}
-        >
-          <Icon name="close" size={24} color={theme.text} />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.controlsContainer}>
-        <TouchableOpacity
-          onPress={() => setIsMuted(!isMuted)}
-          style={[
-            styles.controlButton,
-            {
-              backgroundColor: isMuted ? theme.error : theme.secondary,
-            },
-          ]}
-        >
-          <Icon
-            name={isMuted ? 'mic-off' : 'mic'}
-            size={24}
-            color={theme.text}
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <HeaderButton
+            icon="contract-outline"
+            theme={theme}
+            onPress={() => navigation.goBack()}
           />
-        </TouchableOpacity>
 
-        {callType === 'video' && (
-          <TouchableOpacity
-            onPress={() => setIsVideoOn(!isVideoOn)}
+          <View style={styles.titleBlock}>
+            <Text style={[styles.callerName, { color: theme.text }]} numberOfLines={1}>
+              {callerName}
+            </Text>
+            <Text style={[styles.statusText, { color: theme.textSecondary }]}>
+              {callStatus}
+            </Text>
+          </View>
+
+          <HeaderButton icon="person-add" theme={theme} />
+        </View>
+
+        <View style={styles.avatarSection}>
+          <View
             style={[
-              styles.controlButton,
+              styles.avatar,
               {
-                backgroundColor: !isVideoOn ? theme.error : theme.secondary,
+                width: avatarSize,
+                height: avatarSize,
+                borderRadius: avatarSize / 2,
+                backgroundColor: theme.messageBlue,
               },
             ]}
           >
-            <Icon
-              name={isVideoOn ? 'videocam' : 'videocam-off'}
-              size={24}
-              color={theme.text}
-            />
-          </TouchableOpacity>
-        )}
+            <Text
+              style={[
+                styles.avatarInitial,
+                { color: theme.primary, fontSize: avatarSize * 0.46 },
+              ]}
+            >
+              {initials || '?'}
+            </Text>
+          </View>
+        </View>
 
-        <TouchableOpacity
-          style={[styles.controlButton, { backgroundColor: theme.secondary }]}
+        <View
+          style={[
+            styles.controlPanel,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.border,
+            },
+            SHADOWS.md,
+          ]}
         >
-          <Icon name="swap-vertical" size={24} color={theme.text} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={[styles.endCallButton, { backgroundColor: theme.error }]}
-        >
-          <Icon name="call" size={28} color={theme.background} />
-        </TouchableOpacity>
+          <CallControl
+            icon={isSpeakerOn ? 'volume-high' : 'volume-medium'}
+            label="Speaker"
+            active={isSpeakerOn}
+            theme={theme}
+            onPress={() => setIsSpeakerOn(!isSpeakerOn)}
+          />
+          <CallControl
+            icon={isVideoOn ? 'videocam' : 'videocam-off'}
+            label="Video"
+            active={isVideoOn}
+            muted={!isVideoOn}
+            theme={theme}
+            onPress={() => setIsVideoOn(!isVideoOn)}
+          />
+          <CallControl
+            icon={isMuted ? 'mic-off' : 'mic-off-outline'}
+            label="Mute"
+            active={isMuted}
+            theme={theme}
+            onPress={() => setIsMuted(!isMuted)}
+          />
+          <CallControl icon="ellipsis-horizontal" label="More" theme={theme} />
+          <CallControl icon="phone-portrait-outline" label="Share" muted theme={theme} />
+          <CallControl icon="call" label="End" danger theme={theme} onPress={handleEndCall} />
+        </View>
       </View>
     </SafeAreaView>
   );
 };
 
+const HeaderButton = ({
+  icon,
+  theme,
+  onPress,
+}: {
+  icon: string;
+  theme: any;
+  onPress?: () => void;
+}) => (
+  <TouchableOpacity
+    activeOpacity={0.78}
+    onPress={onPress}
+    style={[styles.headerButton, { backgroundColor: theme.surface }]}
+  >
+    <Icon name={icon} size={24} color={theme.text} />
+  </TouchableOpacity>
+);
+
+const CallControl = ({
+  icon,
+  label,
+  active,
+  danger,
+  muted,
+  theme,
+  onPress,
+}: {
+  icon: string;
+  label: string;
+  active?: boolean;
+  danger?: boolean;
+  muted?: boolean;
+  theme: any;
+  onPress?: () => void;
+}) => (
+  <TouchableOpacity activeOpacity={0.78} onPress={onPress} style={styles.controlItem}>
+    <View
+      style={[
+        styles.controlCircle,
+        {
+          backgroundColor: danger
+            ? theme.error
+            : active
+              ? theme.primary
+              : theme.inputBackground,
+        },
+      ]}
+    >
+      <Icon
+        name={icon}
+        size={danger ? 23 : 21}
+        color={danger || active ? theme.background : muted ? theme.textSecondary : theme.text}
+      />
+    </View>
+    <Text style={[styles.controlLabel, { color: theme.text }]}>{label}</Text>
+  </TouchableOpacity>
+);
+
+const formatDuration = (totalSeconds: number) => {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes === 0) {
+    return `${seconds} sec`;
+  }
+
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+};
+
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
   container: {
     flex: 1,
   },
-  remoteVideoContainer: {
-    flex: 1,
-    position: 'relative',
-  },
-  videoPlaceholder: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  videoText: {
-    marginTop: SPACING.lg,
-    fontSize: FONT_SIZES.lg,
-    fontWeight: '600',
-  },
-  localVideoContainer: {
-    position: 'absolute',
-    bottom: SPACING.xl,
-    right: SPACING.lg,
-    width: 100,
-    height: 140,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-  },
-  localVideoText: {
-    marginTop: SPACING.sm,
-    fontSize: FONT_SIZES.sm,
-  },
-  topBar: {
+  header: {
+    minHeight: 96,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.md,
+  },
+  headerButton: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titleBlock: {
+    flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
   },
-  duration: {
+  callerName: {
+    fontSize: FONT_SIZES.xxl,
+    fontWeight: '700',
+  },
+  statusText: {
     fontSize: FONT_SIZES.lg,
-    fontWeight: '600',
+    marginTop: SPACING.xs,
   },
-  closeButton: {
-    padding: SPACING.sm,
+  avatarSection: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: 142,
   },
-  controlsContainer: {
+  avatar: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitial: {
+    fontWeight: '500',
+  },
+  controlPanel: {
+    position: 'absolute',
+    left: SPACING.lg,
+    right: SPACING.lg,
+    bottom: SPACING.xxl,
+    minHeight: 238,
+    borderRadius: BORDER_RADIUS.xl,
+    borderWidth: 1,
     flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: SPACING.xl,
-    gap: SPACING.lg,
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.lg,
+    paddingBottom: SPACING.sm,
   },
-  controlButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    justifyContent: 'center',
+  controlItem: {
+    width: '30%',
     alignItems: 'center',
+    marginBottom: SPACING.md,
   },
-  endCallButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
+  controlCircle: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  controlLabel: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '500',
+    marginTop: SPACING.sm,
   },
 });
 

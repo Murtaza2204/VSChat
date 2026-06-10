@@ -72,6 +72,7 @@ const ChatStack = () => {
       <Stack.Screen name="SelectContact" component={SelectContactScreen} />
       <Stack.Screen name="NewGroup" component={NewGroupScreen} />
       <Stack.Screen name="NewGroupDetails" component={NewGroupDetailsScreen} />
+      <Stack.Screen name="ActiveCall" component={ActiveCallScreen} />
     </Stack.Navigator>
   );
 };
@@ -118,7 +119,9 @@ const MainTabs = () => {
           (route.name === 'Calls' ? 'CallsList' : 'ChatList');
         const shouldHideTabBar =
           (route.name === 'Chats' &&
-            (focusedRouteName === 'Chat' || focusedRouteName === 'NewGroupDetails')) ||
+            (focusedRouteName === 'Chat' ||
+              focusedRouteName === 'NewGroupDetails' ||
+              focusedRouteName === 'ActiveCall')) ||
           (route.name === 'Calls' &&
             (focusedRouteName === 'DialPad' || focusedRouteName === 'ActiveCall'));
 

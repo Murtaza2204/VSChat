@@ -22,7 +22,7 @@ export interface Message {
   senderName: string;
   senderAvatar?: string;
   content: string;
-  type: 'text' | 'image' | 'video' | 'mediaGroup' | 'file' | 'location' | 'liveLocation';
+  type: 'text' | 'image' | 'video' | 'mediaGroup' | 'file' | 'location' | 'liveLocation' | 'call';
   timestamp: Date;
   read: boolean;
   mediaUrl?: string;
@@ -34,6 +34,12 @@ export interface Message {
     longitude: number;
     expiresAt?: number;
     durationLabel?: string;
+  };
+  call?: {
+    type: 'voice' | 'video';
+    status: 'completed' | 'missed' | 'noAnswer';
+    durationSeconds?: number;
+    direction: 'incoming' | 'outgoing';
   };
   // Reply/forward support
   replyToId?: string;
