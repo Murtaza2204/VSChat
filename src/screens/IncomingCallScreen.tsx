@@ -11,6 +11,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '../stores/themeStore';
 import { SPACING, FONT_SIZES, BORDER_RADIUS } from '../constants/colors';
 import Avatar from '../components/Avatar';
+import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
 
 const IncomingCallScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
@@ -45,7 +46,13 @@ const IncomingCallScreen: React.FC<{ navigation: any; route: any }> = ({
   }, [scaleAnim]);
 
   const handleAccept = () => {
-    navigation.navigate('ActiveCall');
+    navigation.navigate('ActiveCall', {
+      callType: caller.type,
+      appId: AGORA_APP_ID,
+      channel: AGORA_CHANNEL,
+      token: AGORA_TOKEN,
+      callerName: caller.name,
+    });
   };
 
   const handleReject = () => {

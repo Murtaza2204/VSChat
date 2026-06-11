@@ -1,7 +1,21 @@
 import { Platform } from 'react-native';
 
+// IMPORTANT:
+// For physical device via ADB reverse (USB debugging):
+// - Run: adb reverse tcp:5000 tcp:5000
+// - Use localhost to connect (tunnel forwards to PC's backend)
+// - After editing this file, rebuild the app
+//
+// For direct LAN connection (Wi-Fi):
+// - Ensure phone and PC are on same Wi-Fi network
+// - Set ANDROID_HOST to your PC's LAN IP (192.168.1.40)
+// - Uncomment USE_ADB_REVERSE = false below
+
+const ANDROID_HOST = '192.168.31.150'; // Your PC's LAN IP
+const USE_ADB_REVERSE = true; // Set to true when using adb reverse tcp:5000 tcp:5000
+
 const host = Platform.select({
-  android: '10.0.2.2',
+  android: USE_ADB_REVERSE ? 'localhost' : ANDROID_HOST,
   ios: 'localhost',
   default: 'localhost',
 });

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   NavigationContainer,
   DefaultTheme,
@@ -7,6 +7,8 @@ import {
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { navigationRef, navigate } from '../navigation/NavigationService';
+import signaling from '../services/signaling';
 
 // Screens
 import SplashScreen from '../screens/SplashScreen';
@@ -22,7 +24,7 @@ import NewGroupScreen from '../screens/NewGroupScreen';
 import NewGroupDetailsScreen from '../screens/NewGroupDetailsScreen';
 import CallsListScreen from '../screens/CallsListScreen';
 import DialPadScreen from '../screens/DialPadScreen';
-import IncomingCallScreen from '../screens/IncomingCallScreen';
+import ReceiverCallScreen from '../screens/ReceiverCallScreen';
 import ActiveCallScreen from '../screens/ActiveCallScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
@@ -72,6 +74,7 @@ const ChatStack = () => {
       <Stack.Screen name="SelectContact" component={SelectContactScreen} />
       <Stack.Screen name="NewGroup" component={NewGroupScreen} />
       <Stack.Screen name="NewGroupDetails" component={NewGroupDetailsScreen} />
+      <Stack.Screen name="ActiveCall" component={ActiveCallScreen} />
     </Stack.Navigator>
   );
 };
@@ -86,8 +89,28 @@ const CallsStack = () => {
       <Stack.Screen name="CallsList" component={CallsListScreen} />
       <Stack.Screen name="CallDetails" component={CallsListScreen} />
       <Stack.Screen name="DialPad" component={DialPadScreen} />
-      <Stack.Screen name="IncomingCall" component={IncomingCallScreen} />
+      <Stack.Screen name="IncomingCall" component={ReceiverCallScreen} />
       <Stack.Screen name="ActiveCall" component={ActiveCallScreen} />
+    </Stack.Navigator>
+  );
+};
+
+const ReceiverTestStack = () => {
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+      }}
+    >
+      <Stack.Screen
+        name="ReceiverCallTest"
+        component={ReceiverCallScreen}
+        initialParams={{
+          callerName: 'Murtaza',
+          callerPhone: '+91 97631 51372',
+          callType: 'video',
+        }}
+      />
     </Stack.Navigator>
   );
 };
@@ -102,25 +125,46 @@ const ProfileStack = () => {
       <Stack.Screen name="ProfileMain" component={ProfileScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
-      <Stack.Screen name="IncomingCall" component={IncomingCallScreen} />
+      <Stack.Screen name="IncomingCall" component={ReceiverCallScreen} />
     </Stack.Navigator>
   );
 };
 
 const MainTabs = () => {
   const { theme } = useThemeStore();
+  const { user } = useAuthStore();
+
+  useEffect(() => {
+    if (!user) return;
+
+    signaling.initSignaling((payload) => {
+      // Navigate to Calls -> IncomingCall screen
+      if (navigationRef.isReady()) {
+        navigate('Main', { screen: 'Calls', params: { screen: 'IncomingCall', params: payload } });
+      }
+    });
+  }, [user]);
 
   return (
     <Tab.Navigator
       screenOptions={({ route }) => {
         const focusedRouteName =
           getFocusedRouteNameFromRoute(route) ??
-          (route.name === 'Calls' ? 'CallsList' : 'ChatList');
+          (route.name === 'Calls'
+            ? 'CallsList'
+            : route.name === 'Receiver'
+              ? 'ReceiverCallTest'
+              : 'ChatList');
         const shouldHideTabBar =
           (route.name === 'Chats' &&
-            (focusedRouteName === 'Chat' || focusedRouteName === 'NewGroupDetails')) ||
+            (focusedRouteName === 'Chat' ||
+              focusedRouteName === 'NewGroupDetails' ||
+              focusedRouteName === 'ActiveCall')) ||
           (route.name === 'Calls' &&
-            (focusedRouteName === 'DialPad' || focusedRouteName === 'ActiveCall'));
+            (focusedRouteName === 'DialPad' ||
+              focusedRouteName === 'IncomingCall' ||
+              focusedRouteName === 'ActiveCall')) ||
+          (route.name === 'Profile' && focusedRouteName === 'IncomingCall');
 
         return {
           headerShown: false,
@@ -130,6 +174,8 @@ const MainTabs = () => {
           if (route.name === 'Chats') {
             iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
           } else if (route.name === 'Calls') {
+            iconName = focused ? 'call' : 'call-outline';
+          } else if (route.name === 'Receiver') {
             iconName = focused ? 'call' : 'call-outline';
           } else if (route.name === 'Profile') {
             iconName = focused ? 'person' : 'person-outline';
@@ -167,6 +213,13 @@ const MainTabs = () => {
         }}
       />
       <Tab.Screen
+        name="Receiver"
+        component={ReceiverTestStack}
+        options={{
+          tabBarLabel: 'Receiver',
+        }}
+      />
+      <Tab.Screen
         name="Profile"
         component={ProfileStack}
         options={{
@@ -183,6 +236,7 @@ const RootNavigator = () => {
 
   return (
     <NavigationContainer
+      ref={navigationRef}
       theme={{
         ...DefaultTheme,
         colors: {

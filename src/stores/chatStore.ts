@@ -49,6 +49,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               ? 'Document'
               : message.type === 'location' || message.type === 'liveLocation'
                 ? 'Location'
+                : message.type === 'call'
+                  ? `${message.call?.type === 'video' ? 'Video' : 'Voice'} call`
                 : 'Message');
     const updatedChats = chats.map((chat) => {
       if (chat.id === chatId) {
@@ -82,6 +84,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               ? 'Document'
               : message.type === 'location' || message.type === 'liveLocation'
                 ? 'Location'
+                : message.type === 'call'
+                  ? `${message.call?.type === 'video' ? 'Video' : 'Voice'} call`
                 : 'Message');
     const currentUser = useAuthStore.getState().user;
     const forwardedMessage: Message = {

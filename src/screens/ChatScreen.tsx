@@ -32,6 +32,8 @@ import Avatar from '../components/Avatar';
 import ChatBubble from '../components/ChatBubble';
 import MessageInput from '../components/MessageInput';
 import messagesApi from '../utils/messages';
+import signaling from '../services/signaling';
+import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
 
 const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
@@ -190,6 +192,29 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
     addMessage(chat.id, newMessage);
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+  };
+
+  const handleStartCall = (callType: 'audio' | 'video') => {
+    // send invite to recipient then navigate caller to ActiveCall
+    try {
+      signaling.inviteCall(chat.userId || chat.id, callType, {
+        channel: AGORA_CHANNEL,
+        token: AGORA_TOKEN,
+        appId: AGORA_APP_ID,
+      });
+    } catch (e) {
+      console.warn('inviteCall failed', e);
+    }
+
+    navigation.navigate('ActiveCall', {
+      callType,
+      callerName: chat.title,
+      callerAvatar: chat.avatar,
+      chatId: chat.id,
+      appId: AGORA_APP_ID,
+      channel: AGORA_CHANNEL,
+      token: AGORA_TOKEN,
+    });
   };
 
   const handleSendMedia = () => {
@@ -758,6 +783,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         theme={theme}
         read={item.read}
         type={item.type}
+        call={item.call}
         mediaUrl={item.mediaUrl}
         mediaItems={item.mediaItems}
         location={item.location}
@@ -930,14 +956,18 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.headerIconButton} activeOpacity={0.75}>
+            <TouchableOpacity
+              style={styles.headerIconButton}
+              activeOpacity={0.75}
+              onPress={() => handleStartCall('video')}
+            >
               <Icon name="videocam-outline" size={26} color={theme.primary} />
             </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.headerIconButton}
               activeOpacity={0.75}
-              onPress={() => navigation.navigate('IncomingCall')}
+              onPress={() => handleStartCall('audio')}
             >
               <Icon name="call-outline" size={24} color={theme.primary} />
             </TouchableOpacity>

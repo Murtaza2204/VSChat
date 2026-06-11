@@ -22,7 +22,9 @@ const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { theme } = useThemeStore();
   const { login, setError } = useAuthStore();
   const [phone, setPhone] = useState('');
-  const [selectedCountry, setSelectedCountry] = useState(COUNTRY_CODES[0]);
+  // Default to India for now
+  const defaultCountry = COUNTRY_CODES.find((c) => c.code === '+91') || COUNTRY_CODES[0];
+  const [selectedCountry, setSelectedCountry] = useState(defaultCountry);
   const [errors, setErrors] = useState<{ phone?: string }>({});
   const [isLoading, setIsLoading] = useState(false);
   const [showCountryPicker, setShowCountryPicker] = useState(false);
@@ -41,17 +43,23 @@ const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   };
 
   const handleSendOTP = async () => {
-    if (validateForm()) {
-      setIsLoading(true);
-      try {
-        const fullPhone = `${selectedCountry.code}${phone}`;
-        await login(selectedCountry.code, phone);
-        navigation.navigate('OTPVerification', { phone: fullPhone });
-      } catch (error: any) {
-        setError(error.message);
-      } finally {
-        setIsLoading(false);
-      }
+    if (!validateForm()) return;
+    setIsLoading(true);
+    setError(null);
+    setErrors({});
+    try {
+      const fullPhone = `${selectedCountry.code}${phone}`;
+      // Show quick local log for debugging
+      console.info('Sending OTP to', fullPhone);
+      await login(selectedCountry.code, phone);
+      navigation.navigate('OTPVerification', { phone: fullPhone });
+    } catch (error: any) {
+      const msg = error?.message || 'Failed to send OTP';
+      // show local error message immediately
+      setErrors({ phone: msg });
+      setError(msg);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -114,6 +122,11 @@ const LoginScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             error={errors.phone}
             maxLength={15}
           />
+          {errors.phone ? (
+            <Text style={[{ color: theme.error, textAlign: 'center', marginTop: 8 }]}>
+              {errors.phone}
+            </Text>
+          ) : null}
 
           <CustomButton
             title="Send OTP"

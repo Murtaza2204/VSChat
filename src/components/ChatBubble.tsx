@@ -6,7 +6,6 @@ import {
   ViewStyle,
   TouchableOpacity,
   Image,
-  Linking,
   useWindowDimensions,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -26,6 +25,7 @@ interface ChatBubbleProps {
   mediaUrl?: string;
   mediaItems?: Message['mediaItems'];
   type?: Message['type'];
+  call?: Message['call'];
   location?: Message['location'];
   onMediaPress?: (index?: number) => void;
   onForwardPress?: () => void;
@@ -50,9 +50,10 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   mediaUrl,
   mediaItems,
   type = 'text',
+  call,
   location,
   onMediaPress,
-  onForwardPress,
+  onForwardPress: _onForwardPress,
   isSelected = false,
   reaction,
   replyTo,
@@ -92,8 +93,15 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   const isMediaMessage =
     (type === 'image' || type === 'video' || type === 'mediaGroup') &&
     resolvedMediaItems.length > 0;
+  const isCallMessage = type === 'call';
   const mediaWidth = Math.min(268, Math.max(214, screenWidth * 0.64));
   const senderColor = getSenderColor(senderName || '');
+  const callKind = call?.type || (message.toLowerCase().includes('video') ? 'video' : 'voice');
+  const isMissedCall = call?.status === 'missed';
+  const isNoAnswerCall = call?.status === 'noAnswer';
+  const callTitle = getCallTitle(callKind, call);
+  const callStatus = getCallStatusText(call, message);
+  const callIconColor = isMissedCall || isNoAnswerCall ? theme.error : theme.primary;
 
   // helpers
   const filenameFrom = (val?: string) => {
@@ -305,6 +313,30 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             </View>
             <Icon name="download" size={18} color={theme.textSecondary} />
           </TouchableOpacity>
+        ) : null}
+
+        {/* Call summary */}
+        {isCallMessage ? (
+          <View style={styles.callContent}>
+            <View
+              style={[
+                styles.callIconCircle,
+                isOwn ? styles.ownCallIconCircle : styles.otherCallIconCircle,
+              ]}
+            >
+              <Icon
+                name={callKind === 'video' ? 'videocam-outline' : 'call-outline'}
+                size={20}
+                color={callIconColor}
+              />
+            </View>
+            <View style={styles.callTextBlock}>
+              <Text style={[styles.callTitle, { color: theme.text }]}>{callTitle}</Text>
+              <Text style={[styles.callSubtitle, { color: theme.textSecondary }]} numberOfLines={1}>
+                {callStatus}
+              </Text>
+            </View>
+          </View>
         ) : null}
 
         {/* Text fallback */}
@@ -522,6 +554,75 @@ const styles = StyleSheet.create({
   reactionText: {
     fontSize: 18,
   },
+  callContent: {
+    minWidth: 172,
+    maxWidth: 230,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 2,
+  },
+  callIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: SPACING.sm,
+  },
+  ownCallIconCircle: {
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
+  },
+  otherCallIconCircle: {
+    backgroundColor: 'rgba(134, 150, 160, 0.16)',
+  },
+  callTextBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  callTitle: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '700',
+  },
+  callSubtitle: {
+    fontSize: FONT_SIZES.sm,
+    marginTop: 1,
+  },
 });
+
+const getCallTitle = (callKind: 'voice' | 'video', call?: Message['call']) => {
+  const label = callKind === 'video' ? 'video call' : 'voice call';
+
+  if (call?.status === 'missed') {
+    return `Missed ${label}`;
+  }
+
+  return callKind === 'video' ? 'Video call' : 'Voice call';
+};
+
+const getCallStatusText = (call: Message['call'], message: string) => {
+  if (call?.status === 'missed') {
+    return call.direction === 'incoming' ? 'Tap to call back' : 'No answer';
+  }
+
+  if (call?.status === 'noAnswer') {
+    return 'No answer';
+  }
+
+  if (call?.durationSeconds) {
+    return formatCallDuration(call.durationSeconds);
+  }
+
+  return message.replace(/^video call\s*/i, '').replace(/^voice call\s*/i, '').trim() || 'No answer';
+};
+
+const formatCallDuration = (durationSeconds: number) => {
+  if (durationSeconds < 60) {
+    return `${durationSeconds} sec`;
+  }
+
+  const minutes = Math.floor(durationSeconds / 60);
+  const seconds = durationSeconds % 60;
+  return seconds ? `${minutes} min ${seconds} sec` : `${minutes} min`;
+};
 
 export default ChatBubble;
