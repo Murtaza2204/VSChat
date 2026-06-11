@@ -89,6 +89,21 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const handleAccept = () => {
     setAccepted(true);
+    // Navigate to active call screen and pass Agora params if provided
+    const callTypeParam = route.params?.callType || callType;
+    const appId = route.params?.appId;
+    const channel = route.params?.channel;
+    const token = route.params?.token;
+
+    navigation.navigate('ActiveCall', {
+      callType: callTypeParam,
+      callerName,
+      callerAvatar: route.params?.callerAvatar,
+      chatId,
+      appId,
+      channel,
+      token,
+    });
   };
 
   const handleEnd = () => {

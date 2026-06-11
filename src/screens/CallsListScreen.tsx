@@ -14,6 +14,8 @@ import { SPACING, FONT_SIZES, BORDER_RADIUS } from '../constants/colors';
 import CallCard from '../components/CallCard';
 import EmptyState from '../components/EmptyState';
 import { TextInput } from 'react-native';
+import signaling from '../services/signaling';
+import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
 
 const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { getSearchedCalls } = useCallStore();
@@ -26,13 +28,26 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     <CallCard
       call={item}
       onPress={() => navigation.navigate('CallDetails', { call: item })}
-      onCallPress={(type) =>
+      onCallPress={(type) => {
+        try {
+          signaling.inviteCall(item.userId, type, {
+            channel: AGORA_CHANNEL,
+            token: AGORA_TOKEN,
+            appId: AGORA_APP_ID,
+          });
+        } catch (e) {
+          console.warn('inviteCall failed', e);
+        }
+
         navigation.navigate('ActiveCall', {
           callerName: item.userName,
           callerAvatar: item.userAvatar,
           callType: type,
-        })
-      }
+          appId: AGORA_APP_ID,
+          channel: AGORA_CHANNEL,
+          token: AGORA_TOKEN,
+        });
+      }}
       theme={theme}
     />
   );

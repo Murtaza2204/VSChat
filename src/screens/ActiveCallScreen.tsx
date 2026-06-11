@@ -8,6 +8,9 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { RtcSurfaceView } from 'react-native-agora';
+import { ensureAudioVideoPermissions } from '../services/permissions';
+import { switchCamera, muteLocalVideo } from '../services/agoraService';
 import { BORDER_RADIUS, FONT_SIZES, SHADOWS, SPACING } from '../constants/colors';
 import { useChatStore } from '../stores/chatStore';
 import { useThemeStore } from '../stores/themeStore';
@@ -22,10 +25,16 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const { width } = useWindowDimensions();
   const callType = route.params?.callType || 'audio';
   const callerName = route.params?.callerName || 'Ammi';
+  const appIdParam = route.params?.appId;
+  const channelParam = route.params?.channel;
+  const tokenParam = route.params?.token;
   const chatId = route.params?.chatId;
   const [isMuted, setIsMuted] = React.useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = React.useState(false);
   const [isVideoOn, setIsVideoOn] = React.useState(callType === 'video');
+  const [remoteUid, setRemoteUid] = React.useState<number | null>(null);
+  const [engineReady, setEngineReady] = React.useState(false);
+  const [joined, setJoined] = React.useState(false);
   const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
   const startedAtRef = React.useRef(Date.now());
   const didLogCallRef = React.useRef(false);
@@ -35,7 +44,84 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
       setElapsedSeconds(Math.floor((Date.now() - startedAtRef.current) / 1000));
     }, 1000);
 
+    // Initialize Agora and join channel for real audio/video
+    let mounted = true;
+    const setupAgora = async () => {
+      // Request camera & microphone permissions before initializing native SDK
+      const ok = await ensureAudioVideoPermissions();
+      if (!ok) return;
+      try {
+        const { default: agoraService } = await import('../services/agoraService');
+        const { initAgora, joinChannel, setRemoteUidListener } = agoraService;
+        const appId = appIdParam || (await import('../config/agora')).AGORA_APP_ID;
+        const channel = channelParam || (await import('../config/agora')).AGORA_CHANNEL;
+        const token = tokenParam || (await import('../config/agora')).AGORA_TOKEN;
+
+        console.log('🎥 Setup Agora with:', { appId: appId.slice(0, 16) + '...', channel, token: token?.slice(0, 20) + '...' });
+        
+        try {
+          await initAgora(appId);
+          setEngineReady(true);
+        } catch (initError) {
+          console.error('⚠️ Agora initialization failed, UI will still work:', initError);
+          setEngineReady(false);
+          return; // Don't try to join if init failed
+        }
+        
+        // Wait a bit for engine to stabilize
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // ensure local video state matches UI toggle
+        try {
+          if (isVideoOn) {
+            await muteLocalVideo(false);
+          }
+        } catch (e) {}
+
+        setRemoteUidListener((uid: number | null) => {
+          if (!mounted) return;
+          console.log('📡 Remote UID listener triggered:', uid);
+          setRemoteUid(uid ?? null);
+        });
+
+        console.log('🔄 Calling joinChannel...');
+        try {
+          await joinChannel(token, channel, 0, (uid: number) => {
+            if (!mounted) return;
+            console.log('✓ Remote user joined:', uid);
+            setRemoteUid(uid);
+          }, (uid: number) => {
+            if (!mounted) return;
+            console.log('✓ Remote user left:', uid);
+            setRemoteUid(null);
+          }, (channelName: string, uid: number) => {
+            if (!mounted) return;
+            console.log('✓✓✓ Successfully joined channel:', channelName, 'local uid:', uid);
+            setJoined(true);
+          });
+        } catch (joinError) {
+          console.error('⚠️ Join channel failed:', joinError);
+          // Continue anyway - UI will show placeholder
+        }
+      } catch (e) {
+        console.error('❌ Agora setup error:', e);
+        console.error('Error stack:', e instanceof Error ? e.stack : 'unknown');
+        // ignore; this keeps UI functional if native not linked during development
+      }
+    };
+
+    if (callType === 'video' || callType === 'audio') {
+      setupAgora();
+    }
+
     return () => clearInterval(timer);
+  }, []);
+
+  React.useEffect(() => {
+    return () => {
+      // leave agora on unmount
+      import('../services/agoraService').then((s) => s.leaveChannel()).catch(() => {});
+    };
   }, []);
 
   const initials = getInitials(callerName);
@@ -73,7 +159,50 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     return (
       <SafeAreaView style={styles.videoSafeArea}>
         <View style={styles.videoContainer}>
-          <VideoSurface theme={theme} variant={accepted ? 'remote' : 'local'} />
+          {/* Debug overlay */}
+          <View style={styles.debugBox} pointerEvents="none">
+            <Text style={styles.debugText}>engine:{engineReady ? 'ok' : 'no'}</Text>
+            <Text style={styles.debugText}>joined:{joined ? 'yes' : 'no'}</Text>
+            <Text style={styles.debugText}>remote:{remoteUid ?? '-'} </Text>
+          </View>
+
+          {/* BEFORE ACCEPTED (Ringing): Show local selfie camera full screen */}
+          {!accepted ? (
+            <>
+              {/* Main video: Local camera (full screen) - caller's selfie */}
+              {RtcSurfaceView ? (
+                <RtcSurfaceView canvas={{ uid: 0 }} style={StyleSheet.absoluteFill} />
+              ) : (
+                <VideoSurface theme={theme} variant="local" />
+              )}
+            </>
+          ) : (
+            <>
+              {/* AFTER ACCEPTED: Main video - Remote participant (full screen) */}
+              {RtcSurfaceView && remoteUid ? (
+                <RtcSurfaceView canvas={{ uid: remoteUid }} style={StyleSheet.absoluteFill} channelId={channelParam} />
+              ) : (
+                <VideoSurface theme={theme} variant="remote" />
+              )}
+
+              {/* Small PiP: Local preview (bottom-right) - shown after call accepted */}
+              <View style={[styles.localPreviewPiP, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                {RtcSurfaceView ? (
+                  <RtcSurfaceView canvas={{ uid: 0 }} style={StyleSheet.absoluteFill} zOrderMediaOverlay={true} />
+                ) : (
+                  <VideoSurface theme={theme} variant="local" compact />
+                )}
+                {/* Camera switch button on local preview */}
+                <TouchableOpacity
+                  style={[styles.pipCameraButton, { backgroundColor: theme.surface }]}
+                  onPress={() => switchCamera()}
+                  activeOpacity={0.7}
+                >
+                  <Icon name="camera-reverse" size={18} color={theme.text} />
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
 
           <View style={styles.videoHeader}>
             <CircleIcon
@@ -90,21 +219,11 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             <CircleIcon icon="person-add" theme={theme} />
           </View>
 
-          {!accepted ? (
-            <View style={styles.videoSideActions}>
-              <CircleIcon icon="person-add" theme={theme} />
-              <CircleIcon icon="camera-reverse" theme={theme} />
-              <CircleIcon icon="color-wand" theme={theme} />
-            </View>
-          ) : (
-            <View style={[styles.selfPreview, { backgroundColor: theme.surface }]}>
-              <VideoSurface theme={theme} compact />
-              <View style={styles.previewActions}>
-                <CircleIcon icon="camera-reverse" theme={theme} small />
-                <CircleIcon icon="color-wand" theme={theme} small />
-              </View>
-            </View>
-          )}
+        <View style={styles.videoSideActions}>
+          <CircleIcon icon="person-add" theme={theme} />
+          {!accepted && <CircleIcon icon="camera-reverse" theme={theme} onPress={() => switchCamera()} />}
+          <CircleIcon icon="color-wand" theme={theme} />
+        </View>
 
           <VideoControlTray theme={theme}>
             <TrayButton icon="ellipsis-horizontal" theme={theme} />
@@ -113,7 +232,13 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               active={isVideoOn}
               muted={!isVideoOn}
               theme={theme}
-              onPress={() => setIsVideoOn(!isVideoOn)}
+              onPress={async () => {
+                const next = !isVideoOn;
+                setIsVideoOn(next);
+                try {
+                  await muteLocalVideo(!next);
+                } catch (e) {}
+              }}
             />
             <TrayButton
               icon={isSpeakerOn ? 'volume-high' : 'volume-medium'}
@@ -478,6 +603,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     zIndex: 5,
+  },
+  debugBox: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 50,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    padding: 8,
+    borderRadius: 6,
+  },
+  debugText: {
+    color: '#fff',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  localPreviewPiP: {
+    position: 'absolute',
+    bottom: SPACING.lg + 88,
+    right: SPACING.lg,
+    width: 140,
+    height: 200,
+    borderRadius: BORDER_RADIUS.md,
+    overflow: 'hidden',
+    borderWidth: 2,
+    zIndex: 10,
+  },
+  pipCameraButton: {
+    position: 'absolute',
+    bottom: SPACING.sm,
+    right: SPACING.sm,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.85,
   },
   videoTitleBlock: {
     flex: 1,

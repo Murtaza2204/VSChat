@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   NavigationContainer,
   DefaultTheme,
@@ -7,6 +7,8 @@ import {
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { navigationRef, navigate } from '../navigation/NavigationService';
+import signaling from '../services/signaling';
 
 // Screens
 import SplashScreen from '../screens/SplashScreen';
@@ -130,6 +132,18 @@ const ProfileStack = () => {
 
 const MainTabs = () => {
   const { theme } = useThemeStore();
+  const { user } = useAuthStore();
+
+  useEffect(() => {
+    if (!user) return;
+
+    signaling.initSignaling((payload) => {
+      // Navigate to Calls -> IncomingCall screen
+      if (navigationRef.isReady()) {
+        navigate('Main', { screen: 'Calls', params: { screen: 'IncomingCall', params: payload } });
+      }
+    });
+  }, [user]);
 
   return (
     <Tab.Navigator
@@ -222,6 +236,7 @@ const RootNavigator = () => {
 
   return (
     <NavigationContainer
+      ref={navigationRef}
       theme={{
         ...DefaultTheme,
         colors: {

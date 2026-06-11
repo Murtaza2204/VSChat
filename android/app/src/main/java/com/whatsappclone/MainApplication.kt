@@ -2,6 +2,7 @@ package com.whatsappclone
 
 import android.app.Application
 import com.facebook.react.PackageList
+import io.agora.rtc.ng.react.AgoraRtcNgPackage
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
@@ -16,6 +17,8 @@ class MainApplication : Application(), ReactApplication {
         PackageList(this).packages.apply {
           // Packages that cannot be autolinked yet can be added manually here, for example:
           // add(MyReactNativePackage())
+          // Manually register Agora native package to ensure it's available on Android
+          add(AgoraRtcNgPackage())
         },
     )
   }

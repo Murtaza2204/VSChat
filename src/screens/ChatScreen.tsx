@@ -29,6 +29,8 @@ import { MediaItem, Message } from '../types';
 import Avatar from '../components/Avatar';
 import ChatBubble from '../components/ChatBubble';
 import MessageInput from '../components/MessageInput';
+import signaling from '../services/signaling';
+import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
 
 const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
@@ -161,11 +163,25 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const handleStartCall = (callType: 'audio' | 'video') => {
+    // send invite to recipient then navigate caller to ActiveCall
+    try {
+      signaling.inviteCall(chat.userId || chat.id, callType, {
+        channel: AGORA_CHANNEL,
+        token: AGORA_TOKEN,
+        appId: AGORA_APP_ID,
+      });
+    } catch (e) {
+      console.warn('inviteCall failed', e);
+    }
+
     navigation.navigate('ActiveCall', {
       callType,
       callerName: chat.title,
       callerAvatar: chat.avatar,
       chatId: chat.id,
+      appId: AGORA_APP_ID,
+      channel: AGORA_CHANNEL,
+      token: AGORA_TOKEN,
     });
   };
 
