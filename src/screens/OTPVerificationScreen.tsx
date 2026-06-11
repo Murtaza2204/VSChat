@@ -86,11 +86,13 @@ const OTPVerificationScreen: React.FC<{ navigation: any; route: any }> = ({
     setIsLoading(true);
     setErrorState('');
     try {
-      await verifyOTP(phone, otpString);
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'UserSetup' }],
-      });
+      const flow = await verifyOTP(phone, otpString);
+      if (flow === 'register') {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'UserSetup' }],
+        });
+      }
     } catch (err: any) {
       const message = err?.message || 'Invalid OTP. Please try again.';
       setErrorState(message);

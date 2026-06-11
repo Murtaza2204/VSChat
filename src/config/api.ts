@@ -1,22 +1,31 @@
 import { Platform } from 'react-native';
 
-// IMPORTANT:
-// For physical device via ADB reverse (USB debugging):
-// - Run: adb reverse tcp:5000 tcp:5000
-// - Use localhost to connect (tunnel forwards to PC's backend)
-// - After editing this file, rebuild the app
-//
-// For direct LAN connection (Wi-Fi):
-// - Ensure phone and PC are on same Wi-Fi network
-// - Set ANDROID_HOST to your PC's LAN IP (192.168.1.40)
-// - Uncomment USE_ADB_REVERSE = false below
+// Network configuration for API access from different devices:
+// - For Android emulator (default Android Studio emulator) use 10.0.2.2
+// - For Genymotion emulator use 10.0.3.2
+// - For physical Android device over USB use adb reverse: adb reverse tcp:5000 tcp:5000 and set USE_ADB_REVERSE = true
+// - For physical device over LAN set USE_ADB_REVERSE = false and configure ANDROID_HOST to your PC IP
+// Common workflow:
+// 1) Fast local dev on a physical device (USB): run `adb reverse tcp:5000 tcp:5000` and keep USE_ADB_REVERSE=true
+// 2) If you use an emulator, set USE_ANDROID_EMULATOR=true (or leave adb reverse off) and emulator host will be used
+// 3) For LAN testing (Wi‑Fi), set USE_ADB_REVERSE=false and set ANDROID_HOST to your PC's LAN IP
 
-const ANDROID_HOST = '192.168.31.150'; // Your PC's LAN IP
-const USE_ADB_REVERSE = true; // Set to true when using adb reverse tcp:5000 tcp:5000
+const ANDROID_HOST = '192.168.1.40'; // <-- Replace with your PC LAN IP when testing over Wi-Fi
+const USE_ADB_REVERSE = false; // true = use adb reverse + localhost (USB physical device)
+const USE_ANDROID_EMULATOR = true; // true = prefer emulator host (10.0.2.2 for Android emulator)
+
+const EMULATOR_HOST_ANDROID = '10.0.2.2'; // Android emulator (Android Studio)
+const GENYMOTION_HOST = '10.0.3.2';
+
+const androidHost = USE_ADB_REVERSE
+  ? 'localhost'
+  : USE_ANDROID_EMULATOR
+  ? EMULATOR_HOST_ANDROID
+  : ANDROID_HOST;
 
 const host = Platform.select({
-  android: USE_ADB_REVERSE ? 'localhost' : ANDROID_HOST,
-  ios: 'localhost',
+  android: androidHost,
+  ios: 'localhost', // iOS simulator can use localhost; physical iOS device must use LAN IP
   default: 'localhost',
 });
 
