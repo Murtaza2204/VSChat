@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { MOCK_CHATS, MOCK_MESSAGES } from '../constants/mockData';
+import { useAuthStore } from './authStore';
 import { Chat, Message } from '../types';
 
 interface ChatStore {
@@ -24,9 +24,9 @@ interface ChatStore {
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
-  chats: MOCK_CHATS,
+  chats: [],
   currentChat: null,
-  messages: MOCK_MESSAGES,
+  messages: [],
   searchQuery: '',
 
   setChats: (chats) => set({ chats }),
@@ -83,11 +83,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               : message.type === 'location' || message.type === 'liveLocation'
                 ? 'Location'
                 : 'Message');
+    const currentUser = useAuthStore.getState().user;
     const forwardedMessage: Message = {
       ...message,
       id: Math.random().toString(),
-      senderId: 'me',
-      senderName: 'You',
+      senderId: currentUser?.id || 'me',
+      senderName: currentUser?.name || 'You',
       timestamp: new Date(),
       read: true,
       forwarded: true,

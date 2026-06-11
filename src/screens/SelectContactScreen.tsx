@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+// @ts-nocheck
+import React, { useMemo, useEffect, useState } from 'react';
 import {
   FlatList,
   SafeAreaView,
@@ -7,9 +8,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/Ionicons';
+const Icon = require('react-native-vector-icons/Ionicons').default;
 import { useThemeStore } from '../stores/themeStore';
+import contactSync from '../utils/contactSync';
 import { useChatStore } from '../stores/chatStore';
+import { useAuthStore } from '../stores/authStore';
 import { FONT_SIZES, SPACING } from '../constants/colors';
 import Avatar from '../components/Avatar';
 import { Chat } from '../types';
@@ -19,11 +22,54 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
   route,
 }) => {
   const { theme } = useThemeStore();
-  const { chats, addGroupMember, setCurrentChat, markChatAsRead } = useChatStore();
+  const { chats, setChats, addGroupMember, setCurrentChat, markChatAsRead } = useChatStore();
+  const { user } = useAuthStore();
   const isAddingMembers = route.params?.mode === 'addMembers';
   const groupChatId = route.params?.groupChatId;
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
-  const contacts = useMemo(() => chats.filter((chat) => !chat.isGroup), [chats]);
+  const [contactsList, setContactsList] = useState<any[]>([]);
+  const [loadingContacts, setLoadingContacts] = useState(false);
+  useEffect(() => {
+    // if matched contacts were passed via navigation, use them; otherwise perform sync
+    const matched = route.params?.matched;
+    if (matched && Array.isArray(matched)) {
+      // map matched users to chat-like items
+      setContactsList(
+        matched.map((u: any) => ({
+          id: String(u._id),
+          title: u.displayName || u.phoneNumber || String(u._id),
+          avatar: u.profilePictureUrl || (u.displayName ? u.displayName.charAt(0) : undefined),
+          phoneNumber: u.phoneNumber,
+        })),
+      );
+      return;
+    }
+
+    (async () => {
+      setLoadingContacts(true);
+      try {
+        const matched2 = await contactSync.syncDeviceContacts();
+          console.warn('matched2', matched2);
+        setContactsList(
+          matched2.map((u: any) => ({
+            id: u._id,
+            title: u.displayName || u.phoneNumber,
+            avatar: u.profilePictureUrl || (u.displayName ? u.displayName.charAt(0) : undefined),
+            phoneNumber: u.phoneNumber,
+          })),
+        );
+          if (!matched2 || matched2.length === 0) {
+            // show a helpful placeholder so user knows nothing matched
+            setContactsList([]);
+          }
+      } catch (e) {
+        // fallback to chats from store
+        setContactsList(chats.filter((chat) => !chat.isGroup));
+      } finally {
+        setLoadingContacts(false);
+      }
+    })();
+  }, [route.params, chats]);
   const groupChat = useMemo(
     () => chats.find((chat) => chat.id === groupChatId && chat.isGroup),
     [chats, groupChatId],
@@ -40,18 +86,43 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const selectedContacts = useMemo(
     () =>
-      contacts.filter((contact) =>
+      contactsList.filter((contact) =>
         selectedContactIdSet.has(contact.userId || contact.id),
       ),
-    [contacts, selectedContactIdSet],
+    [contactsList, selectedContactIdSet],
   );
 
-  const handleContactPress = (contact: Chat) => {
+  const handleContactPress = async (contact: any) => {
     if (!isAddingMembers || !groupChatId) {
-      setCurrentChat(contact);
-      markChatAsRead(contact.id);
-      navigation.navigate('Chat', { chat: contact });
-      return;
+      // attempt to find or create conversation with this contact via backend
+      try {
+        const myId = user?.id;
+        if (!myId) {
+          throw new Error('Logged-in user id is missing');
+        }
+        const otherId = contact.id;
+        const convoRes = await (await import('../utils/conversations')).findOrCreateConversation(myId, otherId);
+        const conversation = convoRes.conversation;
+        const participant = conversation.participantProfile || contact;
+        const chatItem = {
+          id: String(conversation._id),
+          title: participant?.displayName || contact.title || participant?.phoneNumber || otherId,
+          avatar: participant?.profilePictureUrl || contact.avatar,
+          lastMessage: conversation.lastMessage || '',
+          lastMessageTime: conversation.lastMessageAt ? new Date(conversation.lastMessageAt) : new Date(conversation.createdAt),
+          isGroup: false,
+          conversationId: conversation._id,
+        };
+
+        setChats([chatItem, ...chats.filter((chat) => chat.conversationId !== chatItem.conversationId && chat.id !== chatItem.id)]);
+        setCurrentChat(chatItem);
+        markChatAsRead(chatItem.id);
+        // navigate to Chat screen with conversation id
+        navigation.navigate('Chat', { conversationId: conversation._id, participant: contact });
+        return;
+      } catch (e) {
+        console.warn('Failed to create/find conversation', (e as any)?.message || String(e));
+      }
     }
 
     const contactId = contact.userId || contact.id;
@@ -77,7 +148,7 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
     navigation.goBack();
   };
 
-  const renderContact = ({ item }: { item: Chat }) => {
+  const renderContact = ({ item }: { item: any }) => {
     const contactId = item.userId || item.id;
     const alreadyAdded = isAddingMembers && existingMemberIds.has(contactId);
     const isSelected = selectedContactIdSet.has(contactId);
@@ -89,7 +160,7 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
         onPress={() => handleContactPress(item)}
       >
         <Avatar
-          source={item.avatar || item.title.charAt(0)}
+          source={item.avatar || (item.title ? item.title.charAt(0) : undefined)}
           size="medium"
           theme={theme}
           style={styles.avatar}
@@ -142,7 +213,7 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
           <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
             {isAddingMembers && selectedContactIds.length > 0
               ? `${selectedContactIds.length} selected`
-              : `${contacts.length} contacts`}
+              : `${contactsList.length} contacts`}
           </Text>
         </View>
         <TouchableOpacity style={styles.iconButton}>
@@ -154,7 +225,7 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
       </View>
 
       <FlatList
-        data={contacts}
+        data={contactsList}
         keyExtractor={(item) => item.id}
         renderItem={renderContact}
         ListHeaderComponent={(

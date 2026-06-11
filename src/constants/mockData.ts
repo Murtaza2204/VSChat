@@ -62,8 +62,8 @@ export const MOCK_MESSAGES: Message[] = [
   },
   {
     id: '2',
-    senderId: 'me',
-    senderName: 'Me',
+    senderId: '5',
+    senderName: 'Alex Brown',
     content: "I'm doing great! How about you?",
     type: 'text',
     timestamp: new Date(now.getTime() - 240000),
@@ -80,8 +80,8 @@ export const MOCK_MESSAGES: Message[] = [
   },
   {
     id: '4',
-    senderId: 'me',
-    senderName: 'Me',
+    senderId: '2',
+    senderName: 'Jane Smith',
     content: 'Sure! Tomorrow at 3pm?',
     type: 'text',
     timestamp: new Date(now.getTime() - 120000),
@@ -102,8 +102,8 @@ export const DEV_TEAM_MESSAGES: Message[] = [
   },
   {
     id: 'dev-2',
-    senderId: 'me',
-    senderName: 'You',
+    senderId: '5',
+    senderName: 'Alex Brown',
     content: 'Yes, I am checking the group chat UI first.',
     type: 'text',
     timestamp: new Date(now.getTime() - 3900000),
