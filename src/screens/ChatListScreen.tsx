@@ -57,9 +57,11 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       // map conversations to Chat-like items
       const chatItems = convos.map((c: any) => {
         const participant = c.participantProfile || null;
+        // Use participant id as chat id when available so navigation passes correct user id
+        const participantId = participant?.id || participant?.userId;
         return {
-          id: String(c._id),
-          title: participant?.displayName || participant?.id || 'Unknown',
+          id: String(participantId || c._id),
+          title: participant?.displayName || participantId || 'Unknown',
           avatar: participant?.profilePictureUrl || undefined,
           phoneNumber: participant?.phoneNumber,
           lastMessage: c.lastMessage || '',

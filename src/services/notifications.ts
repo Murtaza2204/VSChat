@@ -27,6 +27,17 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
         const body = remoteMessage.notification?.body || '';
 
         if (data.type === 'call') {
+          // Parse caller info from JSON string
+          try {
+            if (data.caller) {
+              const callerUser = JSON.parse(data.caller);
+              data.fromUser = callerUser;
+              data.callerName = callerUser.name || callerUser.displayName || 'Unknown';
+              data.callerId = callerUser.id;
+            }
+          } catch (e) {
+            console.warn('Failed to parse caller data', e);
+          }
           onIncomingCall && onIncomingCall(data);
           // also show actionable notification
           await notifee.displayNotification({
@@ -68,6 +79,17 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
     messaging().onNotificationOpenedApp((remoteMessage) => {
       const data = remoteMessage?.data || {};
       if (data.type === 'call') {
+        // Parse caller info from JSON string
+        try {
+          if (data.caller) {
+            const callerUser = JSON.parse(data.caller);
+            data.fromUser = callerUser;
+            data.callerName = callerUser.name || callerUser.displayName || 'Unknown';
+            data.callerId = callerUser.id;
+          }
+        } catch (e) {
+          console.warn('Failed to parse caller data', e);
+        }
         onIncomingCall && onIncomingCall(data);
         // navigate to incoming call screen
         navigate('Main', { screen: 'Calls', params: { screen: 'IncomingCall', params: data } });
@@ -81,6 +103,17 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
     if (initial) {
       const data = initial.data || {};
       if (data.type === 'call') {
+        // Parse caller info from JSON string
+        try {
+          if (data.caller) {
+            const callerUser = JSON.parse(data.caller);
+            data.fromUser = callerUser;
+            data.callerName = callerUser.name || callerUser.displayName || 'Unknown';
+            data.callerId = callerUser.id;
+          }
+        } catch (e) {
+          console.warn('Failed to parse caller data', e);
+        }
         onIncomingCall && onIncomingCall(data);
         navigate('Main', { screen: 'Calls', params: { screen: 'IncomingCall', params: data } });
       } else if (data.conversationId) {
@@ -94,6 +127,18 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
         const actionId = detail.pressAction.id;
         const d = detail.notification?.data || {};
         if (actionId === 'accept') {
+          // Parse caller info
+          let callerId;
+          try {
+            if (d.caller) {
+              const callerUser = JSON.parse(d.caller);
+              callerId = callerUser.id;
+            } else {
+              callerId = d.fromUserId || d.callerId;
+            }
+          } catch (e) {
+            callerId = d.fromUserId || d.callerId;
+          }
           // navigate to incoming call
           navigate('Main', { screen: 'Calls', params: { screen: 'IncomingCall', params: d } });
           // notify server that call was accepted
@@ -103,7 +148,7 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
               const socket = connectSocket(token);
               const currentUser = useAuthStore.getState().user;
               const payload = {
-                toUserId: (d.from && JSON.parse(d.from).id) || d.fromUserId || d.from || d.fromId,
+                toUserId: callerId,
                 fromUserId: currentUser?.id,
                 response: 'accept',
                 callId: d.callId || d.id,
@@ -114,6 +159,18 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
             }
           })();
         } else if (actionId === 'decline') {
+          // Parse caller info
+          let callerId;
+          try {
+            if (d.caller) {
+              const callerUser = JSON.parse(d.caller);
+              callerId = callerUser.id;
+            } else {
+              callerId = d.fromUserId || d.callerId;
+            }
+          } catch (e) {
+            callerId = d.fromUserId || d.callerId;
+          }
           // send decline/response to server via socket
           (async () => {
             try {
@@ -121,7 +178,7 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
               const socket = connectSocket(token);
               const currentUser = useAuthStore.getState().user;
               const payload = {
-                toUserId: (d.from && JSON.parse(d.from).id) || d.fromUserId || d.from || d.fromId,
+                toUserId: callerId,
                 fromUserId: currentUser?.id,
                 response: 'decline',
                 callId: d.callId || d.id,

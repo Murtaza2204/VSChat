@@ -11,6 +11,8 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import { BORDER_RADIUS, FONT_SIZES, SHADOWS, SPACING } from '../constants/colors';
 import { useChatStore } from '../stores/chatStore';
 import { useThemeStore } from '../stores/themeStore';
+import { useAuthStore } from '../stores/authStore';
+import signaling from '../services/signaling';
 import { Message } from '../types';
 
 type CallStatus = NonNullable<Message['call']>['status'];
@@ -83,12 +85,36 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const handleReject = () => {
+    try {
+      const callerId = route.params?.fromUser?.id || route.params?.callerId;
+      const currentUser = useAuthStore.getState().user;
+      const callId = route.params?.callId;
+      if (callerId && currentUser?.id) {
+        signaling.respondToCall(callerId, currentUser.id, 'decline', callId);
+        console.log('[ReceiverCallScreen] Sent decline response to:', callerId);
+      }
+    } catch (e) {
+      console.warn('[ReceiverCallScreen] Failed to send decline response:', e);
+    }
     logIncomingCall('missed');
     navigation.goBack();
   };
 
   const handleAccept = () => {
     setAccepted(true);
+    // Send acceptance response to caller
+    try {
+      const callerId = route.params?.fromUser?.id || route.params?.callerId;
+      const currentUser = useAuthStore.getState().user;
+      const callId = route.params?.callId;
+      if (callerId && currentUser?.id) {
+        signaling.respondToCall(callerId, currentUser.id, 'accept', callId);
+        console.log('[ReceiverCallScreen] Sent accept response to:', callerId);
+      }
+    } catch (e) {
+      console.warn('[ReceiverCallScreen] Failed to send accept response:', e);
+    }
+
     // Navigate to active call screen and pass Agora params if provided
     const callTypeParam = route.params?.callType || callType;
     const appId = route.params?.appId;
@@ -103,6 +129,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
       appId,
       channel,
       token,
+      isReceiver: true,
     });
   };
 

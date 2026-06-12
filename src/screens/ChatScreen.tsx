@@ -280,14 +280,19 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const handleStartCall = (callType: 'audio' | 'video') => {
     // send invite to recipient then navigate caller to ActiveCall
+    const callId = `call-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     try {
-      signaling.inviteCall(chat.userId || chat.id, callType, {
-        channel: AGORA_CHANNEL,
+      const calleeId = derivedReceiverId || chat.userId || chat.id;
+      const perCallChannel = `call-${callId}`;
+      signaling.inviteCall(calleeId, callType, {
+        channel: perCallChannel,
         token: AGORA_TOKEN,
         appId: AGORA_APP_ID,
+        callId,
       });
+      console.log('[ChatScreen] Sent call invite:', { calleeId, callType, callId });
     } catch (e) {
-      console.warn('inviteCall failed', e);
+      console.warn('[ChatScreen] inviteCall failed', e);
     }
 
     navigation.navigate('ActiveCall', {
@@ -295,9 +300,12 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       callerName: chat.title,
       callerAvatar: chat.avatar,
       chatId: chat.id,
+      calleeId: derivedReceiverId || chat.id,
       appId: AGORA_APP_ID,
-      channel: AGORA_CHANNEL,
+      channel: `call-${callId}`,
       token: AGORA_TOKEN,
+      callId,
+      isCaller: true,
     });
   };
 
