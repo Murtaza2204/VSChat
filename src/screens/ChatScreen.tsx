@@ -32,6 +32,8 @@ import Avatar from '../components/Avatar';
 import ChatBubble from '../components/ChatBubble';
 import MessageInput from '../components/MessageInput';
 import messagesApi from '../utils/messages';
+import { connectSocket } from '../utils/socket';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import signaling from '../services/signaling';
 import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
 
@@ -44,7 +46,20 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const { user } = useAuthStore();
   const currentUserId = user?.id;
   const { chats, addMessage, updateMessage, deleteMessage } = useChatStore();
-  const chat = routeChat || (participant ? { id: participant.id, title: participant.title, avatar: participant.avatar } : null);
+  const chat = useMemo(
+    () =>
+      routeChat ||
+      (participant
+        ? {
+            id: participant.id,
+            title: participant.title,
+            avatar: participant.avatar,
+            phoneNumber: participant.phoneNumber,
+            isGroup: false,
+          }
+        : null),
+    [participant, routeChat],
+  );
   const receiverIdFromRoute = participant?.id;
   const derivedReceiverId =
     receiverIdFromRoute ||
@@ -164,14 +179,29 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           return;
         }
 
-        const sent = await messagesApi.sendMessage(
-          conversationId,
-          currentUserId,
-          content,
-          'text',
-          derivedReceiverId,
-        );
-        setLoadedMessages((m) => [...m, { id: sent._id, senderId: sent.senderId, senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them', content: sent.content, type: sent.type, timestamp: new Date(sent.createdAt), read: true }]);
+        try {
+          const token = await AsyncStorage.getItem('accessToken');
+          const socket = connectSocket(token);
+          if (socket && socket.connected) {
+            // optimistic local message
+            const tempId = Math.random().toString();
+            const optimistic = { id: tempId, senderId: currentUserId, senderName: 'You', content, type: 'text', timestamp: new Date(), read: false, status: 'sent' };
+            setLoadedMessages((m) => [...m, optimistic]);
+            socket.emit('message:send', { conversationId, senderId: currentUserId, receiverId: derivedReceiverId, content, type: 'text', clientTempId: tempId });
+          }
+          else {
+            const sent = await messagesApi.sendMessage(
+              conversationId,
+              currentUserId,
+              content,
+              'text',
+              derivedReceiverId,
+            );
+            setLoadedMessages((m) => [...m, { id: sent._id, senderId: sent.senderId, senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them', content: sent.content, type: sent.type, timestamp: new Date(sent.createdAt), read: false, status: sent.status || 'sent' }]);
+          }
+        } catch (e) {
+          console.warn('Send message failed', (e as any)?.message || String(e));
+        }
       } catch (e) {
         console.warn('Send message failed', (e as any)?.message || String(e));
       }
@@ -196,6 +226,57 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     addMessage(chat.id, newMessage);
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
   };
+
+  // Listen for socket events to reconcile messages for this conversation when open
+  useEffect(() => {
+    if (!conversationId) return;
+    let mounted = true;
+      (async () => {
+      // mark conversation read on open (clear unread counts server-side)
+      try {
+        const userRes = await AsyncStorage.getItem('user');
+        const currentUser = userRes ? JSON.parse(userRes) : null;
+        if (currentUser) {
+          try { await messagesApi.markConversationRead(String(conversationId), currentUser.id); } catch (e) { /* ignore */ }
+          try { const chatState = useChatStore.getState(); chatState.markChatAsRead(chat?.id || String(conversationId)); } catch (e) {}
+        }
+      } catch (e) {}
+      try {
+        const token = await AsyncStorage.getItem('accessToken');
+        const socket = connectSocket(token);
+        const onSent = (msg) => {
+          if (!mounted) return;
+          const convId = String(msg.conversationId || msg.conversation);
+          if (convId !== String(conversationId)) return;
+          const normalized = { id: String(msg._id || msg.id), senderId: msg.senderId, senderName: msg.senderName || (msg.senderId === currentUserId ? 'You' : 'Them'), content: msg.content, type: msg.type || 'text', timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(), read: msg.status === 'seen' };
+          if (msg.clientTempId) {
+            setLoadedMessages((prev) => prev.map((m) => (m.id === String(msg.clientTempId) ? normalized : m)));
+          } else {
+            setLoadedMessages((prev) => [...prev, normalized]);
+          }
+        };
+
+        const onReceive = (msg) => {
+          if (!mounted) return;
+          const convId = String(msg.conversationId || msg.conversation);
+          if (convId !== String(conversationId)) return;
+          const normalized = { id: String(msg._id || msg.id), senderId: msg.senderId, senderName: msg.senderName || '', content: msg.content, type: msg.type || 'text', timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(), read: false };
+          setLoadedMessages((prev) => [...prev, normalized]);
+        };
+
+        socket.on('message:sent', onSent);
+        socket.on('message:receive', onReceive);
+
+        return () => {
+          mounted = false;
+          socket.off('message:sent', onSent);
+          socket.off('message:receive', onReceive);
+        };
+      } catch (e) {
+        // ignore
+      }
+    })();
+  }, [conversationId, currentUserId]);
 
   const handleStartCall = (callType: 'audio' | 'video') => {
     // send invite to recipient then navigate caller to ActiveCall
@@ -260,7 +341,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             newMessage.type,
             derivedReceiverId,
           )
-          .then((sent) =>
+            .then((sent) =>
             setLoadedMessages((m) => [
               ...m,
               {
@@ -271,7 +352,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                 content: sent.content,
                 type: sent.type,
                 timestamp: new Date(sent.createdAt),
-                read: true,
+                read: false,
+                status: sent.status || 'sent',
               },
             ]),
           )
@@ -362,7 +444,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                 content: sent.content,
                 type: sent.type,
                 timestamp: new Date(sent.createdAt),
-                read: true,
+                read: false,
+                status: sent.status || 'sent',
               },
             ]),
           )
@@ -541,7 +624,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       (async () => {
         try {
           const msgs = await messagesApi.getMessages(conversationId);
-          setLoadedMessages(msgs.map((m) => ({ id: m._id, senderId: m.senderId, senderName: m.senderId === currentUserId ? 'You' : m.senderName || 'Them', content: m.content, type: m.type, timestamp: new Date(m.createdAt), read: true })));
+            setLoadedMessages(msgs.map((m) => ({ id: m._id, senderId: m.senderId, senderName: m.senderId === currentUserId ? 'You' : m.senderName || 'Them', content: m.content, type: m.type, timestamp: new Date(m.createdAt), read: (m.status === 'seen' || m.senderId === currentUserId), status: m.status || 'sent' })));
         } catch (e) {
           console.warn('Failed to load messages', (e as any)?.message || String(e));
         }
@@ -941,7 +1024,16 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             <TouchableOpacity
               style={styles.headerProfileButton}
               activeOpacity={0.75}
-              onPress={() => navigation.navigate('ContactInfo', { chat })}
+              onPress={() =>
+                navigation.navigate('ContactInfo', {
+                  chat: {
+                    ...chat,
+                    phoneNumber: (participant as any)?.phoneNumber || (chat as any)?.phoneNumber,
+                    profilePictureUrl: (participant as any)?.profilePictureUrl || (chat as any)?.profilePictureUrl,
+                    displayName: (participant as any)?.title || (participant as any)?.displayName || (chat as any)?.displayName || chat.title,
+                  },
+                })
+              }
             >
               <Avatar source={chat.avatar || chat.title.charAt(0)} size="medium" theme={theme} />
               <View style={styles.headerTextBlock}>

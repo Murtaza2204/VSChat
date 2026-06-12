@@ -21,6 +21,7 @@ interface ChatStore {
   setSearchQuery: (query: string) => void;
   getSearchedChats: () => Chat[];
   markChatAsRead: (chatId: string) => void;
+  replaceMessageTempId: (tempId: string, serverMessage: Message) => void;
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -252,6 +253,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         return { ...chat, unreadCount: 0 };
       }
       return chat;
+    });
+    set({ chats: updatedChats });
+  },
+
+  // Replace an optimistic message (identified by client temp id) with server message
+  replaceMessageTempId: (tempId: string, serverMessage: Message) => {
+    const { chats } = get();
+    const updatedChats = chats.map((chat) => {
+      const messages = (chat.messages || []).map((m) => {
+        if (m.id === tempId) {
+          return { ...m, ...serverMessage, id: String(serverMessage.id || (serverMessage as any)._id || serverMessage.id) };
+        }
+        return m;
+      });
+      return { ...chat, messages, lastMessage: messages[messages.length - 1]?.content || chat.lastMessage };
     });
     set({ chats: updatedChats });
   },

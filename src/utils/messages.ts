@@ -12,4 +12,9 @@ export const sendMessage = async (conversationId, senderId, content, type = 'tex
   return res.data.message;
 };
 
-export default { getMessages, sendMessage };
+export const markConversationRead = async (conversationId, readerId) => {
+  const res = await api.post('/messages/mark-conversation-read', { conversationId, readerId });
+  return res.data;
+};
+
+export default { getMessages, sendMessage, markConversationRead };

@@ -348,7 +348,13 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
 
         <View style={[styles.footer, isMediaMessage && styles.mediaFooter]}>
           <Text style={[styles.timestamp, { color: theme.textSecondary }]}>{formatTime(timestamp)}</Text>
-          {isOwn && read && <Icon name="checkmark-done" size={14} color={theme.primary} />}
+          {isOwn && (
+            <Icon
+              name="checkmark-done"
+              size={14}
+              color={read ? theme.primary : theme.textSecondary}
+            />
+          )}
         </View>
         {reaction ? (
           <View style={[styles.reactionBadge, { backgroundColor: theme.surface }]}>

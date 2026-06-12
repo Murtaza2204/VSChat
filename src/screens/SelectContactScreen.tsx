@@ -108,6 +108,7 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
           id: String(conversation._id),
           title: participant?.displayName || contact.title || participant?.phoneNumber || otherId,
           avatar: participant?.profilePictureUrl || contact.avatar,
+          phoneNumber: participant?.phoneNumber || contact.phoneNumber,
           lastMessage: conversation.lastMessage || '',
           lastMessageTime: conversation.lastMessageAt ? new Date(conversation.lastMessageAt) : new Date(conversation.createdAt),
           isGroup: false,
@@ -118,7 +119,13 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
         setCurrentChat(chatItem);
         markChatAsRead(chatItem.id);
         // navigate to Chat screen with conversation id
-        navigation.navigate('Chat', { conversationId: conversation._id, participant: contact });
+        navigation.navigate('Chat', {
+          conversationId: conversation._id,
+          participant: {
+            ...contact,
+            phoneNumber: participant?.phoneNumber || contact.phoneNumber,
+          },
+        });
         return;
       } catch (e) {
         console.warn('Failed to create/find conversation', (e as any)?.message || String(e));

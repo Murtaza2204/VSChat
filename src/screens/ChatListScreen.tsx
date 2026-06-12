@@ -61,10 +61,12 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           id: String(c._id),
           title: participant?.displayName || participant?.id || 'Unknown',
           avatar: participant?.profilePictureUrl || undefined,
+          phoneNumber: participant?.phoneNumber,
           lastMessage: c.lastMessage || '',
           lastMessageTime: c.lastMessageAt ? new Date(c.lastMessageAt) : new Date(c.createdAt),
           isGroup: false,
           conversationId: c._id,
+          unreadCount: typeof c.unreadCount === 'number' ? c.unreadCount : 0,
         };
       });
 
@@ -81,7 +83,15 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const handleChatPress = (chat: any) => {
     setCurrentChat(chat);
     markChatAsRead(chat.id);
-    navigation.navigate('Chat', { conversationId: chat.conversationId, participant: { id: chat.id, title: chat.title, avatar: chat.avatar } });
+    navigation.navigate('Chat', {
+      conversationId: chat.conversationId,
+      participant: {
+        id: chat.id,
+        title: chat.title,
+        avatar: chat.avatar,
+        phoneNumber: chat.phoneNumber,
+      },
+    });
   };
 
   const closeMenu = () => setMenuVisible(false);

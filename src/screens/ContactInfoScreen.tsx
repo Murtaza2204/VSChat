@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   FlatList,
   SafeAreaView,
@@ -14,6 +14,7 @@ import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
 import Avatar from '../components/Avatar';
+import api from '../config/api';
 import { Chat } from '../types';
 
 const mediaItems = [
@@ -31,23 +32,96 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   const { theme } = useThemeStore();
   const { chats } = useChatStore();
   const chat = chats.find((item) => item.id === routeChat.id) || routeChat;
-  const displayName = chat.title;
+  // derive display name, avatar and phone from possible shapes returned by backend
+  let displayName = chat.title;
   const groupMembers = chat.participants || [];
   const groupMemberCount = groupMembers.length + (chat.isGroup ? 1 : 0);
   const { user } = useAuthStore();
   const currentUserId = user?.id;
   const otherParticipant = !chat.isGroup
-    ? chat.participants?.find((p) => String(p.id) !== String(currentUserId))
+    ? (chat.participants || []).find((p) => String(p.id) !== String(currentUserId))
     : null;
 
-  let phone = '';
-  if (chat.isGroup) {
-    phone = `${groupMemberCount} members`;
-  } else if (chat.userId) {
-    phone = `+1 234 567 890${chat.userId}`;
-  } else {
-    phone = otherParticipant?.phone || '';
+  const routeAny: any = route.params || {};
+  const routeParticipant = routeAny.participant || routeAny.contact || routeAny.participantProfile || null;
+
+  const sourceCandidates: any[] = [routeParticipant, otherParticipant, (chat as any).participantProfile, chat as any];
+
+  // display name preference: displayName (DB) -> name -> chat.title
+  if (!chat.isGroup) {
+    for (const s of sourceCandidates) {
+      if (!s) continue;
+      if (s.displayName) {
+        displayName = s.displayName;
+        break;
+      }
+      if (s.name) {
+        displayName = s.name;
+        break;
+      }
+    }
   }
+
+  const avatarSource =
+    chat.avatar ||
+    (routeParticipant as any)?.profilePictureUrl ||
+    routeParticipant?.avatar ||
+    (otherParticipant as any)?.profilePictureUrl ||
+    otherParticipant?.avatar ||
+    (chat as any).profilePictureUrl ||
+    (chat as any).profilePicture ||
+    displayName?.charAt(0);
+
+  // helper: format +<country><number> => +<country> <number> (country 1-3 digits)
+  const formatPhone = (p: string) => {
+    if (!p || typeof p !== 'string') return '';
+    const cleaned = p.replace(/\s+/g, '');
+    // handle common India format (+91)
+    if (cleaned.startsWith('+91') && cleaned.length > 3) {
+      return `+91 ${cleaned.slice(3)}`;
+    }
+    const m = cleaned.match(/^(\+\d{1,3})(\d+)$/);
+    if (m) return `${m[1]} ${m[2]}`;
+    return p;
+  };
+
+  // phone preference: phoneNumber (DB) -> phone
+  const initialPhoneRaw = chat.isGroup
+    ? `${groupMemberCount} members`
+    : (() => {
+        for (const s of sourceCandidates) {
+          if (!s) continue;
+          if (s.phoneNumber) return s.phoneNumber;
+          if (s.phone) return s.phone;
+        }
+        return '';
+      })();
+
+  const [phone, setPhone] = useState<string>(formatPhone(initialPhoneRaw));
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (chat.isGroup) return;
+      if (phone) return; // already have phone
+      const myId = user?.id;
+      if (!myId) return;
+      try {
+        const res = await api.get('/conversations', { params: { userId: myId } });
+        const convos: any[] = res.data.conversations || [];
+        const match = convos.find((c) => String(c._id) === String((chat as any).conversationId) || String(c.id) === String(chat.id));
+        if (match && match.participantProfile && !cancelled) {
+          const raw = match.participantProfile.phoneNumber || match.participantProfile.phone || '';
+          setPhone(formatPhone(raw));
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [chat, user, phone]);
 
   const quickActions = [
     { label: 'Audio', icon: 'call-outline' },
@@ -83,13 +157,17 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
         contentContainerStyle={styles.scrollContent}
       >
         <View style={styles.profileSection}>
-          <Avatar source={chat.avatar || displayName.charAt(0)} size="extra-large" theme={theme} />
-          <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
-            {displayName}
-          </Text>
-          <Text style={[styles.phone, { color: theme.textSecondary }]} numberOfLines={1}>
-            {phone}
-          </Text>
+          <Avatar source={avatarSource} size="extra-large" theme={theme} />
+          {displayName ? (
+            <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
+              {displayName}
+            </Text>
+          ) : null}
+          {phone ? (
+            <Text style={[styles.phone, { color: theme.textSecondary }]} numberOfLines={1}>
+              {phone}
+            </Text>
+          ) : null}
           <Text style={[styles.about, { color: theme.text }]}>
             Life is not a matter of holding good cards, but playing your card well....
           </Text>
@@ -187,7 +265,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
               </View>
             </View>
 
-            {groupMembers.map((member, index) => (
+            {groupMembers.map((member: any, index: number) => (
               <View key={member.id} style={styles.memberRow}>
                 <Avatar
                   source={member.avatar || member.name.charAt(0)}
@@ -223,7 +301,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                     style={[styles.memberSubtitle, { color: theme.textSecondary }]}
                     numberOfLines={1}
                   >
-                    {member.bio || member.phone || 'Available'}
+                    {member.bio || (member as any).phoneNumber || (member as any).phone || 'Available'}
                   </Text>
                 </View>
               </View>

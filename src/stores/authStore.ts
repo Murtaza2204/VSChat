@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import auth from '@react-native-firebase/auth';
 import { User, AuthState } from '../types';
+import { connectSocket } from '../utils/socket';
+import { useChatStore } from './chatStore';
 import { API_BASE_URL } from '../config/api';
 
 type AuthFlow = 'login' | 'register';
@@ -31,6 +33,7 @@ export const useAuthStore = create<AuthStore>((set) => {
       try {
         const storedUser = await AsyncStorage.getItem('user');
         const storedAuthFlow = await AsyncStorage.getItem('authFlow');
+        const token = await AsyncStorage.getItem('accessToken');
         if (storedUser) {
           const parsedUser = JSON.parse(storedUser);
           set({
@@ -41,6 +44,111 @@ export const useAuthStore = create<AuthStore>((set) => {
             error: null,
             authFlow: storedAuthFlow === 'login' || storedAuthFlow === 'register' ? storedAuthFlow : null,
           });
+
+          // initialize socket connection for real-time updates
+          try {
+            if (token) {
+              const socket = connectSocket(token);
+              socket.on('connect', () => console.info('Socket connected'));
+
+              socket.on('message:receive', (msg) => {
+                try {
+                  const chatState = useChatStore.getState();
+                  const chats = chatState.chats || [];
+                  const convId = String(msg.conversationId || msg.conversation);
+                  const currentOpen = chatState.currentChat && (String(chatState.currentChat.conversationId || chatState.currentChat.id) === convId);
+                  const chatItem = chats.find((c) => String(c.conversationId) === convId || String(c.id) === convId);
+                  const message = {
+                    id: String(msg._id || msg.id),
+                    senderId: msg.senderId,
+                    senderName: msg.senderName || '',
+                    content: msg.content,
+                    type: msg.type || 'text',
+                    timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
+                    read: false,
+                  };
+
+                  if (chatItem) {
+                    chatState.addMessage(chatItem.id || convId, message);
+                    // also bump lastMessage
+                    const updatedChats = chats.map((c) =>
+                      (String(c.conversationId) === convId || String(c.id) === convId)
+                        ? { ...c, lastMessage: message.content, lastMessageTime: message.timestamp, unreadCount: currentOpen ? 0 : ((c.unreadCount || 0) + 1) }
+                        : c,
+                    );
+                    chatState.setChats(updatedChats);
+                  } else {
+                    // optional: add a lightweight chat entry
+                    const newChat = {
+                      id: convId,
+                      conversationId: convId,
+                      title: msg.senderName || 'Unknown',
+                      avatar: undefined,
+                      lastMessage: message.content,
+                      lastMessageTime: message.timestamp,
+                      isGroup: false,
+                      participants: [],
+                      messages: [message],
+                      unreadCount: currentOpen ? 0 : 1,
+                    };
+                    chatState.setChats([newChat, ...chats]);
+                  }
+                } catch (e) {
+                  console.warn('message:receive handler error', e);
+                }
+              });
+
+              socket.on('message:sent', (msg) => {
+                try {
+                  const chatState = useChatStore.getState();
+                  const chats = chatState.chats || [];
+                  const convId = String(msg.conversationId || msg.conversation);
+                  const message = {
+                    id: String(msg._id || msg.id),
+                    senderId: msg.senderId,
+                    senderName: msg.senderName || '',
+                    content: msg.content,
+                    type: msg.type || 'text',
+                    timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
+                    read: false,
+                  };
+                  const chatItem = chats.find((c) => String(c.conversationId) === convId || String(c.id) === convId);
+                  if (msg.clientTempId) {
+                    // reconcile optimistic message
+                    chatState.replaceMessageTempId(String(msg.clientTempId), message as any);
+                  } else if (chatItem) {
+                    chatState.addMessage(chatItem.id || convId, message);
+                    chatState.setChats(
+                      chats.map((c) =>
+                        (String(c.conversationId) === convId || String(c.id) === convId)
+                          ? { ...c, lastMessage: message.content, lastMessageTime: message.timestamp }
+                          : c,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  console.warn('message:sent handler error', e);
+                }
+              });
+
+              socket.on('message:status', (status) => {
+                try {
+                  const chatState = useChatStore.getState();
+                  // update message status by id across chats
+                  const updates: any = { status: status.status };
+                  if (status.status === 'seen') {
+                    updates.read = true;
+                    updates.seenAt = status.seenAt || status.lastSeenAt || new Date();
+                  } else if (status.deliveredAt) {
+                    updates.deliveredAt = status.deliveredAt;
+                  }
+                  chatState.updateMessage(String(status.messageId), updates);
+                } catch (e) {}
+              });
+            }
+          } catch (e) {
+            console.warn('Socket init failed', e);
+          }
         }
       } catch (error) {
         console.warn('Failed to load user from storage:', error);

@@ -218,12 +218,13 @@ const UserSetupScreen: React.FC = () => {
 
     setIsLoading(true);
     try {
-      await setupProfile({
+      const payload: any = {
         name: trimmedName,
-        avatar: photoUri || '👤',
         status: 'online',
         permissions: statuses,
-      });
+      };
+      if (photoUri) payload.avatar = photoUri; // only send avatar when user selected a photo
+      await setupProfile(payload);
     } catch (error: any) {
       setError(error.message || 'Profile setup failed');
     } finally {
