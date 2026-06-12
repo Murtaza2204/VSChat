@@ -54,10 +54,13 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [loadedMessages, setLoadedMessages] = useState<Message[]>([]);
   const chatMessages = useMemo(() => (conversationId ? loadedMessages : (chat?.messages || [])), [conversationId, loadedMessages, chat]);
   const groupMemberCount = (chat.participants?.length || 0) + (chat.isGroup ? 1 : 0);
-  const groupSubtitle =
-    chat.isGroup && chat.participants?.length
+  const groupSubtitle = chat.isGroup
+    ? chat.participants?.length
       ? chat.participants.map((participant) => participant.name).join(', ')
-      : `${groupMemberCount} members`;
+      : `${groupMemberCount} members`
+    : chat.participants?.length
+    ? chat.participants.find((p) => String(p.id) !== String(currentUserId))?.name || ''
+    : '';
   const [messageText, setMessageText] = useState('');
   const [replyMessage, setReplyMessage] = useState<Message | null>(null);
   const [actionMessage, setActionMessage] = useState<Message | null>(null);

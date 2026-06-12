@@ -11,6 +11,7 @@ import {
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '../stores/themeStore';
 import { useChatStore } from '../stores/chatStore';
+import { useAuthStore } from '../stores/authStore';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
 import Avatar from '../components/Avatar';
 import { Chat } from '../types';
@@ -33,7 +34,20 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   const displayName = chat.title;
   const groupMembers = chat.participants || [];
   const groupMemberCount = groupMembers.length + (chat.isGroup ? 1 : 0);
-  const phone = chat.userId ? `+1 234 567 890${chat.userId}` : `${groupMemberCount} members`;
+  const { user } = useAuthStore();
+  const currentUserId = user?.id;
+  const otherParticipant = !chat.isGroup
+    ? chat.participants?.find((p) => String(p.id) !== String(currentUserId))
+    : null;
+
+  let phone = '';
+  if (chat.isGroup) {
+    phone = `${groupMemberCount} members`;
+  } else if (chat.userId) {
+    phone = `+1 234 567 890${chat.userId}`;
+  } else {
+    phone = otherParticipant?.phone || '';
+  }
 
   const quickActions = [
     { label: 'Audio', icon: 'call-outline' },

@@ -11,7 +11,9 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { useAuthStore } from '../stores/authStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore } from '../stores/themeStore';
+import auth from '@react-native-firebase/auth';
 import { SPACING, FONT_SIZES, BORDER_RADIUS } from '../constants/colors';
 import { validateOTP } from '../utils/theme';
 import CustomButton from '../components/CustomButton';
@@ -102,11 +104,26 @@ const OTPVerificationScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   };
 
-  const handleResendOTP = () => {
+  const handleResendOTP = async () => {
     setResendTimer(30);
     setCanResend(false);
     setOtp(['', '', '', '', '', '']);
     setErrorState('');
+
+    try {
+      // trigger Firebase to resend SMS
+      const confirmation = await auth().signInWithPhoneNumber(phone);
+      // @ts-ignore
+      const verificationId = confirmation.verificationId || null;
+      if (verificationId) await AsyncStorage.setItem('verificationId', verificationId);
+      // store in-memory confirmation
+      // @ts-ignore
+      (global as any).__pendingPhoneConfirmation = confirmation;
+    } catch (e: any) {
+      const msg = e?.message || 'Failed to resend code';
+      setErrorState(msg);
+      setError(msg);
+    }
   };
 
   const otpString = otp.join('');

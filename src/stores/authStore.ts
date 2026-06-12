@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import auth from '@react-native-firebase/auth';
 import { User, AuthState } from '../types';
 import { API_BASE_URL } from '../config/api';
 
@@ -49,34 +50,24 @@ export const useAuthStore = create<AuthStore>((set) => {
     login: async (countryCode: string, phoneNumber: string) => {
       set({ isLoading: true, error: null });
       try {
-        const e164 = `${countryCode}${phoneNumber}`;
-        const response = await fetch(`${API_BASE_URL}/auth/send-otp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ countryCode, phoneNumber }),
-        });
-        const data = await response.json();
+        const fullPhone = `${countryCode}${phoneNumber}`;
+        // Trigger Firebase to send SMS
+        const confirmation = await auth().signInWithPhoneNumber(fullPhone);
 
-        if (!response.ok || !data.success) {
-          throw new Error(data.message || 'Failed to send OTP');
-        }
+        // Persist verificationId as fallback
+        // @ts-ignore
+        const verificationId = confirmation.verificationId || null;
+        if (verificationId) await AsyncStorage.setItem('verificationId', verificationId);
+        try { await AsyncStorage.setItem('phone', fullPhone); } catch (e) { console.warn('Could not save phone to storage'); }
 
-        const authFlow = data.flow as AuthFlow;
+        // Store confirmation for in-memory confirmation flow
+        // @ts-ignore
+        (global as any).__pendingPhoneConfirmation = confirmation;
 
-        try {
-          await AsyncStorage.setItem('phone', e164);
-          await AsyncStorage.setItem('authFlow', authFlow);
-        } catch (e) {
-          console.warn('Could not save auth details to storage');
-        }
-
-        set({ isLoading: false, authFlow });
-        return authFlow;
+        set({ isLoading: false, authFlow: 'register' });
+        return 'register';
       } catch (error: any) {
-        set({
-          error: error.message || 'Failed to send OTP',
-          isLoading: false,
-        });
+        set({ error: error.message || 'Failed to start phone verification', isLoading: false });
         throw error;
       }
     },
@@ -84,18 +75,31 @@ export const useAuthStore = create<AuthStore>((set) => {
     verifyOTP: async (phoneNumber: string, otp: string) => {
       set({ isLoading: true, error: null });
       try {
-        const response = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phoneNumber, otp }),
-        });
-        const data = await response.json();
+        // Try in-memory confirmation first
+        // @ts-ignore
+        let confirmation = (global as any).__pendingPhoneConfirmation;
+        let userCredential: any = null;
 
-        if (!response.ok || !data.success) {
-          throw new Error(data.message || 'OTP verification failed');
+        if (confirmation && typeof confirmation.confirm === 'function') {
+          userCredential = await confirmation.confirm(otp);
+        } else {
+          const verificationId = await AsyncStorage.getItem('verificationId');
+          if (!verificationId) throw new Error('Verification session missing. Please resend the code.');
+          // @ts-ignore
+          const credential = auth.PhoneAuthProvider.credential(verificationId, otp);
+          userCredential = await auth().signInWithCredential(credential);
         }
 
-        // If backend returned tokens + user (existing user), persist them
+        const idToken = await userCredential.user.getIdToken();
+
+        const response = await fetch(`${API_BASE_URL}/auth/verify-firebase-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || 'Firebase verification failed');
+
         if (data.flow === 'login' && data.user && data.accessToken && data.refreshToken) {
           const backendUser: User = {
             id: data.user.id,
@@ -114,37 +118,30 @@ export const useAuthStore = create<AuthStore>((set) => {
             console.warn('Could not save user or tokens to storage');
           }
 
-          set({
-            user: backendUser,
-            isAuthenticated: true,
-            phoneVerified: true,
-            isLoading: false,
-            authFlow: 'login',
-          });
+          // Clear any in-memory confirmation and stored verificationId
+          try {
+            // @ts-ignore
+            delete (global as any).__pendingPhoneConfirmation;
+            await AsyncStorage.removeItem('verificationId');
+          } catch (e) {}
+
+          set({ user: backendUser, isAuthenticated: true, phoneVerified: true, isLoading: false, authFlow: 'login' });
           return 'login';
         }
 
-        // Otherwise, registration flow
-        try {
-          await AsyncStorage.setItem('phone', phoneNumber);
-          await AsyncStorage.setItem('authFlow', data.flow);
-        } catch (e) {
-          console.warn('Could not save auth details to storage');
-        }
+        try { await AsyncStorage.setItem('phone', phoneNumber); await AsyncStorage.setItem('authFlow', data.flow); } catch (e) { console.warn('Could not save auth details to storage'); }
 
-        set({
-          user: null,
-          isAuthenticated: false,
-          phoneVerified: true,
-          isLoading: false,
-          authFlow: data.flow,
-        });
+        // Clear any in-memory confirmation and stored verificationId
+        try {
+          // @ts-ignore
+          delete (global as any).__pendingPhoneConfirmation;
+          await AsyncStorage.removeItem('verificationId');
+        } catch (e) {}
+
+        set({ user: null, isAuthenticated: false, phoneVerified: true, isLoading: false, authFlow: data.flow });
         return data.flow as AuthFlow;
       } catch (error: any) {
-        set({
-          error: error.message || 'OTP verification failed',
-          isLoading: false,
-        });
+        set({ error: error.message || 'OTP verification failed', isLoading: false });
         throw error;
       }
     },
