@@ -6,6 +6,9 @@ import { useAuthStore } from '../stores/authStore';
 let socket: any = null;
 let onCallResponseListener: ((payload: any) => void) | null = null;
 let onIncomingCallListener: ((payload: any) => void) | null = null;
+let onCallCreatedListener: ((payload: any) => void) | null = null;
+let onCallEndedListener: ((payload: any) => void) | null = null;
+let _lastCallCreatedById: Record<string, any> = {};
 
 export const initSignaling = async (onIncomingCall: (payload: any) => void) => {
   const state = useAuthStore.getState();
@@ -68,6 +71,19 @@ export const initSignaling = async (onIncomingCall: (payload: any) => void) => {
     onCallResponseListener && onCallResponseListener(payload);
   });
 
+  socket.on('call:created', (payload: any) => {
+    console.log('[Signaling] Received call:created:', payload);
+    try {
+      if (payload && payload.callId) _lastCallCreatedById[String(payload.callId)] = payload;
+    } catch (e) {}
+    onCallCreatedListener && onCallCreatedListener(payload);
+  });
+
+  socket.on('call:ended', (payload: any) => {
+    console.log('[Signaling] Received call:ended:', payload);
+    try { onCallEndedListener && onCallEndedListener(payload); } catch (e) {}
+  });
+
   return socket;
 };
 
@@ -103,6 +119,21 @@ export const onCallResponse = (listener: (payload: any) => void) => {
   console.log('[Signaling] Registered call response listener');
 };
 
+export const onCallCreated = (listener: (payload: any) => void) => {
+  onCallCreatedListener = listener;
+  console.log('[Signaling] Registered call created listener');
+};
+
+export const onCallEnded = (listener: (payload: any) => void) => {
+  onCallEndedListener = listener;
+  console.log('[Signaling] Registered call ended listener');
+};
+
+export const getLastCallCreated = (callId?: string) => {
+  if (!callId) return null;
+  return _lastCallCreatedById[String(callId)] || null;
+};
+
 export const getSocket = () => socket;
 
-export default { initSignaling, inviteCall, respondToCall, onCallResponse, getSocket };
+export default { initSignaling, inviteCall, respondToCall, onCallResponse, getSocket, onCallCreated, getLastCallCreated, onCallEnded };

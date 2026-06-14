@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import auth from '@react-native-firebase/auth';
+import messaging from '@react-native-firebase/messaging';
 import { User, AuthState } from '../types';
 import { connectSocket } from '../utils/socket';
 import { useChatStore } from './chatStore';
@@ -337,6 +338,22 @@ export const useAuthStore = create<AuthStore>((set) => {
     logout: async () => {
       set({ isLoading: true });
       try {
+        try {
+          const state = useAuthStore.getState();
+          const currentUser = state.user;
+          if (currentUser) {
+            try {
+              const fcmToken = await messaging().getToken();
+              await fetch(`${API_BASE_URL}/notifications/devices/unregister`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: currentUser.id, deviceId: 'primary', fcmToken }),
+              });
+            } catch (e) {
+              console.warn('Failed to unregister device token on logout', e);
+            }
+          }
+        } catch (e) {}
         try {
           await Promise.all([
             AsyncStorage.removeItem('user'),

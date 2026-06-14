@@ -68,6 +68,39 @@ export const initAgora = async (appId: string) => {
       console.warn('⚠️ enableVideo failed:', e);
     }
 
+    // Ensure we are in communication mode (not live-broadcast audience) and able to publish audio
+    try {
+      if (typeof engine.setChannelProfile === 'function') {
+        // 0 = Communication profile
+        await engine.setChannelProfile(0);
+        console.log('✅ setChannelProfile -> communication');
+      }
+    } catch (e) {
+      console.warn('⚠️ setChannelProfile failed:', e);
+    }
+
+    try {
+      if (typeof engine.setClientRole === 'function') {
+        // Try numeric role first (1 = broadcaster/publisher), otherwise string
+        try { await engine.setClientRole(1); console.log('✅ setClientRole -> 1'); }
+        catch (_) {
+          try { await engine.setClientRole('broadcaster'); console.log('✅ setClientRole -> broadcaster'); } catch (e) { throw e; }
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ setClientRole failed:', e);
+    }
+
+    try {
+      if (typeof engine.setAudioProfile === 'function') {
+        // set default audio profile (speech, default scenario)
+        await engine.setAudioProfile && await engine.setAudioProfile(1, 1);
+        console.log('✅ setAudioProfile -> 1,1');
+      }
+    } catch (e) {
+      console.warn('⚠️ setAudioProfile failed:', e);
+    }
+
     try {
       if (typeof engine.setVideoEncoderConfiguration === 'function') {
         await engine.setVideoEncoderConfiguration({ width: 640, height: 480, bitrate: 1000, frameRate: 30 });
@@ -112,6 +145,18 @@ export const joinChannel = async (
   onUserLeft?: (uid: number) => void,
   onJoinSuccess?: (channel: string, uid: number) => void
 ) => {
+  console.log('🔄 Calling joinChannel... enginePresent:', !!engine, 'engineType:', typeof engine);
+  try {
+    const available = {
+      joinChannel: engine ? typeof engine.joinChannel : 'undefined',
+      registerEventHandler: engine ? typeof engine.registerEventHandler : 'undefined',
+      addListener: engine ? typeof engine.addListener : 'undefined',
+    };
+    console.log('🔎 Engine APIs:', available);
+  } catch (err) {
+    console.warn('🔎 Error reading engine APIs', err);
+  }
+
   if (!engine) {
     console.error('❌ Engine not initialized - cannot join channel');
     throw new Error('Engine not initialized');
@@ -119,20 +164,55 @@ export const joinChannel = async (
 
   // Register listeners BEFORE joining channel
   const userJoinedListener = (uid: number) => {
-    console.log('✓ UserJoined event:', uid);
-    onUserJoined && onUserJoined(uid);
-    if (remoteUidListener) remoteUidListener(uid);
+    // Normalize possible object payloads from different SDK versions
+    let normalizedUid: number | null = null;
+    try {
+      if (uid && typeof uid === 'object') {
+        normalizedUid = (uid.localUid ?? uid.uid ?? uid.userId) ?? null;
+      } else {
+        normalizedUid = uid ?? null;
+      }
+    } catch (e) {
+      normalizedUid = null;
+    }
+    console.log('✓ UserJoined event:', uid, '-> normalizedUid:', normalizedUid);
+    onUserJoined && onUserJoined(normalizedUid as any);
+    if (remoteUidListener) remoteUidListener(normalizedUid as any);
   };
 
   const userOfflineListener = (uid: number) => {
-    console.log('✓ UserOffline event:', uid);
-    onUserLeft && onUserLeft(uid);
+    let normalizedUid: number | null = null;
+    try {
+      if (uid && typeof uid === 'object') {
+        normalizedUid = (uid.localUid ?? uid.uid ?? uid.userId) ?? null;
+      } else {
+        normalizedUid = uid ?? null;
+      }
+    } catch (e) {
+      normalizedUid = null;
+    }
+    console.log('✓ UserOffline event:', uid, '-> normalizedUid:', normalizedUid);
+    onUserLeft && onUserLeft(normalizedUid as any);
     if (remoteUidListener) remoteUidListener(null);
   };
 
   const joinChannelSuccessListener = (channelName: string, uid: number) => {
-    console.log('✓✓✓ JoinChannelSuccess event:', { channelName, uid });
-    onJoinSuccess && onJoinSuccess(channelName, uid);
+    // Some SDKs pass an object instead of (channelName, uid)
+    let nChannel = channelName as any;
+    let nUid: number | null = null;
+    try {
+      if (channelName && typeof channelName === 'object') {
+        nChannel = channelName.channelId ?? channelName.channelName ?? JSON.stringify(channelName);
+        nUid = channelName.localUid ?? channelName.uid ?? channelName.userId ?? null;
+      } else {
+        nChannel = channelName;
+        nUid = uid ?? null;
+      }
+    } catch (e) {
+      nUid = uid ?? null;
+    }
+    console.log('✓✓✓ JoinChannelSuccess event:', { channelName: nChannel, uid: nUid });
+    onJoinSuccess && onJoinSuccess(nChannel, nUid as any);
   };
 
   const joinChannelFailureListener = (channelName: string, code: number) => {
@@ -147,13 +227,16 @@ export const joinChannel = async (
     }
 
     if (typeof engine.registerEventHandler === 'function') {
-      // Build a minimal event handler wrapper
+      // Build a minimal event handler wrapper (new API)
       const handler: any = {
         onUserJoined: (uid: number) => userJoinedListener(uid),
         onUserOffline: (uid: number) => userOfflineListener(uid),
         onJoinChannelSuccess: (channelName: string, uid: number) => joinChannelSuccessListener(channelName, uid),
         onJoinChannelFailure: (channelName: string, code: number) => joinChannelFailureListener(channelName, code),
+        onError: (err: any) => console.error('Agora onError event:', err),
+        onWarning: (warn: any) => console.warn('Agora onWarning event:', warn),
       };
+      console.log('🔔 registerEventHandler on engine with handler keys:', Object.keys(handler));
       engine.registerEventHandler(handler);
       _registeredEventHandler = handler;
     } else if (typeof engine.addListener === 'function') {
@@ -161,6 +244,19 @@ export const joinChannel = async (
       engine.addListener('UserOffline', userOfflineListener);
       engine.addListener('JoinChannelSuccess', joinChannelSuccessListener);
       engine.addListener('JoinChannelFailure', joinChannelFailureListener);
+      // Also attach alternative event name variants to catch SDK differences
+      try {
+        engine.addListener('joinChannelSuccess', joinChannelSuccessListener);
+        engine.addListener('joinChannelFailure', joinChannelFailureListener);
+        engine.addListener('onJoinChannelSuccess', joinChannelSuccessListener);
+        engine.addListener('onJoinChannelFailure', joinChannelFailureListener);
+        engine.addListener('userJoined', userJoinedListener);
+        engine.addListener('userOffline', userOfflineListener);
+        engine.addListener('error', (e: any) => console.error('Agora error event (alt):', e));
+        engine.addListener('warning', (w: any) => console.warn('Agora warning event (alt):', w));
+      } catch (e) {
+        console.warn('⚠️ adding alternative listeners failed:', e);
+      }
     }
 
     console.log('🔗 Joining channel:', { tokenLength: token?.length, channel, uid });
@@ -184,6 +280,37 @@ export const joinChannel = async (
     }
 
     console.log('✅ joinChannel returned:', joinedResult);
+    // Ensure local audio is enabled and unmuted after joining
+    try {
+      if (typeof engine.enableLocalAudio === 'function') {
+        await engine.enableLocalAudio(true);
+        console.log('✅ enableLocalAudio -> true');
+      }
+    } catch (e) {
+      console.warn('⚠️ enableLocalAudio failed:', e);
+    }
+
+    try {
+      if (typeof engine.muteLocalAudioStream === 'function') {
+        await engine.muteLocalAudioStream(false);
+        console.log('✅ muteLocalAudioStream -> false');
+      }
+    } catch (e) {
+      console.warn('⚠️ muteLocalAudioStream failed:', e);
+    }
+
+    try {
+      // Try to force speakerphone on so playback is audible during tests
+      if (typeof engine.setEnableSpeakerphone === 'function') {
+        await engine.setEnableSpeakerphone(true);
+        console.log('✅ setEnableSpeakerphone -> true');
+      } else if (typeof engine.setDefaultAudioRouteToSpeakerphone === 'function') {
+        await engine.setDefaultAudioRouteToSpeakerphone(true);
+        console.log('✅ setDefaultAudioRouteToSpeakerphone -> true');
+      }
+    } catch (e) {
+      console.warn('⚠️ setting speakerphone failed:', e);
+    }
   } catch (e) {
     console.error('❌ joinChannel error:', e instanceof Error ? e.message : String(e));
     throw e;
@@ -214,6 +341,23 @@ export const muteLocalAudio = async (mute: boolean) => {
   try {
     await engine?.muteLocalAudioStream(mute);
   } catch (e) {}
+};
+
+export const setSpeakerphone = async (on: boolean) => {
+  try {
+    if (!engine) return;
+    if (typeof engine.setEnableSpeakerphone === 'function') {
+      await engine.setEnableSpeakerphone(on);
+      console.log('✅ setEnableSpeakerphone ->', on);
+    } else if (typeof engine.setDefaultAudioRouteToSpeakerphone === 'function') {
+      await engine.setDefaultAudioRouteToSpeakerphone(on);
+      console.log('✅ setDefaultAudioRouteToSpeakerphone ->', on);
+    } else {
+      console.warn('⚠️ Speakerphone API not available on engine');
+    }
+  } catch (e) {
+    console.warn('setSpeakerphone failed', e);
+  }
 };
 
 export const muteLocalVideo = async (mute: boolean) => {

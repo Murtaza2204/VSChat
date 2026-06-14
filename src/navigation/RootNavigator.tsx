@@ -95,25 +95,7 @@ const CallsStack = () => {
   );
 };
 
-const ReceiverTestStack = () => {
-  return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
-      <Stack.Screen
-        name="ReceiverCallTest"
-        component={ReceiverCallScreen}
-        initialParams={{
-          callerName: 'Murtaza',
-          callerPhone: '+91 97631 51372',
-          callType: 'video',
-        }}
-      />
-    </Stack.Navigator>
-  );
-};
+// Receiver test stack removed from production navigator
 
 const ProfileStack = () => {
   return (
@@ -150,11 +132,7 @@ const MainTabs = () => {
       screenOptions={({ route }) => {
         const focusedRouteName =
           getFocusedRouteNameFromRoute(route) ??
-          (route.name === 'Calls'
-            ? 'CallsList'
-            : route.name === 'Receiver'
-              ? 'ReceiverCallTest'
-              : 'ChatList');
+          (route.name === 'Calls' ? 'CallsList' : 'ChatList');
         const shouldHideTabBar =
           (route.name === 'Chats' &&
             (focusedRouteName === 'Chat' ||
@@ -174,8 +152,6 @@ const MainTabs = () => {
           if (route.name === 'Chats') {
             iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
           } else if (route.name === 'Calls') {
-            iconName = focused ? 'call' : 'call-outline';
-          } else if (route.name === 'Receiver') {
             iconName = focused ? 'call' : 'call-outline';
           } else if (route.name === 'Profile') {
             iconName = focused ? 'person' : 'person-outline';
@@ -212,13 +188,7 @@ const MainTabs = () => {
           tabBarLabel: 'Calls',
         }}
       />
-      <Tab.Screen
-        name="Receiver"
-        component={ReceiverTestStack}
-        options={{
-          tabBarLabel: 'Receiver',
-        }}
-      />
+      {/* Receiver test tab removed */}
       <Tab.Screen
         name="Profile"
         component={ProfileStack}

@@ -286,8 +286,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       const perCallChannel = `call-${callId}`;
       signaling.inviteCall(calleeId, callType, {
         channel: perCallChannel,
-        token: AGORA_TOKEN,
-        appId: AGORA_APP_ID,
+        // Do not send hardcoded token; let server generate and attach token/appId
         callId,
       });
       console.log('[ChatScreen] Sent call invite:', { calleeId, callType, callId });
@@ -303,7 +302,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       calleeId: derivedReceiverId || chat.id,
       appId: AGORA_APP_ID,
       channel: `call-${callId}`,
-      token: AGORA_TOKEN,
+      token: undefined,
       callId,
       isCaller: true,
     });

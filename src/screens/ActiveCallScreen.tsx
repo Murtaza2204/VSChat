@@ -10,7 +10,7 @@ import {
 import Icon from 'react-native-vector-icons/Ionicons';
 import { RtcSurfaceView } from 'react-native-agora';
 import { ensureAudioVideoPermissions } from '../services/permissions';
-import { switchCamera, muteLocalVideo } from '../services/agoraService';
+import { switchCamera, muteLocalVideo, muteLocalAudio, setSpeakerphone } from '../services/agoraService';
 import { BORDER_RADIUS, FONT_SIZES, SHADOWS, SPACING } from '../constants/colors';
 import { useChatStore } from '../stores/chatStore';
 import { useThemeStore } from '../stores/themeStore';
@@ -36,20 +36,21 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const [engineReady, setEngineReady] = React.useState(false);
   const [joined, setJoined] = React.useState(false);
   const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
-  const startedAtRef = React.useRef(Date.now());
+  const startedAtRef = React.useRef<number | null>(null);
   const didLogCallRef = React.useRef(false);
 
   React.useEffect(() => {
     const timer = setInterval(() => {
+      if (!startedAtRef.current) return;
       setElapsedSeconds(Math.floor((Date.now() - startedAtRef.current) / 1000));
     }, 1000);
 
     // Initialize Agora and join channel for real audio/video
     let mounted = true;
     const setupAgora = async () => {
-      // Request camera & microphone permissions before initializing native SDK
       const ok = await ensureAudioVideoPermissions();
       if (!ok) return;
+
       try {
         const { default: agoraService } = await import('../services/agoraService');
         const { initAgora, joinChannel, setRemoteUidListener } = agoraService;
@@ -58,25 +59,21 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
         const token = tokenParam || (await import('../config/agora')).AGORA_TOKEN;
 
         console.log('🎥 Setup Agora with:', { appId: appId.slice(0, 16) + '...', channel, token: token?.slice(0, 20) + '...' });
-        
+
         try {
           await initAgora(appId);
           setEngineReady(true);
         } catch (initError) {
           console.error('⚠️ Agora initialization failed, UI will still work:', initError);
           setEngineReady(false);
-          return; // Don't try to join if init failed
+          return; // don't try to join if init failed
         }
-        
-        // Wait a bit for engine to stabilize
-        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // small delay for engine stability
+        await new Promise((r) => setTimeout(r, 800));
 
         // ensure local video state matches UI toggle
-        try {
-          if (isVideoOn) {
-            await muteLocalVideo(false);
-          }
-        } catch (e) {}
+        try { if (isVideoOn) await muteLocalVideo(false); } catch (e) {}
 
         setRemoteUidListener((uid: number | null) => {
           if (!mounted) return;
@@ -84,29 +81,57 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           setRemoteUid(uid ?? null);
         });
 
-        console.log('🔄 Calling joinChannel...');
-        try {
-          await joinChannel(token, channel, 0, (uid: number) => {
+        const signaling = require('../services/signaling');
+        const isCaller = !!route.params?.isCaller;
+
+        if (isCaller && !tokenParam) {
+          console.log('[ActiveCall] Caller without token — waiting for call:created from server');
+          const handleCallCreated = async (payload: any) => {
             if (!mounted) return;
-            console.log('✓ Remote user joined:', uid);
-            setRemoteUid(uid);
-          }, (uid: number) => {
-            if (!mounted) return;
-            console.log('✓ Remote user left:', uid);
-            setRemoteUid(null);
-          }, (channelName: string, uid: number) => {
-            if (!mounted) return;
-            console.log('✓✓✓ Successfully joined channel:', channelName, 'local uid:', uid);
-            setJoined(true);
-          });
-        } catch (joinError) {
-          console.error('⚠️ Join channel failed:', joinError);
-          // Continue anyway - UI will show placeholder
+            if (payload.callId && route.params?.callId && String(payload.callId) !== String(route.params.callId)) return;
+            const pChannel = payload.channel || channel;
+            const pToken = payload.token || null;
+            try {
+              console.log('🔄 Calling joinChannel with server token...');
+              await joinChannel(pToken, pChannel, 0, (uid: number) => {
+                if (!mounted) return; setRemoteUid(uid);
+              }, (uid: number) => { if (!mounted) return; setRemoteUid(null); }, async (channelName: string, uid: number) => {
+                if (!mounted) return;
+                console.log('✓✓✓ Successfully joined channel:', channelName, 'local uid:', uid);
+                setJoined(true);
+                if (!startedAtRef.current) startedAtRef.current = Date.now();
+                try { await setSpeakerphone(true); setIsSpeakerOn(true); } catch (e) {}
+                try { await muteLocalAudio(false); setIsMuted(false); } catch (e) {}
+              });
+            } catch (joinError) {
+              console.error('⚠️ Join channel failed (server-token):', joinError);
+            }
+          };
+
+          signaling.onCallCreated(handleCallCreated);
+          try {
+            const cached = signaling.getLastCallCreated(route.params?.callId);
+            if (cached) { console.log('[ActiveCall] Found cached call:created, handling immediately'); handleCallCreated(cached); }
+          } catch (e) {}
+        } else {
+          console.log('🔄 Calling joinChannel...');
+          try {
+            await joinChannel(token, channel, 0, (uid: number) => { if (!mounted) return; setRemoteUid(uid); }, (uid: number) => { if (!mounted) return; setRemoteUid(null); }, async (channelName: string, uid: number) => {
+              if (!mounted) return;
+              console.log('✓✓✓ Successfully joined channel:', channelName, 'local uid:', uid);
+              setJoined(true);
+              if (!startedAtRef.current) startedAtRef.current = Date.now();
+              try { await setSpeakerphone(true); setIsSpeakerOn(true); } catch (e) {}
+              try { await muteLocalAudio(false); setIsMuted(false); } catch (e) {}
+            });
+          } catch (joinError) {
+            console.error('⚠️ Join channel failed:', joinError);
+          }
         }
+
       } catch (e) {
         console.error('❌ Agora setup error:', e);
         console.error('Error stack:', e instanceof Error ? e.stack : 'unknown');
-        // ignore; this keeps UI functional if native not linked during development
       }
     };
 
@@ -124,12 +149,33 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     };
   }, []);
 
+  // Listen for remote end events and leave channel + navigate back
+  React.useEffect(() => {
+    try {
+      const signaling = require('../services/signaling');
+      const handler = async (payload: any) => {
+        console.log('[ActiveCall] Received remote call:ended', payload);
+        try { const { leaveChannel } = await import('../services/agoraService'); await leaveChannel(); } catch (e) {}
+        try {
+          const { navigate } = require('../navigation/NavigationService');
+          navigate('Main', { screen: 'Chats', params: { screen: 'ChatList' } });
+        } catch (e) {
+          navigation.goBack();
+        }
+      };
+      signaling.onCallEnded(handler);
+      return () => {};
+    } catch (e) {
+      return () => {};
+    }
+  }, []);
+
   const initials = getInitials(callerName);
   const accepted = callType === 'video' && elapsedSeconds >= 4;
   const avatarSize = Math.min(width * 0.54, 220);
   const callStatus = elapsedSeconds < 4 ? 'Ringing...' : formatDuration(elapsedSeconds);
 
-  const handleEndCall = () => {
+  const handleEndCall = async () => {
     if (chatId && !didLogCallRef.current) {
       didLogCallRef.current = true;
       const durationSeconds = Math.max(1, elapsedSeconds);
@@ -152,7 +198,27 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
       addMessage(chatId, callMessage);
     }
 
-    navigation.goBack();
+    try {
+      const socket = require('../services/signaling').getSocket();
+      const currentUser = require('../stores/authStore').useAuthStore.getState().user;
+      const callId = route.params?.callId;
+      // stop audio/video locally first
+      try { const { leaveChannel } = await import('../services/agoraService'); await leaveChannel(); } catch (e) {}
+      if (socket && socket.connected && callId && currentUser?.id) {
+        socket.emit('call:ended', { callId, userId: currentUser.id, reason: 'hangup' });
+      }
+    } catch (e) {}
+
+    // Reset Calls stack: visit CallsList then return to Chats to avoid lingering IncomingCall
+    try {
+      const { navigate } = require('../navigation/NavigationService');
+      navigate('Main', { screen: 'Calls', params: { screen: 'CallsList' } });
+      setTimeout(() => {
+        try { navigate('Main', { screen: 'Chats', params: { screen: 'ChatList' } }); } catch (e) { navigation.goBack(); }
+      }, 200);
+    } catch (e) {
+      navigation.goBack();
+    }
   };
 
   if (callType === 'video') {
@@ -180,7 +246,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             <>
               {/* AFTER ACCEPTED: Main video - Remote participant (full screen) */}
               {RtcSurfaceView && remoteUid ? (
-                <RtcSurfaceView canvas={{ uid: remoteUid }} style={StyleSheet.absoluteFill} channelId={channelParam} />
+                <RtcSurfaceView canvas={{ uid: remoteUid }} style={StyleSheet.absoluteFill} />
               ) : (
                 <VideoSurface theme={theme} variant="remote" />
               )}
@@ -244,13 +310,19 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               icon={isSpeakerOn ? 'volume-high' : 'volume-medium'}
               active={isSpeakerOn}
               theme={theme}
-              onPress={() => setIsSpeakerOn(!isSpeakerOn)}
+              onPress={async () => {
+                const next = !isSpeakerOn;
+                try { await setSpeakerphone(next); setIsSpeakerOn(next); } catch (e) { setIsSpeakerOn(next); }
+              }}
             />
             <TrayButton
               icon={isMuted ? 'mic-off' : 'mic-off-outline'}
               active={isMuted}
               theme={theme}
-              onPress={() => setIsMuted(!isMuted)}
+              onPress={async () => {
+                const next = !isMuted;
+                try { await muteLocalAudio(next); setIsMuted(next); } catch (e) { setIsMuted(next); }
+              }}
             />
             <TrayButton icon="call" danger theme={theme} onPress={handleEndCall} />
           </VideoControlTray>
@@ -262,6 +334,14 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
       <View style={styles.container}>
+        {/* Audio debug overlay */}
+        <View style={styles.debugBox} pointerEvents="none">
+          <Text style={styles.debugText}>engine:{engineReady ? 'ok' : 'no'}</Text>
+          <Text style={styles.debugText}>joined:{joined ? 'yes' : 'no'}</Text>
+          <Text style={styles.debugText}>remote:{remoteUid ?? '-'}</Text>
+          <Text style={styles.debugText}>muted:{isMuted ? 'yes' : 'no'}</Text>
+          <Text style={styles.debugText}>speaker:{isSpeakerOn ? 'on' : 'off'}</Text>
+        </View>
         <View style={styles.header}>
           <HeaderButton
             icon="contract-outline"
@@ -319,7 +399,10 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             label="Speaker"
             active={isSpeakerOn}
             theme={theme}
-            onPress={() => setIsSpeakerOn(!isSpeakerOn)}
+            onPress={async () => {
+              const next = !isSpeakerOn;
+              try { await setSpeakerphone(next); setIsSpeakerOn(next); } catch (e) { setIsSpeakerOn(next); }
+            }}
           />
           <CallControl
             icon={isVideoOn ? 'videocam' : 'videocam-off'}
@@ -327,14 +410,21 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             active={isVideoOn}
             muted={!isVideoOn}
             theme={theme}
-            onPress={() => setIsVideoOn(!isVideoOn)}
+            onPress={async () => {
+              const next = !isVideoOn;
+              setIsVideoOn(next);
+              try { await muteLocalVideo(!next); } catch (e) {}
+            }}
           />
           <CallControl
             icon={isMuted ? 'mic-off' : 'mic-off-outline'}
             label="Mute"
             active={isMuted}
             theme={theme}
-            onPress={() => setIsMuted(!isMuted)}
+            onPress={async () => {
+              const next = !isMuted;
+              try { await muteLocalAudio(next); setIsMuted(next); } catch (e) { setIsMuted(next); }
+            }}
           />
           <CallControl icon="ellipsis-horizontal" label="More" theme={theme} />
           <CallControl icon="phone-portrait-outline" label="Share" muted theme={theme} />
@@ -575,7 +665,7 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '-22deg' }],
   },
   videoScrim: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0, 0, 0, 0.18)',
   },
   compactVideoShapeLarge: {

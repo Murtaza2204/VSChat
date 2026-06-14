@@ -46,11 +46,14 @@ const IncomingCallScreen: React.FC<{ navigation: any; route: any }> = ({
   }, [scaleAnim]);
 
   const handleAccept = () => {
+    const appId = route?.params?.appId || AGORA_APP_ID;
+    const channel = route?.params?.channel || AGORA_CHANNEL;
+    const token = route?.params?.token || AGORA_TOKEN;
     navigation.navigate('ActiveCall', {
       callType: caller.type,
-      appId: AGORA_APP_ID,
-      channel: AGORA_CHANNEL,
-      token: AGORA_TOKEN,
+      appId,
+      channel,
+      token,
       callerName: caller.name,
     });
   };

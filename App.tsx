@@ -5,6 +5,8 @@ import RootNavigator from './src/navigation/RootNavigator';
 import { useThemeStore } from './src/stores/themeStore';
 import { useAuthStore } from './src/stores/authStore';
 import { initNotifications } from './src/services/notifications';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { navigate } from './src/navigation/NavigationService';
 
 let GestureHandlerRootView: any;
 try {
@@ -28,6 +30,19 @@ function App(): React.JSX.Element {
       } catch (e) {
         console.warn('notifications init failed', e);
       }
+
+      // if a background notification saved a pending incoming call, navigate to it now
+      try {
+        const pending = await AsyncStorage.getItem('pendingIncomingCall');
+        if (pending) {
+          const data = JSON.parse(pending);
+          await AsyncStorage.removeItem('pendingIncomingCall');
+          // navigate after a short delay to ensure navigation is ready
+          setTimeout(() => {
+            try { navigate('Main', { screen: 'Calls', params: { screen: 'IncomingCall', params: data } }); } catch (e) {}
+          }, 400);
+        }
+      } catch (e) {}
     };
     initialize();
   }, []);

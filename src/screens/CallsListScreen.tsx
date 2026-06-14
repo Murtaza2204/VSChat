@@ -30,23 +30,26 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       onPress={() => navigation.navigate('CallDetails', { call: item })}
       onCallPress={(type) => {
         try {
+          const callId = `cli-${Date.now()}`;
+          const channel = `call-${callId}`;
+          // Do not send a hardcoded token; let server generate and attach token/appId
           signaling.inviteCall(item.userId, type, {
-            channel: AGORA_CHANNEL,
-            token: AGORA_TOKEN,
+            callId,
+            channel,
             appId: AGORA_APP_ID,
+          });
+
+          navigation.navigate('ActiveCall', {
+            callerName: item.userName,
+            callerAvatar: item.userAvatar,
+            callType: type,
+            appId: AGORA_APP_ID,
+            channel,
+            callId,
           });
         } catch (e) {
           console.warn('inviteCall failed', e);
         }
-
-        navigation.navigate('ActiveCall', {
-          callerName: item.userName,
-          callerAvatar: item.userAvatar,
-          callType: type,
-          appId: AGORA_APP_ID,
-          channel: AGORA_CHANNEL,
-          token: AGORA_TOKEN,
-        });
       }}
       theme={theme}
     />

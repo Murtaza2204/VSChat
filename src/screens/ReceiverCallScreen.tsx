@@ -13,6 +13,7 @@ import { useChatStore } from '../stores/chatStore';
 import { useThemeStore } from '../stores/themeStore';
 import { useAuthStore } from '../stores/authStore';
 import signaling from '../services/signaling';
+import { muteLocalAudio, setSpeakerphone } from '../services/agoraService';
 import { Message } from '../types';
 
 type CallStatus = NonNullable<Message['call']>['status'];
@@ -100,10 +101,13 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
     navigation.goBack();
   };
 
-  const handleAccept = () => {
+  const handleAccept = async () => {
     setAccepted(true);
     // Send acceptance response to caller
     try {
+      // ensure local audio is unmuted and speaker is on before joining
+      try { setSpeakerphone(true); } catch (e) {}
+      try { await muteLocalAudio(false); } catch (e) {}
       const callerId = route.params?.fromUser?.id || route.params?.callerId;
       const currentUser = useAuthStore.getState().user;
       const callId = route.params?.callId;
@@ -134,8 +138,26 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const handleEnd = () => {
+    try {
+      const currentUser = useAuthStore.getState().user;
+      const callId = route.params?.callId;
+      const socket = signaling.getSocket();
+      if (socket && socket.connected && callId && currentUser?.id) {
+        socket.emit('call:ended', { callId, userId: currentUser.id, reason: 'hangup' });
+      }
+    } catch (e) {}
     logIncomingCall('completed', Math.max(1, elapsedSeconds));
-    navigation.goBack();
+    // ensure we reset Calls stack to CallsList then return to Chats to avoid IncomingCall lingering
+    try {
+      const { navigate } = require('../navigation/NavigationService');
+      // briefly visit CallsList to set Calls stack, then return to Chats
+      navigate('Main', { screen: 'Calls', params: { screen: 'CallsList' } });
+      setTimeout(() => {
+        try { navigate('Main', { screen: 'Chats', params: { screen: 'ChatList' } }); } catch (e) { navigation.goBack(); }
+      }, 200);
+    } catch (e) {
+      navigation.goBack();
+    }
   };
 
   if (callType === 'video') {

@@ -139,25 +139,9 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
           } catch (e) {
             callerId = d.fromUserId || d.callerId;
           }
-          // navigate to incoming call
+          // navigate to incoming call only. Do NOT emit an automatic accept from the notification
+          // Accepting the call must be done explicitly in the Incoming/Receiver UI.
           navigate('Main', { screen: 'Calls', params: { screen: 'IncomingCall', params: d } });
-          // notify server that call was accepted
-          (async () => {
-            try {
-              const token = await AsyncStorage.getItem('accessToken');
-              const socket = connectSocket(token);
-              const currentUser = useAuthStore.getState().user;
-              const payload = {
-                toUserId: callerId,
-                fromUserId: currentUser?.id,
-                response: 'accept',
-                callId: d.callId || d.id,
-              };
-              socket.emit('call:response', payload);
-            } catch (e) {
-              console.warn('failed to emit call accept', e);
-            }
-          })();
         } else if (actionId === 'decline') {
           // Parse caller info
           let callerId;
@@ -197,6 +181,23 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
             try { await fetch(`${API_BASE_URL}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversationId: d.conversationId, senderId: d.receiverId || d.to || d.myId, content: replyText, receiverId: d.senderId }) }); } catch (e) {}
           }
         }
+      }
+    });
+
+    // Notifee background events (headless). Store pending incoming call so app can navigate when brought to foreground.
+    notifee.onBackgroundEvent(async ({ type, detail }) => {
+      try {
+        if (type === EventType.ACTION_PRESS) {
+          const actionId = detail.pressAction.id;
+          const d = detail.notification?.data || {};
+          if (d.type === 'call') {
+            try {
+              await AsyncStorage.setItem('pendingIncomingCall', JSON.stringify(d));
+            } catch (e) {}
+          }
+        }
+      } catch (e) {
+        // background handler must not crash
       }
     });
 
