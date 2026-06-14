@@ -206,7 +206,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
         read: true,
         call: {
           type: callType === 'video' ? 'video' : 'voice',
-          status: durationSeconds < 4 ? 'noAnswer' : 'completed',
+          status: callAccepted ? 'completed' : 'noAnswer',
           durationSeconds,
           direction: 'outgoing',
         },

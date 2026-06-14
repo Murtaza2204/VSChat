@@ -117,6 +117,18 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const screenWidth = Dimensions.get('window').width;
 
+  const normalizeServerMessage = (msg: any): Message => ({
+    id: String(msg._id || msg.id),
+    senderId: msg.senderId,
+    senderName: msg.senderName || (msg.senderId === currentUserId ? 'You' : 'Them'),
+    content: msg.content,
+    type: msg.type || 'text',
+    timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
+    read: msg.status === 'seen' || msg.senderId === currentUserId,
+    status: msg.status || 'sent',
+    call: msg.call,
+  });
+
   const mapAssetToMediaItem = (asset: Asset, index: number): MediaItem | null => {
     if (!asset.uri) {
       return null;
@@ -249,7 +261,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           if (!mounted) return;
           const convId = String(msg.conversationId || msg.conversation);
           if (convId !== String(conversationId)) return;
-          const normalized = { id: String(msg._id || msg.id), senderId: msg.senderId, senderName: msg.senderName || (msg.senderId === currentUserId ? 'You' : 'Them'), content: msg.content, type: msg.type || 'text', timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(), read: msg.status === 'seen' };
+          const normalized = normalizeServerMessage(msg);
           if (msg.clientTempId) {
             setLoadedMessages((prev) => prev.map((m) => (m.id === String(msg.clientTempId) ? normalized : m)));
           } else {
@@ -261,7 +273,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           if (!mounted) return;
           const convId = String(msg.conversationId || msg.conversation);
           if (convId !== String(conversationId)) return;
-          const normalized = { id: String(msg._id || msg.id), senderId: msg.senderId, senderName: msg.senderName || '', content: msg.content, type: msg.type || 'text', timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(), read: false };
+          const normalized = normalizeServerMessage({ ...msg, status: msg.status || 'delivered' });
           setLoadedMessages((prev) => [...prev, normalized]);
         };
 
@@ -652,7 +664,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       (async () => {
         try {
           const msgs = await messagesApi.getMessages(conversationId);
-            setLoadedMessages(msgs.map((m) => ({ id: m._id, senderId: m.senderId, senderName: m.senderId === currentUserId ? 'You' : m.senderName || 'Them', content: m.content, type: m.type, timestamp: new Date(m.createdAt), read: (m.status === 'seen' || m.senderId === currentUserId), status: m.status || 'sent' })));
+            setLoadedMessages(msgs.map(normalizeServerMessage));
         } catch (e) {
           console.warn('Failed to load messages', (e as any)?.message || String(e));
         }
