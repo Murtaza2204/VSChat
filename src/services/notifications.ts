@@ -13,6 +13,126 @@ const READ_CONVERSATION_PREFIX = 'conversationReadAt:';
 const getNotificationId = (data: any) => String(data?.notificationId || data?.messageId || data?.callId || '');
 const getStringValue = (value: any, fallback = '') => (value === undefined || value === null ? fallback : String(value));
 
+const getStoredUser = async () => {
+  const storeUser = useAuthStore.getState().user;
+  if (storeUser) return storeUser;
+  try {
+    const raw = await AsyncStorage.getItem('user');
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+const getCallerFromData = (data: any) => {
+  try {
+    if (data.caller) {
+      const callerUser = JSON.parse(String(data.caller));
+      return {
+        id: callerUser.id || callerUser._id,
+        name: callerUser.name || callerUser.displayName || 'Unknown',
+        avatar: callerUser.avatar || callerUser.profilePictureUrl,
+      };
+    }
+  } catch (e) {}
+
+  return {
+    id: data.fromUserId || data.callerId || data.from,
+    name: data.callerName || data.title || 'Unknown',
+    avatar: data.callerAvatar,
+  };
+};
+
+const emitCallResponseFromNotification = async (data: any, response: 'accept' | 'decline') => {
+  const caller = getCallerFromData(data);
+  const currentUser = await getStoredUser();
+  if (!caller.id || !currentUser?.id || !data.callId) return;
+
+  const token = await AsyncStorage.getItem('accessToken');
+  const socket = connectSocket(token);
+  const payload = {
+    toUserId: String(caller.id),
+    fromUserId: String(currentUser.id),
+    response,
+    callId: getStringValue(data.callId || data.id),
+  };
+
+  if (socket.connected) {
+    socket.emit('call:response', payload);
+    return;
+  }
+
+  socket.once('connect', () => socket.emit('call:response', payload));
+  setTimeout(() => {
+    try {
+      if (!socket.connected) return;
+      socket.emit('call:response', payload);
+    } catch (e) {}
+  }, 1000);
+};
+
+const navigateToActiveCall = (data: any) => {
+  const caller = getCallerFromData(data);
+  navigate('Main', {
+    screen: 'Calls',
+    params: {
+      screen: 'ActiveCall',
+      params: {
+        callType: data.callType || 'audio',
+        callerName: caller.name,
+        callerAvatar: caller.avatar,
+        callerId: caller.id,
+        appId: data.appId,
+        channel: data.channel,
+        token: data.token,
+        callId: data.callId,
+        isReceiver: true,
+      },
+    },
+  });
+};
+
+const markNotificationMessageRead = async (data: any) => {
+  const currentUser = await getStoredUser();
+  await rememberReadMessage(data.messageId as string);
+  await cancelNotificationForPayload(data);
+  if (data.conversationId) await markConversationNotificationsRead(data.conversationId as string);
+  await fetch(`${API_BASE_URL}/messages/mark-read`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messageId: getStringValue(data.messageId), readerId: currentUser?.id }),
+  });
+};
+
+const replyFromNotification = async (data: any, input: any) => {
+  const replyText = getStringValue(input).trim();
+  if (!replyText || !data.conversationId || !data.senderId) return;
+
+  const token = await AsyncStorage.getItem('accessToken');
+  await markNotificationMessageRead(data);
+  await fetch(`${API_BASE_URL}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ conversationId: data.conversationId, content: replyText, receiverId: data.senderId }),
+  });
+};
+
+const handleNotificationAction = async (actionId: string, data: any, input?: any, openUi = true) => {
+  if (actionId === 'accept') {
+    await cancelNotificationForPayload(data);
+    await emitCallResponseFromNotification(data, 'accept');
+    if (openUi) navigateToActiveCall(data);
+    else await AsyncStorage.setItem('pendingAcceptedCall', JSON.stringify(data));
+  } else if (actionId === 'decline') {
+    await cancelNotificationForPayload(data);
+    await emitCallResponseFromNotification(data, 'decline');
+  } else if (actionId === 'mark_read') {
+    await markNotificationMessageRead(data);
+  } else if (actionId === 'reply') {
+    await replyFromNotification(data, input);
+  }
+};
+
 const rememberReadMessage = async (messageId?: string) => {
   if (!messageId) return;
   try {
@@ -224,79 +344,7 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
         const actionId = detail.pressAction?.id;
         if (!actionId) return;
         const d = detail.notification?.data || {};
-        if (actionId === 'accept') {
-          await cancelNotificationForPayload(d);
-          // Parse caller info
-          let callerId;
-          try {
-            if (d.caller) {
-              const callerUser = JSON.parse(String(d.caller));
-              callerId = callerUser.id;
-            } else {
-              callerId = d.fromUserId || d.callerId;
-            }
-          } catch (e) {
-            callerId = d.fromUserId || d.callerId;
-          }
-          // navigate to incoming call only. Do NOT emit an automatic accept from the notification
-          // Accepting the call must be done explicitly in the Incoming/Receiver UI.
-          navigate('Main', { screen: 'Calls', params: { screen: 'IncomingCall', params: d } });
-        } else if (actionId === 'decline') {
-          await cancelNotificationForPayload(d);
-          // Parse caller info
-          let callerId;
-          try {
-            if (d.caller) {
-              const callerUser = JSON.parse(String(d.caller));
-              callerId = callerUser.id;
-            } else {
-              callerId = d.fromUserId || d.callerId;
-            }
-          } catch (e) {
-            callerId = d.fromUserId || d.callerId;
-          }
-          // send decline/response to server via socket
-          (async () => {
-            try {
-              const token = await AsyncStorage.getItem('accessToken');
-              const socket = connectSocket(token);
-              const currentUser = useAuthStore.getState().user;
-              const payload = {
-                toUserId: callerId,
-                fromUserId: currentUser?.id,
-                response: 'decline',
-                callId: getStringValue(d.callId || d.id),
-              };
-              socket.emit('call:response', payload);
-            } catch (e) {
-              console.warn('failed to emit call decline', e);
-            }
-          })();
-        } else if (actionId === 'mark_read') {
-          try {
-            const currentUser = useAuthStore.getState().user;
-            await rememberReadMessage(d.messageId as string);
-            await cancelNotificationForPayload(d);
-            if (d.conversationId) await markConversationNotificationsRead(d.conversationId as string);
-            await fetch(`${API_BASE_URL}/messages/mark-read`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: getStringValue(d.messageId), readerId: currentUser?.id }) });
-          } catch (e) {}
-        } else if (actionId === 'reply') {
-          // inline reply input available on Android; detail.input contains text
-          const replyText = getStringValue(detail.input).trim();
-          if (replyText && d.conversationId && d.senderId) {
-            try {
-              const token = await AsyncStorage.getItem('accessToken');
-              await rememberReadMessage(d.messageId as string);
-              await cancelNotificationForPayload(d);
-              if (d.conversationId) await markConversationNotificationsRead(d.conversationId as string);
-              await fetch(`${API_BASE_URL}/messages`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                body: JSON.stringify({ conversationId: d.conversationId, content: replyText, receiverId: d.senderId }),
-              });
-            } catch (e) {}
-          }
-        }
+        try { await handleNotificationAction(actionId, d, detail.input, true); } catch (e) {}
       }
     });
 
@@ -307,11 +355,7 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
           const actionId = detail.pressAction?.id;
           if (!actionId) return;
           const d = detail.notification?.data || {};
-          if (d.type === 'call') {
-            try {
-              await AsyncStorage.setItem('pendingIncomingCall', JSON.stringify(d));
-            } catch (e) {}
-          }
+          await handleNotificationAction(actionId, d, detail.input, false);
         }
       } catch (e) {
         // background handler must not crash

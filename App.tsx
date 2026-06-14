@@ -33,6 +33,40 @@ function App(): React.JSX.Element {
 
       // if a background notification saved a pending incoming call, navigate to it now
       try {
+        const accepted = await AsyncStorage.getItem('pendingAcceptedCall');
+        if (accepted) {
+          const data = JSON.parse(accepted);
+          await AsyncStorage.removeItem('pendingAcceptedCall');
+          let caller: any = {};
+          try {
+            caller = data.caller ? JSON.parse(String(data.caller)) : {};
+          } catch (e) {
+            caller = {};
+          }
+          setTimeout(() => {
+            try {
+              navigate('Main', {
+                screen: 'Calls',
+                params: {
+                  screen: 'ActiveCall',
+                  params: {
+                    callType: data.callType || 'audio',
+                    callerName: caller.name || caller.displayName || data.callerName || 'Unknown',
+                    callerAvatar: caller.avatar || caller.profilePictureUrl || data.callerAvatar,
+                    callerId: caller.id || data.callerId || data.fromUserId,
+                    appId: data.appId,
+                    channel: data.channel,
+                    token: data.token,
+                    callId: data.callId,
+                    isReceiver: true,
+                  },
+                },
+              });
+            } catch (e) {}
+          }, 400);
+          return;
+        }
+
         const pending = await AsyncStorage.getItem('pendingIncomingCall');
         if (pending) {
           const data = JSON.parse(pending);

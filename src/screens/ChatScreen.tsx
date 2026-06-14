@@ -244,8 +244,22 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   useEffect(() => {
     if (!conversationId) return;
     let mounted = true;
-      (async () => {
-      // mark conversation read on open (clear unread counts server-side)
+    let activeSocket: any = null;
+    let onSent: ((msg: any) => void) | null = null;
+    let onReceive: ((msg: any) => void) | null = null;
+    let onStatus: ((status: any) => void) | null = null;
+
+    const upsertMessage = (incoming: Message) => {
+      setLoadedMessages((prev) => {
+        const exists = prev.some((m) => String(m.id) === String(incoming.id));
+        if (exists) {
+          return prev.map((m) => (String(m.id) === String(incoming.id) ? { ...m, ...incoming } : m));
+        }
+        return [...prev, incoming];
+      });
+    };
+
+    const start = async () => {
       try {
         const userRes = await AsyncStorage.getItem('user');
         const currentUser = userRes ? JSON.parse(userRes) : null;
@@ -257,7 +271,9 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       try {
         const token = await AsyncStorage.getItem('accessToken');
         const socket = connectSocket(token);
-        const onSent = (msg) => {
+        activeSocket = socket;
+
+        onSent = (msg) => {
           if (!mounted) return;
           const convId = String(msg.conversationId || msg.conversation);
           if (convId !== String(conversationId)) return;
@@ -265,30 +281,52 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           if (msg.clientTempId) {
             setLoadedMessages((prev) => prev.map((m) => (m.id === String(msg.clientTempId) ? normalized : m)));
           } else {
-            setLoadedMessages((prev) => [...prev, normalized]);
+            upsertMessage(normalized);
           }
         };
 
-        const onReceive = (msg) => {
+        onReceive = async (msg) => {
           if (!mounted) return;
           const convId = String(msg.conversationId || msg.conversation);
           if (convId !== String(conversationId)) return;
           const normalized = normalizeServerMessage({ ...msg, status: msg.status || 'delivered' });
-          setLoadedMessages((prev) => [...prev, normalized]);
+          upsertMessage(normalized);
+          if (currentUserId && String(msg.senderId) !== String(currentUserId)) {
+            try { await messagesApi.markConversationRead(String(conversationId), currentUserId); } catch (e) {}
+          }
+        };
+
+        onStatus = (status) => {
+          if (!mounted || !status?.messageId) return;
+          setLoadedMessages((prev) =>
+            prev.map((message) => {
+              if (String(message.id) !== String(status.messageId)) return message;
+              const updates: any = { status: status.status || message.status };
+              if (status.status === 'seen') updates.read = true;
+              if (status.status === 'delivered' && message.read !== true) updates.read = false;
+              return { ...message, ...updates };
+            }),
+          );
         };
 
         socket.on('message:sent', onSent);
         socket.on('message:receive', onReceive);
-
-        return () => {
-          mounted = false;
-          socket.off('message:sent', onSent);
-          socket.off('message:receive', onReceive);
-        };
+        socket.on('message:status', onStatus);
       } catch (e) {
         // ignore
       }
-    })();
+    };
+
+    start();
+
+    return () => {
+      mounted = false;
+      if (activeSocket) {
+        if (onSent) activeSocket.off('message:sent', onSent);
+        if (onReceive) activeSocket.off('message:receive', onReceive);
+        if (onStatus) activeSocket.off('message:status', onStatus);
+      }
+    };
   }, [conversationId, currentUserId]);
 
   const handleStartCall = (callType: 'audio' | 'video') => {

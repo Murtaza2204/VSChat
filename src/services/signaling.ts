@@ -7,7 +7,7 @@ let socket: any = null;
 let onCallResponseListener: ((payload: any) => void) | null = null;
 let onIncomingCallListener: ((payload: any) => void) | null = null;
 let onCallCreatedListener: ((payload: any) => void) | null = null;
-let onCallEndedListener: ((payload: any) => void) | null = null;
+const callEndedListeners = new Set<(payload: any) => void>();
 let _lastCallCreatedById: Record<string, any> = {};
 
 export const initSignaling = async (onIncomingCall: (payload: any) => void) => {
@@ -81,7 +81,9 @@ export const initSignaling = async (onIncomingCall: (payload: any) => void) => {
 
   socket.on('call:ended', (payload: any) => {
     console.log('[Signaling] Received call:ended:', payload);
-    try { onCallEndedListener && onCallEndedListener(payload); } catch (e) {}
+    callEndedListeners.forEach((listener) => {
+      try { listener(payload); } catch (e) {}
+    });
   });
 
   return socket;
@@ -125,8 +127,11 @@ export const onCallCreated = (listener: (payload: any) => void) => {
 };
 
 export const onCallEnded = (listener: (payload: any) => void) => {
-  onCallEndedListener = listener;
+  callEndedListeners.add(listener);
   console.log('[Signaling] Registered call ended listener');
+  return () => {
+    callEndedListeners.delete(listener);
+  };
 };
 
 export const getLastCallCreated = (callId?: string) => {

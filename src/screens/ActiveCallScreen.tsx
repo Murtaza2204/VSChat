@@ -40,6 +40,44 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
   const startedAtRef = React.useRef<number | null>(null);
   const didLogCallRef = React.useRef(false);
+  const didDismissCallRef = React.useRef(false);
+
+  const leaveAndDismissCall = React.useCallback(async () => {
+    if (didDismissCallRef.current) return;
+    didDismissCallRef.current = true;
+    clearCallNotification(route.params?.callId).catch(() => {});
+    try { const { leaveChannel } = await import('../services/agoraService'); await leaveChannel(); } catch (e) {}
+
+    try {
+      const { navigate } = require('../navigation/NavigationService');
+      navigate('Main', { screen: 'Calls', params: { screen: 'CallsList' } });
+      setTimeout(() => {
+        try { navigate('Main', { screen: 'Chats', params: { screen: 'ChatList' } }); } catch (e) { navigation.goBack(); }
+      }, 120);
+    } catch (e) {
+      if (navigation.canGoBack?.()) navigation.goBack();
+    }
+  }, [navigation, route.params?.callId]);
+
+  React.useEffect(() => {
+    const isCaller = !!route.params?.isCaller;
+    if (!isCaller) return;
+
+    try {
+      const signaling = require('../services/signaling');
+      signaling.onCallResponse(async (payload: any) => {
+        if (payload?.callId && route.params?.callId && String(payload.callId) !== String(route.params.callId)) return;
+
+        if (payload?.response === 'accept') {
+          setCallAccepted(true);
+          if (!startedAtRef.current) startedAtRef.current = Date.now();
+        } else if (payload?.response === 'decline') {
+          setCallAccepted(false);
+          leaveAndDismissCall();
+        }
+      });
+    } catch (e) {}
+  }, [leaveAndDismissCall, route.params?.callId, route.params?.isCaller]);
 
   React.useEffect(() => {
     const timer = setInterval(() => {
@@ -83,22 +121,8 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           setRemoteUid(uid ?? null);
         });
 
-        const signaling = require('../services/signaling');
         const isCaller = !!route.params?.isCaller;
-        if (isCaller) {
-          signaling.onCallResponse((payload: any) => {
-            if (!mounted) return;
-            if (payload?.callId && route.params?.callId && String(payload.callId) !== String(route.params.callId)) return;
-
-            if (payload?.response === 'accept') {
-              setCallAccepted(true);
-              if (!startedAtRef.current) startedAtRef.current = Date.now();
-            } else if (payload?.response === 'decline') {
-              setCallAccepted(false);
-              navigation.goBack();
-            }
-          });
-        }
+        const signaling = require('../services/signaling');
 
         if (isCaller && !tokenParam) {
           console.log('[ActiveCall] Caller without token — waiting for call:created from server');
@@ -170,21 +194,15 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     try {
       const signaling = require('../services/signaling');
       const handler = async (payload: any) => {
+        if (payload?.callId && route.params?.callId && String(payload.callId) !== String(route.params.callId)) return;
         console.log('[ActiveCall] Received remote call:ended', payload);
-        try { const { leaveChannel } = await import('../services/agoraService'); await leaveChannel(); } catch (e) {}
-        try {
-          const { navigate } = require('../navigation/NavigationService');
-          navigate('Main', { screen: 'Chats', params: { screen: 'ChatList' } });
-        } catch (e) {
-          navigation.goBack();
-        }
+        leaveAndDismissCall();
       };
-      signaling.onCallEnded(handler);
-      return () => {};
+      return signaling.onCallEnded(handler);
     } catch (e) {
       return () => {};
     }
-  }, []);
+  }, [leaveAndDismissCall, route.params?.callId]);
 
   const initials = getInitials(callerName);
   const accepted = callType === 'video' && callAccepted;
@@ -226,16 +244,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
       }
     } catch (e) {}
 
-    // Reset Calls stack: visit CallsList then return to Chats to avoid lingering IncomingCall
-    try {
-      const { navigate } = require('../navigation/NavigationService');
-      navigate('Main', { screen: 'Calls', params: { screen: 'CallsList' } });
-      setTimeout(() => {
-        try { navigate('Main', { screen: 'Chats', params: { screen: 'ChatList' } }); } catch (e) { navigation.goBack(); }
-      }, 200);
-    } catch (e) {
-      navigation.goBack();
-    }
+    leaveAndDismissCall();
   };
 
   if (callType === 'video') {

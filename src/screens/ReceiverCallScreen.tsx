@@ -26,7 +26,16 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const { theme } = useThemeStore();
   const { addMessage } = useChatStore();
   const { width } = useWindowDimensions();
-  const callerName = route.params?.callerName || 'Murtaza';
+  const callerFromPayload = React.useMemo(() => {
+    try {
+      if (route.params?.caller && typeof route.params.caller === 'string') {
+        return JSON.parse(route.params.caller);
+      }
+    } catch (e) {}
+    return route.params?.fromUser || {};
+  }, [route.params]);
+  const callerId = route.params?.callerId || callerFromPayload?.id || route.params?.fromUserId || route.params?.from;
+  const callerName = route.params?.callerName || callerFromPayload?.name || callerFromPayload?.displayName || 'Unknown';
   const callerPhone = route.params?.callerPhone || '+91 97631 51372';
   const callType = route.params?.callType || 'audio';
   const chatId = route.params?.chatId;
@@ -37,6 +46,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const [isVideoOn, setIsVideoOn] = React.useState(callType === 'video');
   const acceptedAtRef = React.useRef<number | null>(null);
   const didLogCallRef = React.useRef(false);
+  const didDismissCallRef = React.useRef(false);
 
   React.useEffect(() => {
     if (!accepted) {
@@ -71,7 +81,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
     didLogCallRef.current = true;
     addMessage(chatId, {
       id: Math.random().toString(),
-      senderId: route.params?.callerId || 'caller',
+      senderId: callerId || 'caller',
       senderName: callerName,
       content: callType === 'video' ? 'Video call' : 'Voice call',
       type: 'call',
@@ -86,10 +96,37 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
     });
   };
 
+  const dismissCallScreen = React.useCallback(async () => {
+    if (didDismissCallRef.current) return;
+    didDismissCallRef.current = true;
+    clearCallNotification(route.params?.callId).catch(() => {});
+    try { const { leaveChannel } = await import('../services/agoraService'); await leaveChannel(); } catch (e) {}
+
+    try {
+      const { navigate } = require('../navigation/NavigationService');
+      navigate('Main', { screen: 'Calls', params: { screen: 'CallsList' } });
+      setTimeout(() => {
+        try { navigate('Main', { screen: 'Chats', params: { screen: 'ChatList' } }); } catch (e) { navigation.goBack(); }
+      }, 120);
+    } catch (e) {
+      if (navigation.canGoBack?.()) navigation.goBack();
+    }
+  }, [navigation, route.params?.callId]);
+
+  React.useEffect(() => {
+    const unsubscribe = signaling.onCallEnded(async (payload: any) => {
+      if (payload?.callId && route.params?.callId && String(payload.callId) !== String(route.params.callId)) return;
+      console.log('[ReceiverCallScreen] Remote call ended:', payload);
+      logIncomingCall(accepted ? 'completed' : 'missed', accepted ? Math.max(1, elapsedSeconds) : undefined);
+      dismissCallScreen();
+    });
+
+    return unsubscribe;
+  }, [accepted, dismissCallScreen, elapsedSeconds, route.params?.callId]);
+
   const handleReject = () => {
     clearCallNotification(route.params?.callId).catch(() => {});
     try {
-      const callerId = route.params?.fromUser?.id || route.params?.callerId;
       const currentUser = useAuthStore.getState().user;
       const callId = route.params?.callId;
       if (callerId && currentUser?.id) {
@@ -100,7 +137,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
       console.warn('[ReceiverCallScreen] Failed to send decline response:', e);
     }
     logIncomingCall('missed');
-    navigation.goBack();
+    dismissCallScreen();
   };
 
   const handleAccept = async () => {
@@ -111,7 +148,6 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
       // ensure local audio is unmuted and speaker is on before joining
       try { setSpeakerphone(true); } catch (e) {}
       try { await muteLocalAudio(false); } catch (e) {}
-      const callerId = route.params?.fromUser?.id || route.params?.callerId;
       const currentUser = useAuthStore.getState().user;
       const callId = route.params?.callId;
       if (callerId && currentUser?.id) {
@@ -137,7 +173,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
       channel,
       token,
       callId: route.params?.callId,
-      callerId: route.params?.callerId || route.params?.fromUser?.id,
+      callerId,
       isReceiver: true,
     });
   };
@@ -153,17 +189,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
       }
     } catch (e) {}
     logIncomingCall('completed', Math.max(1, elapsedSeconds));
-    // ensure we reset Calls stack to CallsList then return to Chats to avoid IncomingCall lingering
-    try {
-      const { navigate } = require('../navigation/NavigationService');
-      // briefly visit CallsList to set Calls stack, then return to Chats
-      navigate('Main', { screen: 'Calls', params: { screen: 'CallsList' } });
-      setTimeout(() => {
-        try { navigate('Main', { screen: 'Chats', params: { screen: 'ChatList' } }); } catch (e) { navigation.goBack(); }
-      }, 200);
-    } catch (e) {
-      navigation.goBack();
-    }
+    dismissCallScreen();
   };
 
   if (callType === 'video') {
