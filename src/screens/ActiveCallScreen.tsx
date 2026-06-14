@@ -14,6 +14,7 @@ import { switchCamera, muteLocalVideo, muteLocalAudio, setSpeakerphone } from '.
 import { BORDER_RADIUS, FONT_SIZES, SHADOWS, SPACING } from '../constants/colors';
 import { useChatStore } from '../stores/chatStore';
 import { useThemeStore } from '../stores/themeStore';
+import { clearCallNotification } from '../services/notifications';
 import { Message } from '../types';
 
 const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
@@ -35,6 +36,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const [remoteUid, setRemoteUid] = React.useState<number | null>(null);
   const [engineReady, setEngineReady] = React.useState(false);
   const [joined, setJoined] = React.useState(false);
+  const [callAccepted, setCallAccepted] = React.useState(!route.params?.isCaller);
   const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
   const startedAtRef = React.useRef<number | null>(null);
   const didLogCallRef = React.useRef(false);
@@ -70,7 +72,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
         }
 
         // small delay for engine stability
-        await new Promise((r) => setTimeout(r, 800));
+        await new Promise<void>((resolve) => setTimeout(resolve, 800));
 
         // ensure local video state matches UI toggle
         try { if (isVideoOn) await muteLocalVideo(false); } catch (e) {}
@@ -83,6 +85,20 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
         const signaling = require('../services/signaling');
         const isCaller = !!route.params?.isCaller;
+        if (isCaller) {
+          signaling.onCallResponse((payload: any) => {
+            if (!mounted) return;
+            if (payload?.callId && route.params?.callId && String(payload.callId) !== String(route.params.callId)) return;
+
+            if (payload?.response === 'accept') {
+              setCallAccepted(true);
+              if (!startedAtRef.current) startedAtRef.current = Date.now();
+            } else if (payload?.response === 'decline') {
+              setCallAccepted(false);
+              navigation.goBack();
+            }
+          });
+        }
 
         if (isCaller && !tokenParam) {
           console.log('[ActiveCall] Caller without token — waiting for call:created from server');
@@ -99,7 +115,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
                 if (!mounted) return;
                 console.log('✓✓✓ Successfully joined channel:', channelName, 'local uid:', uid);
                 setJoined(true);
-                if (!startedAtRef.current) startedAtRef.current = Date.now();
+                if (!isCaller && !startedAtRef.current) startedAtRef.current = Date.now();
                 try { await setSpeakerphone(true); setIsSpeakerOn(true); } catch (e) {}
                 try { await muteLocalAudio(false); setIsMuted(false); } catch (e) {}
               });
@@ -120,7 +136,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               if (!mounted) return;
               console.log('✓✓✓ Successfully joined channel:', channelName, 'local uid:', uid);
               setJoined(true);
-              if (!startedAtRef.current) startedAtRef.current = Date.now();
+              if (!isCaller && !startedAtRef.current) startedAtRef.current = Date.now();
               try { await setSpeakerphone(true); setIsSpeakerOn(true); } catch (e) {}
               try { await muteLocalAudio(false); setIsMuted(false); } catch (e) {}
             });
@@ -171,11 +187,12 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   }, []);
 
   const initials = getInitials(callerName);
-  const accepted = callType === 'video' && elapsedSeconds >= 4;
+  const accepted = callType === 'video' && callAccepted;
   const avatarSize = Math.min(width * 0.54, 220);
-  const callStatus = elapsedSeconds < 4 ? 'Ringing...' : formatDuration(elapsedSeconds);
+  const callStatus = callAccepted ? formatDuration(elapsedSeconds) : 'Ringing...';
 
   const handleEndCall = async () => {
+    clearCallNotification(route.params?.callId).catch(() => {});
     if (chatId && !didLogCallRef.current) {
       didLogCallRef.current = true;
       const durationSeconds = Math.max(1, elapsedSeconds);
@@ -246,7 +263,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             <>
               {/* AFTER ACCEPTED: Main video - Remote participant (full screen) */}
               {RtcSurfaceView && remoteUid ? (
-                <RtcSurfaceView canvas={{ uid: remoteUid }} style={StyleSheet.absoluteFill} />
+                <RtcSurfaceView key={`remote-${remoteUid}`} canvas={{ uid: remoteUid }} style={StyleSheet.absoluteFill} />
               ) : (
                 <VideoSurface theme={theme} variant="remote" />
               )}

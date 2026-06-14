@@ -36,6 +36,7 @@ import { connectSocket } from '../utils/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import signaling from '../services/signaling';
 import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
+import { markConversationNotificationsRead } from '../services/notifications';
 
 const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
@@ -480,6 +481,26 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       liveLocationTimeoutRef.current = null;
     }
   };
+
+  useEffect(() => {
+    if (!conversationId) return;
+
+    const chatState = useChatStore.getState();
+    chatState.setCurrentChat({
+      ...(chat || {}),
+      id: chat?.id || String(conversationId),
+      conversationId: String(conversationId),
+    });
+    markConversationNotificationsRead(String(conversationId)).catch(() => {});
+
+    return () => {
+      const current = useChatStore.getState().currentChat;
+      const currentConversationId = current && String((current as any).conversationId || current.id);
+      if (currentConversationId === String(conversationId)) {
+        useChatStore.getState().setCurrentChat(null);
+      }
+    };
+  }, [conversationId, chat]);
 
   const requestCameraPermission = async () => {
     try {

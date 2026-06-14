@@ -34,6 +34,18 @@ export const formatCallDuration = (seconds: number): string => {
   return `${secs}s`;
 };
 
+export const formatCallTimestamp = (date: Date): string => {
+  const now = new Date();
+  const isSameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const yesterday = new Date();
+  yesterday.setDate(now.getDate() - 1);
+  const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+  if (isSameDay(date, now)) return `Today, ${date.toLocaleTimeString('en-US', timeOptions)}`;
+  if (isSameDay(date, yesterday)) return `Yesterday, ${date.toLocaleTimeString('en-US', timeOptions)}`;
+  const dateOptions: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' };
+  return date.toLocaleString('en-US', dateOptions);
+};
+
 export const validatePhoneNumber = (phone: string): boolean => {
   const phoneRegex = /^[0-9]{6,15}$/;
   return phoneRegex.test(phone.replace(/\D/g, ''));

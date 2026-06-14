@@ -18,11 +18,21 @@ messaging().setBackgroundMessageHandler(async (remoteMessage) => {
 
 		const data = remoteMessage?.data || {};
 		const type = data.type || (remoteMessage.notification ? 'message' : 'message');
+		const notificationId = String(data.notificationId || data.messageId || data.callId || '');
+
+		if (type === 'call' && data.expiresAt && Date.parse(String(data.expiresAt)) <= Date.now()) {
+			if (notificationId) {
+				try { await notifee.cancelDisplayedNotification(notificationId); } catch (e) {}
+				try { await notifee.cancelNotification(notificationId); } catch (e) {}
+			}
+			return;
+		}
 
 		if (type === 'call') {
 			await notifee.displayNotification({
-				title: remoteMessage.notification?.title || 'Incoming call',
-				body: remoteMessage.notification?.body || `${data.fromName || 'Caller'} is calling`,
+				id: notificationId || undefined,
+				title: data.title || remoteMessage.notification?.title || 'Incoming call',
+				body: data.body || remoteMessage.notification?.body || `${data.fromName || 'Caller'} is calling`,
 				android: {
 					channelId,
 					smallIcon: 'ic_launcher',
@@ -38,8 +48,9 @@ messaging().setBackgroundMessageHandler(async (remoteMessage) => {
 		} else {
 			// message: include reply and mark as read actions
 			await notifee.displayNotification({
-				title: remoteMessage.notification?.title || 'New message',
-				body: remoteMessage.notification?.body || '',
+				id: notificationId || undefined,
+				title: data.title || remoteMessage.notification?.title || 'New message',
+				body: data.body || remoteMessage.notification?.body || '',
 				android: {
 					channelId,
 					smallIcon: 'ic_launcher',

@@ -10,7 +10,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import { SPACING, FONT_SIZES, BORDER_RADIUS, SHADOWS } from '../constants/colors';
 import Avatar from './Avatar';
 import { Call } from '../types';
-import { formatTime } from '../utils/theme';
+import { formatCallTimestamp } from '../utils/theme';
 
 interface CallCardProps {
   call: Call;
@@ -90,12 +90,7 @@ const CallCard: React.FC<CallCardProps> = ({
             ]}
             numberOfLines={1}
           >
-            {call.status === 'missed'
-              ? 'Missed'
-              : call.direction === 'incoming'
-              ? 'Incoming'
-              : 'Outgoing'}{' '}
-            {call.type === 'video' ? 'video call' : 'call'}
+              {call.status === 'missed' ? (call.type === 'video' ? 'Missed video call' : 'Missed') : ''}
           </Text>
           <Text
             style={[
@@ -106,7 +101,7 @@ const CallCard: React.FC<CallCardProps> = ({
             ]}
           >
             {' '}
-            • {formatTime(call.timestamp)}
+            • {formatCallTimestamp(new Date(call.timestamp))}
           </Text>
         </View>
       </View>

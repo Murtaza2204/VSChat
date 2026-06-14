@@ -14,6 +14,7 @@ import { useThemeStore } from '../stores/themeStore';
 import { useAuthStore } from '../stores/authStore';
 import signaling from '../services/signaling';
 import { muteLocalAudio, setSpeakerphone } from '../services/agoraService';
+import { clearCallNotification } from '../services/notifications';
 import { Message } from '../types';
 
 type CallStatus = NonNullable<Message['call']>['status'];
@@ -86,6 +87,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const handleReject = () => {
+    clearCallNotification(route.params?.callId).catch(() => {});
     try {
       const callerId = route.params?.fromUser?.id || route.params?.callerId;
       const currentUser = useAuthStore.getState().user;
@@ -102,6 +104,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const handleAccept = async () => {
+    clearCallNotification(route.params?.callId).catch(() => {});
     setAccepted(true);
     // Send acceptance response to caller
     try {
@@ -133,11 +136,14 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
       appId,
       channel,
       token,
+      callId: route.params?.callId,
+      callerId: route.params?.callerId || route.params?.fromUser?.id,
       isReceiver: true,
     });
   };
 
   const handleEnd = () => {
+    clearCallNotification(route.params?.callId).catch(() => {});
     try {
       const currentUser = useAuthStore.getState().user;
       const callId = route.params?.callId;
@@ -718,7 +724,7 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '-24deg' }],
   },
   receiverVideoScrim: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0, 0, 0, 0.24)',
   },
   receiverCompactShapeLarge: {

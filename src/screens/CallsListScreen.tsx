@@ -9,6 +9,8 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useCallStore } from '../stores/callStore';
+import { useAuthStore } from '../stores/authStore';
+import { fetchCalls, fetchUsersByIds, RawCall } from '../utils/calls';
 import { useThemeStore } from '../stores/themeStore';
 import { SPACING, FONT_SIZES, BORDER_RADIUS } from '../constants/colors';
 import CallCard from '../components/CallCard';
@@ -18,11 +20,84 @@ import signaling from '../services/signaling';
 import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
 
 const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { getSearchedCalls } = useCallStore();
+  const { getSearchedCalls, setCalls } = useCallStore();
+  const { user } = useAuthStore();
   const { theme } = useThemeStore();
   const [searchQuery, setSearchQuery] = React.useState('');
 
   const searchedCalls = getSearchedCalls(searchQuery);
+
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [page, setPage] = React.useState(1);
+
+  React.useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      if (!user || !user.id) return;
+      setLoading(true);
+      setError(null);
+      try {
+        const rawCalls: RawCall[] = await fetchCalls(user.id, 1, 50);
+
+        // normalize calls to app Call shape
+        const calls = rawCalls.map((rc) => {
+          const callerId = rc.callerId || rc.caller || (rc.metadata && rc.metadata.callerId) || null;
+          const calleeId = rc.calleeId || rc.callee || (rc.metadata && rc.metadata.calleeId) || null;
+          const isCaller = String(callerId) === String(user.id) || String(callerId) === String(user.id || '');
+          const otherId = isCaller ? calleeId : callerId;
+
+          // try to extract name from metadata
+          let name = null;
+          try {
+            if (rc.metadata) {
+              const md = typeof rc.metadata === 'string' ? JSON.parse(rc.metadata) : rc.metadata;
+              name = md?.callerName || md?.name || md?.displayName || md?.fromUser?.displayName || md?.fromUser?.name || null;
+            }
+          } catch (e) {
+            name = null;
+          }
+
+          return {
+            id: String(rc._id || rc.callId || Math.random()),
+            userId: otherId || (rc.calleeId || rc.callerId) || '',
+            userName: name || String(otherId || 'Unknown'),
+            userAvatar: undefined,
+            type: (rc.callType === 'video' || rc.callType === 'videocall') ? 'video' : 'audio',
+            direction: isCaller ? 'outgoing' : 'incoming',
+            duration: rc.durationSeconds || 0,
+            timestamp: rc.createdAt ? new Date(rc.createdAt) : (rc.startedAt ? new Date(rc.startedAt) : new Date()),
+            status: (rc.callStatus === 'missed' || rc.callStatus === 'noAnswer') ? 'missed' : 'completed',
+          };
+        });
+
+        // find ids missing names
+        const missingIds = Array.from(new Set(calls.filter(c => !c.userName || c.userName === String(c.userId)).map(c => String(c.userId)))).filter(Boolean);
+        if (missingIds.length) {
+          const users = await fetchUsersByIds(missingIds);
+          const userMap: Record<string, any> = {};
+          (users || []).forEach(u => { userMap[String(u.id || u._id)] = u; });
+          calls.forEach((c) => {
+            const u = userMap[String(c.userId)];
+            if (u) {
+              c.userName = u.displayName || u.name || c.userName;
+              c.userAvatar = u.profilePictureUrl || u.avatar;
+            }
+          });
+        }
+
+        if (mounted) setCalls(calls as any);
+      } catch (e: any) {
+        console.warn('Failed to load calls', e);
+        if (mounted) setError(e.message || 'Failed to load calls');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    load();
+    return () => { mounted = false; };
+  }, [user]);
 
   const renderCallItem = ({ item }: any) => (
     <CallCard
@@ -46,6 +121,8 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             appId: AGORA_APP_ID,
             channel,
             callId,
+            token: undefined,
+            isCaller: true,
           });
         } catch (e) {
           console.warn('inviteCall failed', e);
