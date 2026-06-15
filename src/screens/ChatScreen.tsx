@@ -32,6 +32,7 @@ import Avatar from '../components/Avatar';
 import ChatBubble from '../components/ChatBubble';
 import MessageInput from '../components/MessageInput';
 import messagesApi from '../utils/messages';
+import api from '../config/api';
 import { connectSocket } from '../utils/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import signaling from '../services/signaling';
@@ -70,6 +71,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       ? chat.participants.find((p) => String(p.id) !== String(currentUserId))?.id
       : undefined);
   const [loadedMessages, setLoadedMessages] = useState<Message[]>([]);
+  const [membersProfiles, setMembersProfiles] = useState<any[] | null>(null);
   const chatMessages = useMemo(() => (conversationId ? loadedMessages : (chat?.messages || [])), [conversationId, loadedMessages, chat]);
   const groupMemberCount = (chat.participants?.length || 0) + (chat.isGroup ? 1 : 0);
   const groupSubtitle = chat.isGroup
@@ -138,7 +140,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     return {
       id: String(msg._id || msg.id),
       senderId,
-      senderName: msg.senderName || (isOwn ? 'You' : 'Them'),
+      senderName: msg.senderName || (isOwn ? 'You' : ''),
       content: msg.content || '',
       type,
       timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
@@ -745,6 +747,32 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       loadMessages();
     }, [loadMessages]);
 
+    // fetch participant profiles for group chats to map senderId -> name/avatar
+    useEffect(() => {
+      let cancelled = false;
+      (async () => {
+        if (!chat || !chat.isGroup) return;
+        try {
+          const myId = (user && user.id) || null;
+          const convRes = await api.get('/conversations', { params: { userId: myId } });
+          const convos = convRes.data.conversations || [];
+          const convId = routeConversationId || chat.conversationId || chat.id;
+          const match = convos.find((c) => String(c._id) === String(convId) || String(c.id) === String(convId));
+          const participants = (match && match.participants) || chat.participants || [];
+          if (participants && participants.length) {
+            const usersResp = await api.post('/users/lookup', { ids: participants });
+            const users = usersResp.data.users || [];
+            if (!cancelled) setMembersProfiles(users);
+          } else {
+            setMembersProfiles([]);
+          }
+        } catch (e) {
+          // ignore
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [chat, routeConversationId, user]);
+
     useEffect(() => {
       const unsubscribe = navigation.addListener?.('focus', loadMessages);
       return unsubscribe;
@@ -973,12 +1001,23 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     return () => clearLiveLocationWatch();
   }, []);
 
-  const renderMessage = ({ item }: { item: Message }) => {
+  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const repliedMessage = item.replyToId
       ? chatMessages.find((m) => m.id === item.replyToId)
       : null;
     const sender =
-      chat.participants?.find((participant) => participant.id === item.senderId) || null;
+      (membersProfiles && membersProfiles.find((p) => String(p.id) === String(item.senderId))) ||
+      chat.participants?.find((participant) => participant.id === item.senderId) ||
+      null;
+    // Resolve sender name: prefer message field, then profile lookup, then senderId, then empty
+    const resolvedSenderName =
+      (item.senderName && item.senderName !== 'Them' ? item.senderName : '') ||
+      (sender && (sender.displayName || sender.name || sender.title)) ||
+      (item.senderId ? String(item.senderId).slice(-6) : '') ||
+      'Unknown';
+
+    const prev = index > 0 ? chatMessages[index - 1] : null;
+    const shouldShowSender = !!chat.isGroup && item.senderId !== currentUserId && (!prev || String(prev.senderId) !== String(item.senderId));
 
     return (
       <ChatBubble
@@ -1000,9 +1039,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         isSelected={actionMessage?.id === item.id}
         reaction={item.reaction}
         forwarded={item.forwarded}
-        showSenderInfo={!!chat.isGroup && item.senderId !== currentUserId}
-        senderName={item.senderName}
-        senderAvatar={item.senderAvatar || sender?.avatar}
+        showSenderInfo={shouldShowSender}
+        senderName={resolvedSenderName}
+        senderAvatar={
+          item.senderAvatar || (sender && (sender.profilePictureUrl || sender.avatar)) || (item.senderId === currentUserId ? user?.avatar || '' : '')
+        }
         onLongPress={() => handleLongPressMessage(item)}
         replyTo={repliedMessage}
         onReplyPress={() => {
@@ -1154,7 +1195,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                 })
               }
             >
-              <Avatar source={chat.avatar || chat.title.charAt(0)} size="medium" theme={theme} />
+              <Avatar source={chat.avatar || (chat.title ? chat.title.charAt(0) : '')} size="medium" theme={theme} />
               <View style={styles.headerTextBlock}>
                 <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
                   {chat.title}

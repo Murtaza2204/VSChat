@@ -69,7 +69,7 @@ const NewGroupDetailsScreen: React.FC<{ navigation: any; route: any }> = ({
   const renderMember = (member: any) => (
     <View key={member.id || member.userId} style={styles.memberItem}>
       <Avatar
-        source={member.avatar || member.title?.charAt(0)}
+        source={member.avatar || (member.title ? member.title.charAt(0) : '')}
         size="large"
         theme={theme}
       />

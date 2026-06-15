@@ -36,7 +36,7 @@ const NewGroupScreen: React.FC<{ navigation: any; route: any }> = ({
           contacts.map((u: any) => ({
             id: String(u._id),
             title: u.displayName || u.phoneNumber,
-            avatar: u.profilePictureUrl || (u.displayName ? u.displayName.charAt(0) : undefined),
+            avatar: u.profilePictureUrl || (u.displayName ? u.displayName.charAt(0) : ''),
             userId: u._id,
             displayName: u.displayName,
             phoneNumber: u.phoneNumber,
@@ -109,7 +109,7 @@ const NewGroupScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const renderAvatar = (contact: any, spaced = true) => (
     <Avatar
-      source={contact.avatar || contact.title.charAt(0)}
+      source={contact.avatar || (contact.title ? contact.title.charAt(0) : '')}
       size="medium"
       theme={theme}
       style={spaced ? styles.avatarSpaced : undefined}
