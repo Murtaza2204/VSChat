@@ -57,8 +57,19 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         return;
       }
       const convos = await conversationsApi.getConversations(myId);
+      
+      // Deduplicate by phone number - keep first occurrence only
+      const seenPhones = new Set<string>();
+      const uniqueConvos = convos.filter((c: any) => {
+        const phone = c.participantProfile?.phoneNumber;
+        if (!phone) return true; // keep convos without phone
+        if (seenPhones.has(phone)) return false; // skip duplicates
+        seenPhones.add(phone);
+        return true;
+      });
+
       // map conversations to Chat-like items
-      const chatItems = convos.map((c: any) => {
+      const chatItems = uniqueConvos.map((c: any) => {
         const participant = c.participantProfile || null;
         // Use participant id as chat id when available so navigation passes correct user id
         const participantId = participant?.id || participant?.userId;

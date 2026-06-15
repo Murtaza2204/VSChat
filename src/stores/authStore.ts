@@ -46,6 +46,14 @@ export const useAuthStore = create<AuthStore>((set) => {
             authFlow: storedAuthFlow === 'login' || storedAuthFlow === 'register' ? storedAuthFlow : null,
           });
 
+          // Normalize any existing chats now that we have the current user
+          try {
+            const chatState = useChatStore.getState();
+            chatState.setChats(chatState.chats || []);
+          } catch (e) {
+            // ignore
+          }
+
           // initialize socket connection for real-time updates
           try {
             if (token) {
@@ -59,7 +67,7 @@ export const useAuthStore = create<AuthStore>((set) => {
                   const convId = String(msg.conversationId || msg.conversation);
                   const currentOpen = chatState.currentChat && (String(chatState.currentChat.conversationId || chatState.currentChat.id) === convId);
                   const chatItem = chats.find((c) => String(c.conversationId) === convId || String(c.id) === convId);
-                  const message = {
+                  const message: any = {
                     id: String(msg._id || msg.id),
                     senderId: msg.senderId,
                     senderName: msg.senderName || '',
@@ -68,6 +76,13 @@ export const useAuthStore = create<AuthStore>((set) => {
                     timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
                     read: false,
                   };
+                  if (msg.replyToId) {
+                    message.replyToId = msg.replyToId;
+                  }
+                  if (msg.forwarded) {
+                    message.forwarded = !!msg.forwarded;
+                    message.forwardedFrom = msg.forwardedFrom || null;
+                  }
 
                   if (chatItem) {
                     chatState.addMessage(chatItem.id || convId, message);
@@ -104,7 +119,7 @@ export const useAuthStore = create<AuthStore>((set) => {
                   const chatState = useChatStore.getState();
                   const chats = chatState.chats || [];
                   const convId = String(msg.conversationId || msg.conversation);
-                  const message = {
+                  const message: any = {
                     id: String(msg._id || msg.id),
                     senderId: msg.senderId,
                     senderName: msg.senderName || '',
@@ -113,6 +128,13 @@ export const useAuthStore = create<AuthStore>((set) => {
                     timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
                     read: false,
                   };
+                  if (msg.replyToId) {
+                    message.replyToId = msg.replyToId;
+                  }
+                  if (msg.forwarded) {
+                    message.forwarded = !!msg.forwarded;
+                    message.forwardedFrom = msg.forwardedFrom || null;
+                  }
                   const chatItem = chats.find((c) => String(c.conversationId) === convId || String(c.id) === convId);
                   if (msg.clientTempId) {
                     // reconcile optimistic message

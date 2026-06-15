@@ -5,9 +5,21 @@ export const getMessages = async (conversationId) => {
   return res.data.messages;
 };
 
-export const sendMessage = async (conversationId, senderId, content, type = 'text', receiverId) => {
-  const body = { conversationId, senderId, content, type };
+export const sendMessage = async (
+  conversationId,
+  senderId,
+  content,
+  type = 'text',
+  receiverId?,
+  replyToId?,
+  forwarded?: boolean,
+  forwardedFrom?: any,
+) => {
+  const body: any = { conversationId, senderId, content, type };
   if (receiverId) body.receiverId = receiverId;
+  if (replyToId) body.replyToId = replyToId;
+  if (forwarded) body.forwarded = true;
+  if (forwardedFrom) body.forwardedFrom = forwardedFrom;
   const res = await api.post('/messages', body);
   return res.data.message;
 };

@@ -30,7 +30,36 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   messages: [],
   searchQuery: '',
 
-  setChats: (chats) => set({ chats }),
+  setChats: (chats) => {
+    try {
+      const currentUser = useAuthStore.getState().user;
+      const seen = new Set();
+      const seenPhones = new Set();
+      const normalized = [];
+
+      for (const c of chats) {
+        // skip chats that point to the current user (self-chat)
+        if (currentUser && String(c.id) === String(currentUser.id)) continue;
+
+        // For non-group chats, prioritize phone number deduplication
+        if (!c.isGroup && c.phoneNumber) {
+          if (seenPhones.has(String(c.phoneNumber))) continue;
+          seenPhones.add(String(c.phoneNumber));
+        }
+
+        // Fallback deduplication by conversationId or id
+        const key = String(c.conversationId || c.id || Math.random());
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        normalized.push(c);
+      }
+
+      set({ chats: normalized });
+    } catch (e) {
+      set({ chats });
+    }
+  },
   
   setCurrentChat: (chat) => set({ currentChat: chat }),
   
@@ -55,9 +84,20 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 : 'Message');
     const updatedChats = chats.map((chat) => {
       if (chat.id === chatId) {
+        const existingIndex = (chat.messages || []).findIndex((m) => String(m.id) === String(message.id));
+        let nextMessages = chat.messages || [];
+        if (existingIndex === -1) {
+          nextMessages = [...nextMessages, message];
+        } else {
+          // update existing message with new data
+          nextMessages = nextMessages.map((m) =>
+            String(m.id) === String(message.id) ? { ...m, ...message } : m,
+          );
+        }
+
         return {
           ...chat,
-          messages: [...(chat.messages || []), message],
+          messages: nextMessages,
           lastMessage,
           lastMessageTime: message.timestamp,
         };
@@ -105,9 +145,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     const updatedChats = chats.map((chat) => {
       if (chat.id === targetChatId) {
+        const existing = (chat.messages || []).some((m) => String(m.id) === String(forwardedMessage.id));
+        const nextMessages = existing ? chat.messages || [] : [...(chat.messages || []), forwardedMessage];
+
         return {
           ...chat,
-          messages: [...(chat.messages || []), forwardedMessage],
+          messages: nextMessages,
           lastMessage,
           lastMessageTime: forwardedMessage.timestamp,
         };
@@ -261,12 +304,22 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   replaceMessageTempId: (tempId: string, serverMessage: Message) => {
     const { chats } = get();
     const updatedChats = chats.map((chat) => {
-      const messages = (chat.messages || []).map((m) => {
-        if (m.id === tempId) {
-          return { ...m, ...serverMessage, id: String(serverMessage.id || (serverMessage as any)._id || serverMessage.id) };
-        }
-        return m;
-      });
+      const serverId = String((serverMessage as any)._id || serverMessage.id || serverMessage.id);
+      const hasServer = (chat.messages || []).some((m) => String(m.id) === serverId);
+
+      let messages;
+      if (hasServer) {
+        // If server message already present, remove the temp message
+        messages = (chat.messages || []).filter((m) => String(m.id) !== String(tempId));
+      } else {
+        messages = (chat.messages || []).map((m) => {
+          if (String(m.id) === String(tempId)) {
+            return { ...m, ...serverMessage, id: serverId };
+          }
+          return m;
+        });
+      }
+
       return { ...chat, messages, lastMessage: messages[messages.length - 1]?.content || chat.lastMessage };
     });
     set({ chats: updatedChats });

@@ -145,6 +145,9 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       read: msg.status === 'seen' || isOwn,
       status: msg.status || 'sent',
       call,
+      replyToId: msg.replyToId ? String(msg.replyToId) : undefined,
+      forwarded: !!msg.forwarded,
+      forwardedFrom: msg.forwardedFrom || null,
     };
   };
 
@@ -215,21 +218,56 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           const token = await AsyncStorage.getItem('accessToken');
           const socket = connectSocket(token);
           if (socket && socket.connected) {
-            // optimistic local message
+            // optimistic local message with replyToId if present
             const tempId = Math.random().toString();
-            const optimistic = { id: tempId, senderId: currentUserId, senderName: 'You', content, type: 'text', timestamp: new Date(), read: false, status: 'sent' };
+            const optimistic: any = {
+              id: tempId,
+              senderId: currentUserId,
+              senderName: 'You',
+              content,
+              type: 'text',
+              timestamp: new Date(),
+              read: false,
+              status: 'sent',
+            };
+            if (replyMessage) {
+              optimistic.replyToId = replyMessage.id;
+            }
             setLoadedMessages((m) => [...m, optimistic]);
-            socket.emit('message:send', { conversationId, senderId: currentUserId, receiverId: derivedReceiverId, content, type: 'text', clientTempId: tempId });
-          }
-          else {
+            socket.emit('message:send', {
+              conversationId,
+              senderId: currentUserId,
+              receiverId: derivedReceiverId,
+              content,
+              type: 'text',
+              replyToId: replyMessage?.id,
+              clientTempId: tempId,
+            });
+            setReplyMessage(null);
+          } else {
             const sent = await messagesApi.sendMessage(
               conversationId,
               currentUserId,
               content,
               'text',
               derivedReceiverId,
+              replyMessage?.id,
             );
-            setLoadedMessages((m) => [...m, { id: sent._id, senderId: sent.senderId, senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them', content: sent.content, type: sent.type, timestamp: new Date(sent.createdAt), read: false, status: sent.status || 'sent' }]);
+            setLoadedMessages((m) => [
+              ...m,
+              {
+                id: sent._id,
+                senderId: sent.senderId,
+                senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them',
+                content: sent.content,
+                type: sent.type,
+                timestamp: new Date(sent.createdAt),
+                read: false,
+                status: sent.status || 'sent',
+                replyToId: sent.replyToId || replyMessage?.id,
+              },
+            ]);
+            setReplyMessage(null);
           }
         } catch (e) {
           console.warn('Send message failed', (e as any)?.message || String(e));
@@ -862,35 +900,83 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const handleSendForward = () => {
     if (!forwardTargetMessage || !selectedForwardTargets.length) return;
     const targetChatIdToOpen = selectedForwardTargets[0];
-    const { forwardMessage, setCurrentChat } = useChatStore.getState();
+    const { forwardMessage, setCurrentChat, replaceMessageTempId } = useChatStore.getState();
 
-    selectedForwardTargets.forEach((targetChatId) => {
-      forwardMessage(targetChatId, forwardTargetMessage);
+    // send forwarded message to each selected target (optimistic + socket/API)
+    (async () => {
+      const token = await AsyncStorage.getItem('accessToken');
+      const socket = connectSocket(token);
 
-      if (forwardNote.trim()) {
-        addMessage(targetChatId, {
-          id: Math.random().toString(),
-          senderId: 'me',
+      for (const targetChatId of selectedForwardTargets) {
+        // local optimistic update
+        const tempId = Math.random().toString();
+        const optimistic = {
+          id: tempId,
+          senderId: currentUserId,
           senderName: 'You',
-          content: forwardNote.trim(),
-          type: 'text',
+          content: forwardNote.trim() ? `${forwardTargetMessage.content}\n\n${forwardNote.trim()}` : forwardTargetMessage.content,
+          type: forwardTargetMessage.type || 'text',
           timestamp: new Date(),
           read: true,
-        });
+          forwarded: true,
+          forwardedFrom: { senderName: forwardTargetMessage.senderName, originalContent: forwardTargetMessage.content },
+        } as any;
+
+        // append optimistic message into target chat
+        addMessage(targetChatId, optimistic as any);
+
+        // find conversation id for the target chat (if available)
+        const targetChat = useChatStore.getState().chats.find((c) => c.id === targetChatId);
+        const conversationIdForTarget = targetChat?.conversationId || targetChat?.id;
+
+        const payload: any = {
+          conversationId: conversationIdForTarget,
+          senderId: currentUserId,
+          content: forwardTargetMessage.content,
+          type: forwardTargetMessage.type || 'text',
+          forwarded: true,
+          forwardedFrom: { senderName: forwardTargetMessage.senderName, originalContent: forwardTargetMessage.content },
+          clientTempId: tempId,
+        };
+
+        try {
+          if (socket && socket.connected) {
+            socket.emit('message:send', payload);
+          } else {
+            // fallback to API
+            const sent = await messagesApi.sendMessage(
+              conversationIdForTarget,
+              currentUserId,
+              forwardTargetMessage.content,
+              forwardTargetMessage.type || 'text',
+              undefined,
+              undefined,
+              true,
+              { senderName: forwardTargetMessage.senderName, originalContent: forwardTargetMessage.content },
+            );
+            // reconcile optimistic message with server response
+            replaceMessageTempId(tempId, sent);
+          }
+        } catch (e) {
+          console.warn('Forward send failed', e);
+        }
       }
-    });
 
-    const targetChatToOpen = useChatStore
-      .getState()
-      .chats.find((targetChat) => targetChat.id === targetChatIdToOpen);
-
-    closeForwardPicker();
-    setActionMessage(null);
-
-    if (targetChatToOpen) {
-      setCurrentChat(targetChatToOpen);
-      navigation.navigate('Chat', { chat: targetChatToOpen });
-    }
+      // open first selected chat and cleanup UI
+      const targetChatToOpen = useChatStore.getState().chats.find((c) => c.id === targetChatIdToOpen);
+      closeForwardPicker();
+      setActionMessage(null);
+      if (targetChatToOpen) {
+        setCurrentChat(targetChatToOpen);
+        if (String(chat?.id) !== String(targetChatIdToOpen)) {
+          try {
+            navigation.replace('Chat', { chat: targetChatToOpen });
+          } catch (e) {
+            navigation.navigate('Chat', { chat: targetChatToOpen });
+          }
+        }
+      }
+    })();
   };
 
   const openForwardForMessage = (message: Message) => {
@@ -1338,7 +1424,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         ref={flatListRef}
         data={chatMessages}
         renderItem={renderMessage}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => `${String(item.id)}-${index}`}
         contentContainerStyle={styles.messageList}
         onEndReachedThreshold={0.1}
       />
