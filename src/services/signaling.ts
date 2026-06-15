@@ -116,6 +116,27 @@ export const respondToCall = (toUserId: string, fromUserId: string, response: 'a
   socket.emit('call:response', payload);
 };
 
+export const endCall = async (callId: string, userId: string, reason = 'hangup') => {
+  if (!callId || !userId) return;
+  const payload = { callId, userId, reason };
+
+  if (socket && socket.connected) {
+    console.log('[Signaling] Sending call:ended:', payload);
+    socket.emit('call:ended', payload);
+    return;
+  }
+
+  console.warn('[Signaling] Socket not connected, ending call via HTTP fallback');
+  const res = await fetch(`${API_BASE_URL}/calls/${encodeURIComponent(callId)}/end`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to end call (${res.status})`);
+  }
+};
+
 export const onCallResponse = (listener: (payload: any) => void) => {
   onCallResponseListener = listener;
   console.log('[Signaling] Registered call response listener');
@@ -141,4 +162,4 @@ export const getLastCallCreated = (callId?: string) => {
 
 export const getSocket = () => socket;
 
-export default { initSignaling, inviteCall, respondToCall, onCallResponse, getSocket, onCallCreated, getLastCallCreated, onCallEnded };
+export default { initSignaling, inviteCall, respondToCall, endCall, onCallResponse, getSocket, onCallCreated, getLastCallCreated, onCallEnded };

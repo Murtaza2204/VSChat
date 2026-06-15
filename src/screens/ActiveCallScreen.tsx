@@ -42,22 +42,38 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const didLogCallRef = React.useRef(false);
   const didDismissCallRef = React.useRef(false);
 
+  const resetAfterCall = React.useCallback(() => {
+    const returnRoute = route.params?.returnRoute;
+    const routeNames: string[] = navigation.getState?.()?.routeNames || [];
+
+    if (returnRoute?.name && routeNames.includes(returnRoute.name)) {
+      const routes = routeNames.includes('ChatList')
+        ? [{ name: 'ChatList' }, { name: returnRoute.name, params: returnRoute.params }]
+        : [{ name: returnRoute.name, params: returnRoute.params }];
+      navigation.reset({ index: routes.length - 1, routes });
+      return;
+    }
+
+    if (routeNames.includes('CallsList')) {
+      navigation.reset({ index: 0, routes: [{ name: 'CallsList' }] });
+      return;
+    }
+
+    if (routeNames.includes('ChatList')) {
+      navigation.reset({ index: 0, routes: [{ name: 'ChatList' }] });
+      return;
+    }
+
+    if (navigation.canGoBack?.()) navigation.goBack();
+  }, [navigation, route.params?.returnRoute]);
+
   const leaveAndDismissCall = React.useCallback(async () => {
     if (didDismissCallRef.current) return;
     didDismissCallRef.current = true;
     clearCallNotification(route.params?.callId).catch(() => {});
     try { const { leaveChannel } = await import('../services/agoraService'); await leaveChannel(); } catch (e) {}
-
-    try {
-      const { navigate } = require('../navigation/NavigationService');
-      navigate('Main', { screen: 'Calls', params: { screen: 'CallsList' } });
-      setTimeout(() => {
-        try { navigate('Main', { screen: 'Chats', params: { screen: 'ChatList' } }); } catch (e) { navigation.goBack(); }
-      }, 120);
-    } catch (e) {
-      if (navigation.canGoBack?.()) navigation.goBack();
-    }
-  }, [navigation, route.params?.callId]);
+    resetAfterCall();
+  }, [resetAfterCall, route.params?.callId]);
 
   React.useEffect(() => {
     const isCaller = !!route.params?.isCaller;
@@ -234,13 +250,12 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     }
 
     try {
-      const socket = require('../services/signaling').getSocket();
       const currentUser = require('../stores/authStore').useAuthStore.getState().user;
       const callId = route.params?.callId;
       // stop audio/video locally first
       try { const { leaveChannel } = await import('../services/agoraService'); await leaveChannel(); } catch (e) {}
-      if (socket && socket.connected && callId && currentUser?.id) {
-        socket.emit('call:ended', { callId, userId: currentUser.id, reason: 'hangup' });
+      if (callId && currentUser?.id) {
+        await require('../services/signaling').endCall(callId, currentUser.id, 'hangup');
       }
     } catch (e) {}
 

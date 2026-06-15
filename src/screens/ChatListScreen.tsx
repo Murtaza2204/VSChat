@@ -52,7 +52,10 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
   const loadConversations = async () => {
     try {
-      const myId = user?.id || 'me';
+      const myId = user?.id;
+      if (!myId) {
+        return;
+      }
       const convos = await conversationsApi.getConversations(myId);
       // map conversations to Chat-like items
       const chatItems = convos.map((c: any) => {
@@ -80,7 +83,12 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
   useEffect(() => {
     loadConversations();
-  }, []);
+  }, [user?.id]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener?.('focus', loadConversations);
+    return unsubscribe;
+  }, [navigation, user?.id]);
 
   const handleChatPress = (chat: any) => {
     setCurrentChat(chat);

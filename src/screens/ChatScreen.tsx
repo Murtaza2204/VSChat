@@ -42,7 +42,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
   route,
 }) => {
-  const { chat: routeChat, conversationId, participant } = route.params || {};
+  const { chat: routeChat, conversationId: routeConversationId, participant } = route.params || {};
   const { theme } = useThemeStore();
   const { user } = useAuthStore();
   const currentUserId = user?.id;
@@ -61,6 +61,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         : null),
     [participant, routeChat],
   );
+  const conversationId =
+    routeConversationId || routeChat?.conversationId || chat?.conversationId;
   const receiverIdFromRoute = participant?.id;
   const derivedReceiverId =
     receiverIdFromRoute ||
@@ -117,17 +119,34 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const screenWidth = Dimensions.get('window').width;
 
-  const normalizeServerMessage = (msg: any): Message => ({
-    id: String(msg._id || msg.id),
-    senderId: msg.senderId,
-    senderName: msg.senderName || (msg.senderId === currentUserId ? 'You' : 'Them'),
-    content: msg.content,
-    type: msg.type || 'text',
-    timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
-    read: msg.status === 'seen' || msg.senderId === currentUserId,
-    status: msg.status || 'sent',
-    call: msg.call,
-  });
+  const normalizeServerMessage = (msg: any): Message => {
+    const senderId = String(msg.senderId || '');
+    const isOwn = senderId === String(currentUserId);
+    const type = msg.type || 'text';
+    const call =
+      type === 'call'
+        ? {
+            ...(msg.call || {}),
+            type:
+              msg.call?.type ||
+              (String(msg.content || '').toLowerCase().includes('video') ? 'video' : 'voice'),
+            status: msg.call?.status || 'noAnswer',
+            direction: isOwn ? 'outgoing' : 'incoming',
+          }
+        : msg.call;
+
+    return {
+      id: String(msg._id || msg.id),
+      senderId,
+      senderName: msg.senderName || (isOwn ? 'You' : 'Them'),
+      content: msg.content || '',
+      type,
+      timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
+      read: msg.status === 'seen' || isOwn,
+      status: msg.status || 'sent',
+      call,
+    };
+  };
 
   const mapAssetToMediaItem = (asset: Asset, index: number): MediaItem | null => {
     if (!asset.uri) {
@@ -356,6 +375,10 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       token: undefined,
       callId,
       isCaller: true,
+      returnRoute: {
+        name: 'Chat',
+        params: route.params,
+      },
     });
   };
 
@@ -696,18 +719,28 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   };
 
-    // load messages if conversationId is provided
+    const loadMessages = React.useCallback(async () => {
+      if (!conversationId) {
+        setLoadedMessages([]);
+        return;
+      }
+
+      try {
+        const msgs = await messagesApi.getMessages(conversationId);
+        setLoadedMessages((msgs || []).map(normalizeServerMessage));
+      } catch (e) {
+        console.warn('Failed to load messages', (e as any)?.message || String(e));
+      }
+    }, [conversationId, currentUserId]);
+
     useEffect(() => {
-      if (!conversationId) return;
-      (async () => {
-        try {
-          const msgs = await messagesApi.getMessages(conversationId);
-            setLoadedMessages(msgs.map(normalizeServerMessage));
-        } catch (e) {
-          console.warn('Failed to load messages', (e as any)?.message || String(e));
-        }
-      })();
-    }, [conversationId]);
+      loadMessages();
+    }, [loadMessages]);
+
+    useEffect(() => {
+      const unsubscribe = navigation.addListener?.('focus', loadMessages);
+      return unsubscribe;
+    }, [navigation, loadMessages]);
 
   const handleCurrentLocationPress = async () => {
     try {
