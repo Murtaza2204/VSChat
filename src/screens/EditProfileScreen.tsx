@@ -127,15 +127,23 @@ const EditProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     if (validateForm()) {
       setIsLoading(true);
       try {
-        await setupProfile({
+        console.info('EditProfileScreen: calling setupProfile with', { name: name.trim(), bio: bio.trim() });
+        const updated = await setupProfile({
           name: name.trim(),
           bio: bio.trim(),
           avatar,
         });
+        console.info('EditProfileScreen: setupProfile completed, navigating to Profile');
         setIsEditing(false);
-        navigation.goBack();
+        Alert.alert('Success', 'Profile updated successfully');
+        // navigate explicitly to Profile to ensure updated data is shown
+        setTimeout(() => {
+          navigation.navigate('Profile');
+        }, 500);
       } catch (error: any) {
+        console.error('EditProfileScreen: setupProfile error', error);
         setError(error.message);
+        Alert.alert('Error', error.message || 'Failed to update profile');
       } finally {
         setIsLoading(false);
       }

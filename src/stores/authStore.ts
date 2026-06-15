@@ -13,7 +13,7 @@ interface AuthStore extends AuthState {
   authFlow: AuthFlow | null;
   login: (countryCode: string, phoneNumber: string) => Promise<AuthFlow>;
   verifyOTP: (phoneNumber: string, otp: string) => Promise<AuthFlow>;
-  setupProfile: (user: Partial<User>) => Promise<void>;
+  setupProfile: (user: Partial<User>) => Promise<User | void>;
   logout: () => Promise<void>;
   initializeAuth: () => Promise<void>;
   setError: (error: string | null) => void;
@@ -46,15 +46,11 @@ export const useAuthStore = create<AuthStore>((set) => {
             authFlow: storedAuthFlow === 'login' || storedAuthFlow === 'register' ? storedAuthFlow : null,
           });
 
-          // Normalize any existing chats now that we have the current user
           try {
             const chatState = useChatStore.getState();
             chatState.setChats(chatState.chats || []);
-          } catch (e) {
-            // ignore
-          }
+          } catch (e) {}
 
-          // initialize socket connection for real-time updates
           try {
             if (token) {
               const socket = connectSocket(token);
@@ -76,9 +72,7 @@ export const useAuthStore = create<AuthStore>((set) => {
                     timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
                     read: false,
                   };
-                  if (msg.replyToId) {
-                    message.replyToId = msg.replyToId;
-                  }
+                  if (msg.replyToId) message.replyToId = msg.replyToId;
                   if (msg.forwarded) {
                     message.forwarded = !!msg.forwarded;
                     message.forwardedFrom = msg.forwardedFrom || null;
@@ -86,7 +80,6 @@ export const useAuthStore = create<AuthStore>((set) => {
 
                   if (chatItem) {
                     chatState.addMessage(chatItem.id || convId, message);
-                    // also bump lastMessage
                     const updatedChats = chats.map((c) =>
                       (String(c.conversationId) === convId || String(c.id) === convId)
                         ? { ...c, lastMessage: message.content, lastMessageTime: message.timestamp, unreadCount: currentOpen ? 0 : ((c.unreadCount || 0) + 1) }
@@ -94,7 +87,6 @@ export const useAuthStore = create<AuthStore>((set) => {
                     );
                     chatState.setChats(updatedChats);
                   } else {
-                    // optional: add a lightweight chat entry
                     const newChat = {
                       id: convId,
                       conversationId: convId,
@@ -109,9 +101,7 @@ export const useAuthStore = create<AuthStore>((set) => {
                     };
                     chatState.setChats([newChat, ...chats]);
                   }
-                } catch (e) {
-                  console.warn('message:receive handler error', e);
-                }
+                } catch (e) { console.warn('message:receive handler error', e); }
               });
 
               socket.on('message:sent', (msg) => {
@@ -128,16 +118,13 @@ export const useAuthStore = create<AuthStore>((set) => {
                     timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
                     read: false,
                   };
-                  if (msg.replyToId) {
-                    message.replyToId = msg.replyToId;
-                  }
+                  if (msg.replyToId) message.replyToId = msg.replyToId;
                   if (msg.forwarded) {
                     message.forwarded = !!msg.forwarded;
                     message.forwardedFrom = msg.forwardedFrom || null;
                   }
                   const chatItem = chats.find((c) => String(c.conversationId) === convId || String(c.id) === convId);
                   if (msg.clientTempId) {
-                    // reconcile optimistic message
                     chatState.replaceMessageTempId(String(msg.clientTempId), message as any);
                   } else if (chatItem) {
                     chatState.addMessage(chatItem.id || convId, message);
@@ -149,15 +136,12 @@ export const useAuthStore = create<AuthStore>((set) => {
                       ),
                     );
                   }
-                } catch (e) {
-                  console.warn('message:sent handler error', e);
-                }
+                } catch (e) { console.warn('message:sent handler error', e); }
               });
 
               socket.on('message:status', (status) => {
                 try {
                   const chatState = useChatStore.getState();
-                  // update message status by id across chats
                   const updates: any = { status: status.status };
                   if (status.status === 'seen') {
                     updates.read = true;
@@ -169,32 +153,22 @@ export const useAuthStore = create<AuthStore>((set) => {
                 } catch (e) {}
               });
             }
-          } catch (e) {
-            console.warn('Socket init failed', e);
-          }
+          } catch (e) { console.warn('Socket init failed', e); }
         }
-      } catch (error) {
-        console.warn('Failed to load user from storage:', error);
-      }
+      } catch (error) { console.warn('Failed to load user from storage:', error); }
     },
 
     login: async (countryCode: string, phoneNumber: string) => {
       set({ isLoading: true, error: null });
       try {
         const fullPhone = `${countryCode}${phoneNumber}`;
-        // Trigger Firebase to send SMS
         const confirmation = await auth().signInWithPhoneNumber(fullPhone);
-
-        // Persist verificationId as fallback
         // @ts-ignore
         const verificationId = confirmation.verificationId || null;
         if (verificationId) await AsyncStorage.setItem('verificationId', verificationId);
         try { await AsyncStorage.setItem('phone', fullPhone); } catch (e) { console.warn('Could not save phone to storage'); }
-
-        // Store confirmation for in-memory confirmation flow
         // @ts-ignore
         (global as any).__pendingPhoneConfirmation = confirmation;
-
         set({ isLoading: false, authFlow: 'register' });
         return 'register';
       } catch (error: any) {
@@ -239,17 +213,15 @@ export const useAuthStore = create<AuthStore>((set) => {
             status: data.user.status?.online ? 'online' : 'offline',
             avatar: data.user.profilePictureUrl || '👤',
             profileCompleted: true,
+            bio: data.user.bio || '',
           };
 
           try {
             await AsyncStorage.setItem('user', JSON.stringify(backendUser));
             await AsyncStorage.setItem('accessToken', data.accessToken);
             await AsyncStorage.setItem('refreshToken', data.refreshToken);
-          } catch (e) {
-            console.warn('Could not save user or tokens to storage');
-          }
+          } catch (e) { console.warn('Could not save user or tokens to storage'); }
 
-          // Clear any in-memory confirmation and stored verificationId
           try {
             // @ts-ignore
             delete (global as any).__pendingPhoneConfirmation;
@@ -262,7 +234,6 @@ export const useAuthStore = create<AuthStore>((set) => {
 
         try { await AsyncStorage.setItem('phone', phoneNumber); await AsyncStorage.setItem('authFlow', data.flow); } catch (e) { console.warn('Could not save auth details to storage'); }
 
-        // Clear any in-memory confirmation and stored verificationId
         try {
           // @ts-ignore
           delete (global as any).__pendingPhoneConfirmation;
@@ -280,12 +251,58 @@ export const useAuthStore = create<AuthStore>((set) => {
     setupProfile: async (profileData: Partial<User>) => {
       set({ isLoading: true, error: null });
       try {
-        // Read phone from storage (set during verifyOTP)
         const phone = (await AsyncStorage.getItem('phone')) || profileData.phone;
-        if (!phone) throw new Error('Phone number missing for registration');
+        if (!phone) throw new Error('Phone number missing');
 
-        // If the selected image is a local file URI (file://...), do not send it
-        // Frontend should upload images to a CDN or serve them over http(s) before sending.
+        // If user is authenticated (has access token), call profile update endpoint
+        const token = await AsyncStorage.getItem('accessToken');
+        console.info('setupProfile: checking for token...', !!token);
+        if (token) {
+          console.info('setupProfile: token exists, calling PATCH /users/me');
+          const body: any = {
+            displayName: profileData.name || undefined,
+            bio: profileData.bio !== undefined ? profileData.bio : undefined,
+          };
+          if (profileData.avatar && typeof profileData.avatar === 'string') {
+            const val = profileData.avatar;
+            if (!val.startsWith('file://')) body.profilePictureUrl = val;
+          }
+
+          console.info('setupProfile PATCH body:', body);
+          const res = await fetch(`${API_BASE_URL}/users/me`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify(body),
+          });
+          console.info('setupProfile PATCH response status:', res.status);
+          const data = await res.json();
+          console.info('setupProfile PATCH response data:', data);
+          if (!res.ok || !data.success) {
+            const errorMsg = data.message || `Profile update failed (${res.status})`;
+            console.error('setupProfile PATCH error:', errorMsg);
+            throw new Error(errorMsg);
+          }
+
+          const updated = data.user;
+          const updatedUser: User = {
+            id: updated.id,
+            name: updated.displayName || '',
+            phone: updated.phoneNumber,
+            status: 'offline',
+            avatar: updated.profilePictureUrl || '👤',
+            profileCompleted: true,
+            bio: updated.bio || '',
+          };
+
+          try {
+            await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+          } catch (e) { console.warn('Could not save updated user to storage'); }
+
+          set({ user: updatedUser, isLoading: false });
+          return updatedUser;
+        }
+
+        // Registration flow (no access token present)
         let profilePictureUrl: string | undefined;
         if (profileData.avatar && typeof profileData.avatar === 'string') {
           const val = profileData.avatar;
@@ -294,28 +311,23 @@ export const useAuthStore = create<AuthStore>((set) => {
 
         let profilePictureUrlToSend = profilePictureUrl;
 
-        // If we have a local file URI, upload it to backend Cloudinary endpoint first
         if (!profilePictureUrlToSend && profileData.avatar && String(profileData.avatar).startsWith('file://')) {
           const uri = profileData.avatar as string;
           try {
             console.info('Uploading local file URI to backend:', uri);
             const form = new FormData();
-            // React Native expects an object with uri, name and type
             // @ts-ignore
             form.append('file', { uri, name: 'profile.jpg', type: 'image/jpeg' });
 
             const uploadRes = await fetch(`${API_BASE_URL}/auth/upload-profile`, {
               method: 'POST',
-              // Note: do NOT set Content-Type header; fetch will set the multipart boundary
               body: form,
             });
 
             const uploadData = await uploadRes.json();
             console.info('UPLOAD_PROFILE response', uploadRes.status, uploadData);
             if (uploadRes.ok && uploadData.success) profilePictureUrlToSend = uploadData.url;
-          } catch (e) {
-            console.warn('Profile image upload failed, continuing without image', e);
-          }
+          } catch (e) { console.warn('Profile image upload failed, continuing without image', e); }
         }
 
         const body = {
@@ -340,19 +352,19 @@ export const useAuthStore = create<AuthStore>((set) => {
           status: data.user.status?.online ? 'online' : 'offline',
           avatar: data.user.profilePictureUrl || '👤',
           profileCompleted: true,
+          bio: data.user.bio || '',
         };
 
         try {
           await AsyncStorage.setItem('user', JSON.stringify(newUser));
           await AsyncStorage.setItem('accessToken', data.accessToken);
           await AsyncStorage.setItem('refreshToken', data.refreshToken);
-        } catch (e) {
-          console.warn('Could not save registered user or tokens to storage');
-        }
+        } catch (e) { console.warn('Could not save registered user or tokens to storage'); }
 
         set({ user: newUser, isAuthenticated: true, isLoading: false, authFlow: null });
+        return newUser;
       } catch (error: any) {
-        set({ error: error.message || 'Profile setup failed', isLoading: false });
+        set({ isLoading: false, error: error.message || 'Profile setup failed' });
         throw error;
       }
     },
@@ -371,9 +383,7 @@ export const useAuthStore = create<AuthStore>((set) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ userId: currentUser.id, deviceId: 'primary', fcmToken }),
               });
-            } catch (e) {
-              console.warn('Failed to unregister device token on logout', e);
-            }
+            } catch (e) { console.warn('Failed to unregister device token on logout', e); }
           }
         } catch (e) {}
         try {
@@ -384,9 +394,7 @@ export const useAuthStore = create<AuthStore>((set) => {
             AsyncStorage.removeItem('accessToken'),
             AsyncStorage.removeItem('refreshToken'),
           ]);
-        } catch (e) {
-          console.warn('Could not clear storage');
-        }
+        } catch (e) { console.warn('Could not clear storage'); }
         set({
           user: null,
           isAuthenticated: false,
@@ -396,10 +404,8 @@ export const useAuthStore = create<AuthStore>((set) => {
           authFlow: null,
         });
       } catch (error: any) {
-        set({
-          error: error.message || 'Logout failed',
-          isLoading: false,
-        });
+        set({ error: error.message || 'Logout failed', isLoading: false });
+        throw error;
       }
     },
 
@@ -423,3 +429,5 @@ export const useAuthStore = create<AuthStore>((set) => {
     },
   };
 });
+
+export default useAuthStore;

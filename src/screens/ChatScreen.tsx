@@ -96,6 +96,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [viewerStartIndex, setViewerStartIndex] = useState(0);
   const viewerScrollRef = React.useRef<ScrollView | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  const shouldAutoScrollRef = useRef(true);
   const liveLocationWatchRef = useRef<number | null>(null);
   const liveLocationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -142,7 +143,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       content: msg.content || '',
       type,
       timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
-      read: msg.status === 'seen' || isOwn,
+      // Only mark as read when server reports 'seen'
+      read: msg.status === 'seen',
       status: msg.status || 'sent',
       call,
       replyToId: msg.replyToId ? String(msg.replyToId) : undefined,
@@ -765,6 +767,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
       try {
         const msgs = await messagesApi.getMessages(conversationId);
+        // when loading messages for a conversation, ensure we auto-scroll to bottom
+        shouldAutoScrollRef.current = true;
         setLoadedMessages((msgs || []).map(normalizeServerMessage));
       } catch (e) {
         console.warn('Failed to load messages', (e as any)?.message || String(e));
@@ -1044,7 +1048,10 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   useEffect(() => {
-    flatListRef.current?.scrollToEnd({ animated: true });
+    // If auto-scroll is desired, scroll after layout; otherwise respect user's scroll position
+    if (shouldAutoScrollRef.current) {
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
+    }
   }, [chatMessages]);
 
   useEffect(() => {
@@ -1065,6 +1072,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         isOwn={item.senderId === currentUserId}
         theme={theme}
         read={item.read}
+        status={item.status}
         type={item.type}
         call={item.call}
         mediaUrl={item.mediaUrl}
@@ -1427,6 +1435,18 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         keyExtractor={(item, index) => `${String(item.id)}-${index}`}
         contentContainerStyle={styles.messageList}
         onEndReachedThreshold={0.1}
+        onContentSizeChange={() => {
+          if (shouldAutoScrollRef.current) {
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }
+        }}
+        onScroll={({ nativeEvent }) => {
+          try {
+            const { contentOffset, layoutMeasurement, contentSize } = nativeEvent;
+            const isAtBottom = contentOffset.y + layoutMeasurement.height >= (contentSize.height - 20);
+            shouldAutoScrollRef.current = isAtBottom;
+          } catch (e) {}
+        }}
       />
 
       {actionMessage && (

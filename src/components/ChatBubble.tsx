@@ -37,6 +37,7 @@ interface ChatBubbleProps {
   senderName?: string;
   senderAvatar?: string;
   showSenderInfo?: boolean;
+  status?: string;
 }
 
 const ChatBubble: React.FC<ChatBubbleProps> = ({
@@ -62,6 +63,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   senderName,
   senderAvatar,
   showSenderInfo = false,
+  status = 'sent',
 }) => {
   const [now, setNow] = useState(Date.now());
   const { width: screenWidth } = useWindowDimensions();
@@ -349,11 +351,18 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         <View style={[styles.footer, isMediaMessage && styles.mediaFooter]}>
           <Text style={[styles.timestamp, { color: theme.textSecondary }]}>{formatTime(timestamp)}</Text>
           {isOwn && (
-            <Icon
-              name="checkmark-done"
-              size={14}
-              color={read ? theme.primary : theme.textSecondary}
-            />
+            (() => {
+              const s = status || (read ? 'seen' : 'sent');
+              const iconName = s === 'sent' ? 'checkmark' : 'checkmark-done';
+              const iconColor = s === 'seen' ? theme.primary : theme.textSecondary;
+              return (
+                <Icon
+                  name={iconName}
+                  size={14}
+                  color={iconColor}
+                />
+              );
+            })()
           )}
         </View>
         {reaction ? (
