@@ -59,8 +59,23 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       const convos = await conversationsApi.getConversations(myId);
       // map conversations to Chat-like items
       const chatItems = convos.map((c: any) => {
+        const isGroup = c.isGroup === true;
+        if (isGroup) {
+          // For groups, use the group title
+          return {
+            id: String(c._id),
+            title: c.title || 'Group',
+            avatar: '👥',
+            lastMessage: c.lastMessage || '',
+            lastMessageTime: c.lastMessageAt ? new Date(c.lastMessageAt) : new Date(c.createdAt),
+            isGroup: true,
+            conversationId: c._id,
+            participants: c.participants || [],
+            unreadCount: typeof c.unreadCounts === 'object' && c.unreadCounts[myId] ? c.unreadCounts[myId] : 0,
+          };
+        }
+        // One-to-one conversation
         const participant = c.participantProfile || null;
-        // Use participant id as chat id when available so navigation passes correct user id
         const participantId = participant?.id || participant?.userId;
         return {
           id: String(participantId || c._id),

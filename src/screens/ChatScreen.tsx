@@ -219,15 +219,18 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             const tempId = Math.random().toString();
             const optimistic = { id: tempId, senderId: currentUserId, senderName: 'You', content, type: 'text', timestamp: new Date(), read: false, status: 'sent' };
             setLoadedMessages((m) => [...m, optimistic]);
-            socket.emit('message:send', { conversationId, senderId: currentUserId, receiverId: derivedReceiverId, content, type: 'text', clientTempId: tempId });
+            // for group chats, don't send receiverId
+            const receiverId = chat?.isGroup ? undefined : derivedReceiverId;
+            socket.emit('message:send', { conversationId, senderId: currentUserId, receiverId, content, type: 'text', clientTempId: tempId });
           }
           else {
+            const receiverId = chat?.isGroup ? undefined : derivedReceiverId;
             const sent = await messagesApi.sendMessage(
               conversationId,
               currentUserId,
               content,
               'text',
-              derivedReceiverId,
+              receiverId,
             );
             setLoadedMessages((m) => [...m, { id: sent._id, senderId: sent.senderId, senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them', content: sent.content, type: sent.type, timestamp: new Date(sent.createdAt), read: false, status: sent.status || 'sent' }]);
           }
@@ -380,6 +383,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         params: route.params,
       },
     });
+  };
+
+  const openGroupDetails = () => {
+    if (!chat || !chat.isGroup) return;
+    navigation.navigate('GroupDetails', { groupId: chat.conversationId, chat });
   };
 
   const handleSendMedia = () => {

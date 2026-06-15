@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   FlatList,
   SafeAreaView,
@@ -15,6 +15,7 @@ import { useChatStore } from '../stores/chatStore';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
 import Avatar from '../components/Avatar';
 import { Chat, Message } from '../types';
+import contactSync from '../utils/contactSync';
 
 const NewGroupScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
@@ -23,21 +24,69 @@ const NewGroupScreen: React.FC<{ navigation: any; route: any }> = ({
   const { theme } = useThemeStore();
   const { chats } = useChatStore();
   const forwardMessage = route.params?.forwardMessage as Message | undefined;
-  const groupContacts = useMemo(
-    () => chats.filter((chat) => !chat.isGroup).slice(0, 4),
+  const [deviceContacts, setDeviceContacts] = useState<any[]>([]);
+  const [loadingContacts, setLoadingContacts] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      setLoadingContacts(true);
+      try {
+        const contacts = await contactSync.syncDeviceContacts();
+        setDeviceContacts(
+          contacts.map((u: any) => ({
+            id: String(u._id),
+            title: u.displayName || u.phoneNumber,
+            avatar: u.profilePictureUrl || (u.displayName ? u.displayName.charAt(0) : undefined),
+            userId: u._id,
+            displayName: u.displayName,
+            phoneNumber: u.phoneNumber,
+          })),
+        );
+      } catch (e) {
+        console.warn('Failed to load device contacts', String(e));
+      } finally {
+        setLoadingContacts(false);
+      }
+    })();
+  }, []);
+
+  const chatContacts = useMemo(
+    () => chats.filter((chat) => !chat.isGroup).map((c) => ({
+      ...c,
+      userId: c.id,
+      displayName: c.title,
+    })),
     [chats],
+  );
+
+  const allContacts = useMemo(() => {
+    const seen = new Set<string>();
+    const merged = [];
+    [...chatContacts, ...deviceContacts].forEach((c) => {
+      const key = String(c.userId || c.id);
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(c);
+      }
+    });
+    return merged;
+  }, [chatContacts, deviceContacts]);
+
+  const groupContacts = useMemo(
+    () => allContacts.slice(0, 20),
+    [allContacts],
   );
   const contactSections = useMemo(
     () => [
-      { title: 'Frequently contacted', data: groupContacts.slice(0, 2) },
-      { title: 'Contacts on WhatsApp', data: groupContacts.slice(2, 4) },
+      { title: 'Recent contacts', data: groupContacts.slice(0, 10) },
+      { title: 'More contacts', data: groupContacts.slice(10, 20) },
     ],
     [groupContacts],
   );
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const selectedContacts = useMemo(
-    () => groupContacts.filter((contact) => selectedIds.includes(contact.id)),
+    () => groupContacts.filter((contact) => selectedIds.includes(contact.id || contact.userId)),
     [groupContacts, selectedIds],
   );
 
@@ -54,10 +103,11 @@ const NewGroupScreen: React.FC<{ navigation: any; route: any }> = ({
       return;
     }
 
-    navigation.navigate('NewGroupDetails', { selectedIds, forwardMessage });
+    const selectedContactObjects = groupContacts.filter((c) => selectedIds.includes(c.id || c.userId));
+    navigation.navigate('NewGroupDetails', { selectedContacts: selectedContactObjects, forwardMessage });
   };
 
-  const renderAvatar = (contact: Chat, spaced = true) => (
+  const renderAvatar = (contact: any, spaced = true) => (
     <Avatar
       source={contact.avatar || contact.title.charAt(0)}
       size="medium"
@@ -66,14 +116,14 @@ const NewGroupScreen: React.FC<{ navigation: any; route: any }> = ({
     />
   );
 
-  const renderSelected = ({ item }: { item: Chat }) => (
+  const renderSelected = ({ item }: { item: any }) => (
     <View style={styles.selectedItem}>
       <View>
         {renderAvatar(item, false)}
         <TouchableOpacity
           style={[styles.removeBadge, { backgroundColor: theme.secondary }]}
           activeOpacity={0.8}
-          onPress={() => toggleContact(item.id)}
+          onPress={() => toggleContact(item.id || item.userId)}
         >
           <Icon name="close" size={18} color={theme.text} />
         </TouchableOpacity>
@@ -84,14 +134,14 @@ const NewGroupScreen: React.FC<{ navigation: any; route: any }> = ({
     </View>
   );
 
-  const renderContact = ({ item }: { item: Chat }) => {
-    const isSelected = selectedIds.includes(item.id);
+  const renderContact = ({ item }: { item: any }) => {
+    const isSelected = selectedIds.includes(item.id || item.userId);
 
     return (
       <TouchableOpacity
         style={[styles.contactRow, { borderBottomColor: theme.border }]}
         activeOpacity={0.75}
-        onPress={() => toggleContact(item.id)}
+        onPress={() => toggleContact(item.id || item.userId)}
       >
         {renderAvatar(item)}
         <Text style={[styles.contactName, { color: theme.text }]} numberOfLines={1}>
