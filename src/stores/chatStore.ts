@@ -83,7 +83,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                   ? `${message.call?.type === 'video' ? 'Video' : 'Voice'} call`
                 : 'Message');
     const updatedChats = chats.map((chat) => {
-      if (chat.id === chatId) {
+      // match by chat.id or conversationId to be robust after merges
+      if (String(chat.id) === String(chatId) || String(chat.conversationId) === String(chatId)) {
         const existingIndex = (chat.messages || []).findIndex((m) => String(m.id) === String(message.id));
         let nextMessages = chat.messages || [];
         if (existingIndex === -1) {
@@ -100,6 +101,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           messages: nextMessages,
           lastMessage,
           lastMessageTime: message.timestamp,
+          // clear any reaction-based conversation preview so new messages show
+          lastMessageReaction: undefined,
+          lastMessageActorId: undefined,
+          lastMessageRaw: undefined,
         };
       }
       return chat;
@@ -144,7 +149,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     };
 
     const updatedChats = chats.map((chat) => {
-      if (chat.id === targetChatId) {
+      if (String(chat.id) === String(targetChatId) || String(chat.conversationId) === String(targetChatId)) {
         const existing = (chat.messages || []).some((m) => String(m.id) === String(forwardedMessage.id));
         const nextMessages = existing ? chat.messages || [] : [...(chat.messages || []), forwardedMessage];
 
@@ -153,6 +158,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           messages: nextMessages,
           lastMessage,
           lastMessageTime: forwardedMessage.timestamp,
+          lastMessageReaction: undefined,
+          lastMessageActorId: undefined,
+          lastMessageRaw: undefined,
         };
       }
       return chat;
@@ -326,7 +334,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         });
       }
 
-      return { ...chat, messages, lastMessage: messages[messages.length - 1]?.content || chat.lastMessage };
+      return {
+        ...chat,
+        messages,
+        lastMessage: messages[messages.length - 1]?.content || chat.lastMessage,
+        lastMessageReaction: undefined,
+        lastMessageActorId: undefined,
+        lastMessageRaw: undefined,
+      };
     });
     set({ chats: updatedChats });
   },

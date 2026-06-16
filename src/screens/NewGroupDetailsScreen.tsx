@@ -45,6 +45,30 @@ const NewGroupDetailsScreen: React.FC<{ navigation: any; route: any }> = ({
         selectedMembers.map((m) => ({ id: m.userId || m.id, title: m.displayName || m.title })),
         created.createdAt,
       );
+      // if we were forwarding a message into the new group, persist it
+      if (pendingForwardMessage) {
+        try {
+          const forwardedFrom = { senderName: pendingForwardMessage.senderName, originalContent: pendingForwardMessage.content };
+          const sent = await import('../utils/messages').then((mod) =>
+            mod.sendMessage(created._id, user?.id, pendingForwardMessage.content, pendingForwardMessage.type, undefined, undefined, true, forwardedFrom),
+          );
+          // add to local chat store
+          useChatStore.getState().addMessage(created._id, {
+            id: sent._id,
+            senderId: sent.senderId,
+            senderName: sent.senderId === user?.id ? 'You' : sent.senderName || 'Them',
+            content: sent.content,
+            type: sent.type,
+            timestamp: new Date(sent.createdAt),
+            read: false,
+            status: sent.status || 'sent',
+            forwarded: !!sent.forwarded,
+            forwardedFrom: sent.forwardedFrom || forwardedFrom,
+          } as any);
+        } catch (e) {
+          console.warn('Failed to forward into new group', e);
+        }
+      }
       
       // navigate to Chat screen for the new group
       navigation.reset({

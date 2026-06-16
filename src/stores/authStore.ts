@@ -82,7 +82,7 @@ export const useAuthStore = create<AuthStore>((set) => {
                     chatState.addMessage(chatItem.id || convId, message);
                     const updatedChats = chats.map((c) =>
                       (String(c.conversationId) === convId || String(c.id) === convId)
-                        ? { ...c, lastMessage: message.content, lastMessageTime: message.timestamp, unreadCount: currentOpen ? 0 : ((c.unreadCount || 0) + 1) }
+                        ? { ...c, lastMessage: message.content, lastMessageTime: message.timestamp, unreadCount: currentOpen ? 0 : ((c.unreadCount || 0) + 1), lastMessageReaction: undefined, lastMessageActorId: undefined, lastMessageRaw: undefined }
                         : c,
                     );
                     chatState.setChats(updatedChats);
@@ -131,7 +131,7 @@ export const useAuthStore = create<AuthStore>((set) => {
                     chatState.setChats(
                       chats.map((c) =>
                         (String(c.conversationId) === convId || String(c.id) === convId)
-                          ? { ...c, lastMessage: message.content, lastMessageTime: message.timestamp }
+                          ? { ...c, lastMessage: message.content, lastMessageTime: message.timestamp, lastMessageReaction: undefined, lastMessageActorId: undefined, lastMessageRaw: undefined }
                           : c,
                       ),
                     );

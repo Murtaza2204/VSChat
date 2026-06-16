@@ -242,7 +242,6 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
               {phone}
             </Text>
           ) : null}
-<<<<<<< HEAD
           {chat.isGroup ? (
             <Text style={[styles.about, { color: theme.text }]} numberOfLines={2}>
               {chat.description || ''}

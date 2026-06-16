@@ -22,7 +22,7 @@ export interface Message {
   senderName: string;
   senderAvatar?: string;
   content: string;
-  type: 'text' | 'image' | 'video' | 'mediaGroup' | 'file' | 'location' | 'liveLocation' | 'call';
+  type: 'text' | 'image' | 'video' | 'mediaGroup' | 'file' | 'location' | 'liveLocation' | 'call' | 'deleted';
   timestamp: Date;
   read: boolean;
   mediaUrl?: string;
@@ -70,6 +70,11 @@ export interface Chat {
   isGroup: boolean;
   participants?: User[];
   messages: Message[];
+  // optional fields returned by backend / used across screens
+  ownerId?: string;
+  description?: string;
+  conversationId?: string;
+  phoneNumber?: string;
 }
 
 export interface Call {

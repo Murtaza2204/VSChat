@@ -224,11 +224,20 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           if (socket && socket.connected) {
             // optimistic local message
             const tempId = Math.random().toString();
-            const optimistic = { id: tempId, senderId: currentUserId, senderName: 'You', content, type: 'text', timestamp: new Date(), read: false, status: 'sent' };
+            const optimistic: any = { id: tempId, senderId: currentUserId, senderName: 'You', content, type: 'text', timestamp: new Date(), read: false, status: 'sent' };
+            if (replyMessage) {
+              optimistic.replyToId = replyMessage.id;
+              setReplyMessage(null);
+            }
             setLoadedMessages((m) => [...m, optimistic]);
+            // also update chat store so chat list shows latest message
+            try {
+              const target = useChatStore.getState().chats.find((c) => String(c.conversationId) === String(conversationId) || String(c.id) === String(chat?.id));
+              if (target) useChatStore.getState().addMessage(target.id, optimistic);
+            } catch (e) {}
             // for group chats, don't send receiverId
             const receiverId = chat?.isGroup ? undefined : derivedReceiverId;
-            socket.emit('message:send', { conversationId, senderId: currentUserId, receiverId, content, type: 'text', clientTempId: tempId });
+            socket.emit('message:send', { conversationId, senderId: currentUserId, receiverId, content, type: 'text', clientTempId: tempId, replyToId: optimistic.replyToId });
           }
           else {
             const receiverId = chat?.isGroup ? undefined : derivedReceiverId;
@@ -238,8 +247,14 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
               content,
               'text',
               receiverId,
+              replyMessage?.id,
             );
-            setLoadedMessages((m) => [...m, { id: sent._id, senderId: sent.senderId, senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them', content: sent.content, type: sent.type, timestamp: new Date(sent.createdAt), read: false, status: sent.status || 'sent' }]);
+            const finalMsg = { id: sent._id, senderId: sent.senderId, senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them', content: sent.content, type: sent.type, timestamp: new Date(sent.createdAt), read: false, status: sent.status || 'sent', replyToId: sent.replyToId };
+            setLoadedMessages((m) => [...m, finalMsg]);
+            try {
+              const target = useChatStore.getState().chats.find((c) => String(c.conversationId) === String(conversationId) || String(c.id) === String(chat?.id));
+              if (target) useChatStore.getState().addMessage(target.id, finalMsg as any);
+            } catch (e) {}
           }
         } catch (e) {
           console.warn('Send message failed', (e as any)?.message || String(e));
@@ -294,6 +309,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             return merged;
           });
         }
+        // new incoming message: add to loaded messages and update chat store last message
+        try {
+          const target = useChatStore.getState().chats.find((c) => String(c.conversationId) === String(conversationId) || String(c.id) === String(chat?.id));
+          if (target) useChatStore.getState().addMessage(target.id, incoming as any);
+        } catch (e) {}
         return [...prev, incoming];
       });
     };
@@ -455,11 +475,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             newMessage.mediaUrl || newMessage.content,
             newMessage.type,
             derivedReceiverId,
+            newMessage.replyToId,
           )
             .then((sent) =>
-            setLoadedMessages((m) => [
-              ...m,
-              {
+            {
+              const finalMsg = {
                 id: sent._id,
                 senderId: sent.senderId,
                 senderName:
@@ -469,8 +489,14 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                 timestamp: new Date(sent.createdAt),
                 read: false,
                 status: sent.status || 'sent',
-              },
-            ]),
+                replyToId: sent.replyToId,
+              } as any;
+              setLoadedMessages((m) => [...m, finalMsg]);
+              try {
+                const target = useChatStore.getState().chats.find((c) => String(c.conversationId) === String(conversationId) || String(c.id) === String(chat?.id));
+                if (target) useChatStore.getState().addMessage(target.id, finalMsg as any);
+              } catch (e) {}
+            },
           )
           .catch((e) => console.warn('Send media failed', e));
       }
@@ -923,7 +949,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     if (!forwardTargetMessage || !selectedForwardTargets.length) return;
     const targetChatIdToOpen = selectedForwardTargets[0];
     const { forwardMessage, setCurrentChat } = useChatStore.getState();
-
+    // Optimistically update local store for each selected target
     selectedForwardTargets.forEach((targetChatId) => {
       forwardMessage(targetChatId, forwardTargetMessage);
 
@@ -937,6 +963,38 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           timestamp: new Date(),
           read: true,
         });
+      }
+
+      // also persist the forwarded message to server so recipients see it
+      try {
+        const targetChat = useChatStore
+          .getState()
+          .chats.find((c) => c.id === targetChatId || String(c.conversationId) === String(targetChatId));
+        const convId = targetChat?.conversationId || targetChatId;
+        const forwardedFrom = { senderName: forwardTargetMessage.senderName, originalContent: forwardTargetMessage.content };
+        messagesApi
+          .sendMessage(convId, currentUserId, forwardTargetMessage.content, forwardTargetMessage.type, undefined, undefined, true, forwardedFrom)
+          .then((sent) => {
+            // if server returns a message, ensure chat store knows about it
+            try {
+              const finalMsg = {
+                id: sent._id,
+                senderId: sent.senderId,
+                senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them',
+                content: sent.content,
+                type: sent.type,
+                timestamp: new Date(sent.createdAt),
+                read: false,
+                status: sent.status || 'sent',
+                forwarded: !!sent.forwarded,
+                forwardedFrom: sent.forwardedFrom || forwardedFrom,
+              } as any;
+              useChatStore.getState().addMessage(targetChatId, finalMsg);
+            } catch (e) {}
+          })
+          .catch((err) => console.warn('Forward persist failed', err));
+      } catch (e) {
+        console.warn('Forward scheduling failed', e);
       }
     });
 
@@ -1123,6 +1181,20 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             // update global store and local loaded messages
             try { updateMessage(String(messageId), { reaction }); } catch (e) {}
             setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(messageId) ? { ...m, reaction } : m)));
+            // ensure chat list shows the latest message after reaction change
+            try {
+              const store = useChatStore.getState();
+              const chatItem = store.chats.find((c) => String(c.conversationId) === String(conversationId) || String(c.id) === String(chat?.id));
+              if (chatItem) {
+                const msgs = chatItem.messages || [];
+                // pick the message with the newest timestamp
+                const lastMsg = msgs.slice().sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()).slice(-1)[0];
+                if (lastMsg) {
+                  const updated = store.chats.map((c) => (c.id === chatItem.id ? { ...c, lastMessage: lastMsg.content, lastMessageTime: lastMsg.timestamp } : c));
+                  store.setChats(updated);
+                }
+              }
+            } catch (e) {}
           } catch (e) {}
         });
         socket.on('message:hidden', (payload: any) => {
