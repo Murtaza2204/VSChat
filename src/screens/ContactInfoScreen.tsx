@@ -72,6 +72,17 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
     (chat as any).profilePicture ||
     displayName?.charAt(0);
 
+  const initialAbout = (() => {
+    for (const s of sourceCandidates) {
+      if (!s) continue;
+      if (s.bio) return s.bio;
+      if (s.description) return s.description;
+    }
+    return '';
+  })();
+
+  const [about, setAbout] = useState<string>(initialAbout);
+
   // helper: format +<country><number> => +<country> <number> (country 1-3 digits)
   const formatPhone = (p: string) => {
     if (!p || typeof p !== 'string') return '';
@@ -103,7 +114,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
     let cancelled = false;
     (async () => {
       if (chat.isGroup) return;
-      if (phone) return; // already have phone
+      if (phone && about) return; // already have phone and about
       const myId = user?.id;
       if (!myId) return;
       try {
@@ -113,6 +124,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
         if (match && match.participantProfile && !cancelled) {
           const raw = match.participantProfile.phoneNumber || match.participantProfile.phone || '';
           setPhone(formatPhone(raw));
+          if (match.participantProfile.bio) setAbout(match.participantProfile.bio);
         }
       } catch (e) {
         // ignore
@@ -168,9 +180,11 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
               {phone}
             </Text>
           ) : null}
-          <Text style={[styles.about, { color: theme.text }]}>
-            Life is not a matter of holding good cards, but playing your card well....
-          </Text>
+          {about ? (
+            <Text style={[styles.about, { color: theme.text }]} numberOfLines={3}>
+              {about}
+            </Text>
+          ) : null}
         </View>
 
         <View style={styles.quickActionGrid}>

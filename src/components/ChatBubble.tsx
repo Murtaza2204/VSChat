@@ -342,11 +342,16 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         ) : null}
 
         {/* Text fallback */}
-        {type === 'text' && (
+        {type === 'deleted' ? (
+          <View style={[styles.deletedContainer, { backgroundColor: isOwn ? theme.messageGreen : theme.surface }]}> 
+            <Icon name="ban" size={18} color={isOwn ? '#000000' : theme.textSecondary} style={{ marginRight: 8 }} />
+            <Text style={[styles.deletedText, { color: isOwn ? '#000000' : theme.textSecondary, fontStyle: 'italic' }]}>{message}</Text>
+          </View>
+        ) : type === 'text' ? (
           <View>
             <Text style={[styles.message, { color: theme.text }]}>{message}</Text>
           </View>
-        )}
+        ) : null}
 
         <View style={[styles.footer, isMediaMessage && styles.mediaFooter]}>
           <Text style={[styles.timestamp, { color: theme.textSecondary }]}>{formatTime(timestamp)}</Text>
@@ -366,7 +371,11 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
           )}
         </View>
         {reaction ? (
-          <View style={[styles.reactionBadge, { backgroundColor: theme.surface }]}>
+          <View style={[
+            styles.reactionBadge,
+            { backgroundColor: theme.surface },
+            isOwn ? styles.reactionBadgeOwn : styles.reactionBadgeOther,
+          ]}>
             <Text style={styles.reactionText}>{reaction}</Text>
           </View>
         ) : null}
@@ -477,6 +486,16 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: BORDER_RADIUS.md,
   },
+  deletedContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: BORDER_RADIUS.lg,
+  },
+  deletedText: {
+    fontSize: FONT_SIZES.base,
+  },
   moreOverlay: {
     position: 'absolute',
     top: 0,
@@ -556,18 +575,24 @@ const styles = StyleSheet.create({
   fileSize: { fontSize: FONT_SIZES.xs, marginTop: 4 },
   reactionBadge: {
     position: 'absolute',
-    left: 10,
-    bottom: -18,
-    minWidth: 32,
+    bottom: -16,
+    minWidth: 28,
     height: 28,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 7,
-    elevation: 2,
+    paddingHorizontal: 6,
+    elevation: 3,
   },
   reactionText: {
-    fontSize: 18,
+    fontSize: 16,
+    lineHeight: 18,
+  },
+  reactionBadgeOwn: {
+    right: 12,
+  },
+  reactionBadgeOther: {
+    left: 12,
   },
   callContent: {
     minWidth: 172,

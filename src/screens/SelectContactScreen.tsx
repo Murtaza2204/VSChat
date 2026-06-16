@@ -124,6 +124,7 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
           participant: {
             ...contact,
             phoneNumber: participant?.phoneNumber || contact.phoneNumber,
+            bio: participant?.bio || contact.bio,
           },
         });
         return;

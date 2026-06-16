@@ -29,4 +29,37 @@ export const markConversationRead = async (conversationId, readerId) => {
   return res.data;
 };
 
-export default { getMessages, sendMessage, markConversationRead };
+export const deleteMessageForMe = async (messageId) => {
+  try {
+    const res = await api.post('/messages/delete-for-me', { messageId });
+    console.info('[messagesApi] deleteForMe response', { messageId, status: res.status, data: res.data });
+    return res.data;
+  } catch (e) {
+    console.warn('[messagesApi] deleteForMe error', e && e.message);
+    throw e;
+  }
+};
+
+export const deleteMessageForEveryone = async (messageId) => {
+  try {
+    const res = await api.post('/messages/delete-for-everyone', { messageId });
+    console.info('[messagesApi] deleteForEveryone response', { messageId, status: res.status, data: res.data });
+    return res.data;
+  } catch (e) {
+    console.warn('[messagesApi] deleteForEveryone error', e && e.message);
+    throw e;
+  }
+};
+
+export const reactMessage = async (messageId: string, reaction: string | null) => {
+  try {
+    const res = await api.post('/messages/react', { messageId, reaction });
+    console.info('[messagesApi] reactMessage response', { messageId, reaction, status: res.status, data: res.data });
+    return res.data;
+  } catch (e) {
+    console.warn('[messagesApi] reactMessage error', e && e.message);
+    throw e;
+  }
+};
+
+export default { getMessages, sendMessage, markConversationRead, deleteMessageForMe, deleteMessageForEveryone, reactMessage };

@@ -73,12 +73,30 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         const participant = c.participantProfile || null;
         // Use participant id as chat id when available so navigation passes correct user id
         const participantId = participant?.id || participant?.userId;
+        // personalize reaction preview for current user
+        const currentUserId = myId;
+        let lastMessageText = c.lastMessage || '';
+        try {
+          if (c.lastMessageReaction) {
+            const actorId = c.lastMessageActorId ? String(c.lastMessageActorId) : null;
+            const reaction = c.lastMessageReaction;
+            const snippet = c.lastMessageRaw || c.lastMessage || '';
+            if (actorId && String(actorId) === String(currentUserId)) {
+              lastMessageText = `You reacted ${reaction} to "${snippet}"`;
+            } else {
+              const name = participant?.displayName || participant?.name || 'Someone';
+              lastMessageText = `${name} reacted ${reaction} to "${snippet}"`;
+            }
+          }
+        } catch (e) {}
+
         return {
           id: String(participantId || c._id),
           title: participant?.displayName || participantId || 'Unknown',
           avatar: participant?.profilePictureUrl || undefined,
+          bio: participant?.bio || undefined,
           phoneNumber: participant?.phoneNumber,
-          lastMessage: c.lastMessage || '',
+          lastMessage: lastMessageText,
           lastMessageTime: c.lastMessageAt ? new Date(c.lastMessageAt) : new Date(c.createdAt),
           isGroup: false,
           conversationId: c._id,
@@ -111,6 +129,7 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         title: chat.title,
         avatar: chat.avatar,
         phoneNumber: chat.phoneNumber,
+        bio: chat.bio,
       },
     });
   };

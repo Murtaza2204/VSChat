@@ -76,7 +76,8 @@ const EditProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
       const result = await launchCamera({
         mediaType: 'photo',
-        quality: 0.85,
+        // cast to any to avoid strict library typing issues across versions
+        quality: 0.85 as any,
         saveToPhotos: true,
       });
 
@@ -97,7 +98,7 @@ const EditProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     try {
       const result = await launchImageLibrary({
         mediaType: 'photo',
-        quality: 0.85,
+        quality: 0.85 as any,
         selectionLimit: 1,
       });
 
@@ -382,7 +383,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     borderRadius: BORDER_RADIUS.md,
     marginTop: SPACING.md,
-    ...SHADOWS.medium,
+    ...SHADOWS.md,
   },
   changeAvatarText: {
     color: '#FFFFFF',

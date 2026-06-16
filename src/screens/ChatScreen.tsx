@@ -70,6 +70,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       ? chat.participants.find((p) => String(p.id) !== String(currentUserId))?.id
       : undefined);
   const [loadedMessages, setLoadedMessages] = useState<Message[]>([]);
+  const deletedForMeIdsRef = useRef(new Set<string>());
   const chatMessages = useMemo(() => (conversationId ? loadedMessages : (chat?.messages || [])), [conversationId, loadedMessages, chat]);
   const groupMemberCount = (chat.participants?.length || 0) + (chat.isGroup ? 1 : 0);
   const groupSubtitle = chat.isGroup
@@ -150,6 +151,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       replyToId: msg.replyToId ? String(msg.replyToId) : undefined,
       forwarded: !!msg.forwarded,
       forwardedFrom: msg.forwardedFrom || null,
+      reaction: msg.reaction || undefined,
     };
   };
 
@@ -309,10 +311,20 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     let onStatus: ((status: any) => void) | null = null;
 
     const upsertMessage = (incoming: Message) => {
+      if (deletedForMeIdsRef.current.has(String(incoming.id))) return;
       setLoadedMessages((prev) => {
         const exists = prev.some((m) => String(m.id) === String(incoming.id));
         if (exists) {
-          return prev.map((m) => (String(m.id) === String(incoming.id) ? { ...m, ...incoming } : m));
+          return prev.map((m) => {
+            if (String(m.id) !== String(incoming.id)) return m;
+            // preserve existing reaction if incoming doesn't include it
+            const preserved = { ...(m || {}) };
+            const merged = { ...m, ...incoming };
+            if ((merged as any).reaction === undefined && preserved.reaction !== undefined) {
+              merged.reaction = preserved.reaction;
+            }
+            return merged;
+          });
         }
         return [...prev, incoming];
       });
@@ -337,8 +349,17 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           const convId = String(msg.conversationId || msg.conversation);
           if (convId !== String(conversationId)) return;
           const normalized = normalizeServerMessage(msg);
+          if (deletedForMeIdsRef.current.has(String(normalized.id))) return;
           if (msg.clientTempId) {
-            setLoadedMessages((prev) => prev.map((m) => (m.id === String(msg.clientTempId) ? normalized : m)));
+            setLoadedMessages((prev) => prev.map((m) => {
+              if (String(m.id) !== String(msg.clientTempId)) return m;
+              const preservedReaction = (m as any).reaction;
+              const merged = { ...normalized };
+              if ((merged as any).reaction === undefined && preservedReaction !== undefined) {
+                (merged as any).reaction = preservedReaction;
+              }
+              return merged;
+            }));
           } else {
             upsertMessage(normalized);
           }
@@ -349,7 +370,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           const convId = String(msg.conversationId || msg.conversation);
           if (convId !== String(conversationId)) return;
           const normalized = normalizeServerMessage({ ...msg, status: msg.status || 'delivered' });
-          upsertMessage(normalized);
+          if (!deletedForMeIdsRef.current.has(String(normalized.id))) upsertMessage(normalized);
           if (currentUserId && String(msg.senderId) !== String(currentUserId)) {
             try { await messagesApi.markConversationRead(String(conversationId), currentUserId); } catch (e) {}
           }
@@ -1014,14 +1035,93 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const handleDeleteActionMessage = () => {
     if (!actionMessage) return;
-    deleteMessage(actionMessage.id);
-    setActionMessage(null);
+    const isSender = String(actionMessage.senderId) === String(currentUserId);
+    const isServerId = (id: string) => /^[a-fA-F0-9]{24}$/.test(String(id));
+    if (!isServerId(actionMessage.id)) {
+      Alert.alert('Not ready', 'This message is not yet synced with server. Try again in a moment.');
+      return;
+    }
+    if (isSender) {
+      Alert.alert('Delete message', 'Choose deletion option', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete for me', onPress: async () => {
+          // optimistic local delete
+          try {
+            deleteMessage(actionMessage.id);
+            setLoadedMessages((prev) => prev.filter((m) => String(m.id) !== String(actionMessage.id)));
+            try { deletedForMeIdsRef.current.add(String(actionMessage.id)); setTimeout(() => deletedForMeIdsRef.current.delete(String(actionMessage.id)), 10000); } catch (e) {}
+          } catch (e) { console.warn('local delete failed', e); }
+
+          try {
+            await messagesApi.deleteMessageForMe(actionMessage.id);
+          } catch (e) {
+            console.warn('delete for me failed, reverting locally', e);
+            // attempt to reload messages for conversation to restore state
+            try {
+              const msgs = await messagesApi.getMessages(conversationId);
+              setLoadedMessages(msgs.map(normalizeServerMessage));
+            } catch (err) { console.warn('failed to reload messages after revert', err); }
+          }
+
+          setActionMessage(null);
+        } },
+        { text: 'Delete for everyone', style: 'destructive', onPress: async () => {
+          try {
+            const res = await messagesApi.deleteMessageForEveryone(actionMessage.id);
+            // update local message to show deleted placeholder (sender view)
+            const text = 'You deleted this message';
+            updateMessage(actionMessage.id, { content: text, type: 'deleted', deletedForEveryone: true });
+            setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(actionMessage.id) ? { ...m, content: text, type: 'deleted', deletedForEveryone: true } : m)));
+          } catch (e) { console.warn('delete for everyone failed', e); }
+          setActionMessage(null);
+        } },
+      ]);
+    } else {
+      // receiver can only delete for me
+      Alert.alert('Delete message', 'Delete this message for you?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: async () => {
+          // optimistic local delete for receiver as well
+          try {
+            deleteMessage(actionMessage.id);
+            setLoadedMessages((prev) => prev.filter((m) => String(m.id) !== String(actionMessage.id)));
+            try { deletedForMeIdsRef.current.add(String(actionMessage.id)); setTimeout(() => deletedForMeIdsRef.current.delete(String(actionMessage.id)), 10000); } catch (e) {}
+          } catch (e) { console.warn('local delete failed', e); }
+
+          try {
+            await messagesApi.deleteMessageForMe(actionMessage.id);
+          } catch (e) {
+            console.warn('delete for me failed, reverting locally', e);
+            try {
+              const msgs = await messagesApi.getMessages(conversationId);
+              setLoadedMessages(msgs.map(normalizeServerMessage));
+            } catch (err) { console.warn('failed to reload messages after revert', err); }
+          }
+
+          setActionMessage(null);
+        } },
+      ]);
+    }
   };
 
   const handleReactToActionMessage = (reaction: string) => {
     if (!actionMessage) return;
     const nextReaction = actionMessage.reaction === reaction ? undefined : reaction;
+    // optimistic update in UI (global store + local loadedMessages)
     updateMessage(actionMessage.id, { reaction: nextReaction });
+    setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(actionMessage.id) ? { ...m, reaction: nextReaction } : m)));
+    (async () => {
+      try {
+        await messagesApi.reactMessage(actionMessage.id, nextReaction || null);
+      } catch (e) {
+        console.warn('react API failed, reverting', e);
+        // revert local change by reloading messages
+        try {
+          const msgs = await messagesApi.getMessages(conversationId);
+          setLoadedMessages(msgs.map(normalizeServerMessage));
+        } catch (err) { console.warn('failed to reload messages after react revert', err); }
+      }
+    })();
     // Clear action message after reacting to return to original state
     setActionMessage(null);
   };
@@ -1053,6 +1153,55 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
     }
   }, [chatMessages]);
+
+  useEffect(() => {
+    let socket: any = null;
+    let mounted = true;
+    (async () => {
+      try {
+        const token = await AsyncStorage.getItem('accessToken');
+        socket = connectSocket(token);
+        socket.on('message:deleted', (payload: any) => {
+          if (!mounted) return;
+          const { messageId, deletedBy } = payload || {};
+          if (!messageId) return;
+          const text = String(deletedBy) === String(currentUserId) ? 'You deleted this message' : 'This message was deleted';
+          updateMessage(String(messageId), { content: text, type: 'deleted', deletedForEveryone: true });
+          setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(messageId) ? { ...m, content: text, type: 'deleted', deletedForEveryone: true } : m)));
+        });
+        socket.on('message:reacted', (payload: any) => {
+          if (!mounted) return;
+          try {
+            const { messageId, reaction, reactedBy } = payload || {};
+            if (!messageId) return;
+            // update global store and local loaded messages
+            try { updateMessage(String(messageId), { reaction }); } catch (e) {}
+            setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(messageId) ? { ...m, reaction } : m)));
+          } catch (e) {}
+        });
+        socket.on('message:hidden', (payload: any) => {
+          if (!mounted) return;
+          try {
+            const { messageId } = payload || {};
+            if (!messageId) return;
+            // remove from global store and local loaded messages
+            try { deleteMessage(String(messageId)); } catch (e) {}
+            setLoadedMessages((prev) => prev.filter((m) => String(m.id) !== String(messageId)));
+            try { deletedForMeIdsRef.current.add(String(messageId)); setTimeout(() => deletedForMeIdsRef.current.delete(String(messageId)), 10000); } catch (e) {}
+          } catch (e) {}
+        });
+      } catch (e) {}
+    })();
+
+    return () => {
+      mounted = false;
+      try { if (socket) {
+        socket.off('message:deleted');
+        socket.off('message:hidden');
+        socket.off('message:reacted');
+      } } catch (e) {}
+    };
+  }, []);
 
   useEffect(() => {
     return () => clearLiveLocationWatch();

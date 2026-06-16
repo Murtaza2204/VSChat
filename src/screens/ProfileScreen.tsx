@@ -49,9 +49,11 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           <Text style={[styles.phone, { color: theme.textSecondary }]}>
             {user?.phone}
           </Text>
-          <Text style={[styles.bio, { color: theme.textSecondary }]}> 
-            {user?.bio || 'No bio added'}
-          </Text>
+          {user?.bio ? (
+            <Text style={[styles.bio, { color: theme.textSecondary }]}>
+              {user.bio}
+            </Text>
+          ) : null}
         </View>
 
         <TouchableOpacity

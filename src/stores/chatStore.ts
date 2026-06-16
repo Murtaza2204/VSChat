@@ -172,12 +172,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const { chats, messages } = get();
 
     set({
-      chats: chats.map((chat) => ({
-        ...chat,
-        messages: (chat.messages || []).map((message) =>
+      chats: chats.map((chat) => {
+        const nextMessages = (chat.messages || []).map((message) =>
           message.id === messageId ? { ...message, ...updates } : message,
-        ),
-      })),
+        );
+        const lastChatMessage = nextMessages[nextMessages.length - 1];
+        return {
+          ...chat,
+          messages: nextMessages,
+          lastMessage: lastChatMessage ? lastChatMessage.content : chat.lastMessage,
+          lastMessageTime: lastChatMessage ? lastChatMessage.timestamp : chat.lastMessageTime,
+        };
+      }),
       messages: messages.map((message) =>
         message.id === messageId ? { ...message, ...updates } : message,
       ),
