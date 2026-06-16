@@ -115,24 +115,37 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     }
   };
 
+  const showAvatar = !!senderAvatar || !!senderName;
+  // always show small avatar for other users; show name for all non-own messages
+  const showAvatarWithName = showAvatar && !isOwn;
+
   return (
-    <View
-      style={[
-        styles.container,
-        showSenderInfo && styles.groupContainer,
-        isOwn ? styles.ownContainer : styles.otherContainer,
-        reaction && { marginBottom: SPACING.lg + SPACING.sm },
-        style,
-      ]}
-    >
-      {showSenderInfo ? (
-        <Avatar
-          source={senderAvatar || senderName?.charAt(0)}
-          size="small"
-          theme={theme}
-          style={styles.groupSenderAvatar}
-        />
+    <View>
+      {/* Show sender name above message for other users */}
+      {!isOwn && senderName ? (
+        <Text style={[styles.senderNameTop, { color: senderColor }]} numberOfLines={1}>
+          {senderName}
+        </Text>
       ) : null}
+      
+      <View
+        style={[
+          styles.container,
+          showAvatarWithName && styles.avatarContainer,
+          isOwn ? styles.ownContainer : styles.otherContainer,
+          reaction && { marginBottom: SPACING.lg + SPACING.sm },
+          style,
+        ]}
+      >
+        {/* Avatar on the left for other users' messages */}
+        {showAvatarWithName ? (
+          <Avatar
+            source={senderAvatar || (senderName ? senderName.charAt(0) : '')}
+            size="small"
+            theme={theme}
+            style={styles.leftAvatar}
+          />
+        ) : null}
       <TouchableOpacity
         onLongPress={onLongPress}
         style={[
@@ -153,12 +166,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         ]}
         activeOpacity={0.8}
       >
-        {showSenderInfo && senderName ? (
-          <Text style={[styles.groupSenderName, { color: senderColor }]} numberOfLines={1}>
-            {senderName}
-          </Text>
-        ) : null}
-
         {forwarded ? (
           <View style={styles.forwardedLabel}>
             <Icon name="arrow-redo" size={13} color={theme.textSecondary} />
@@ -380,6 +387,11 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
           </View>
         ) : null}
       </TouchableOpacity>
+
+      {/* Do not show an initial avatar under own messages. If the app should display the current user's avatar, it
+          will be passed via `senderAvatar` and can be used elsewhere (e.g. profile). We purposely omit rendering
+          the small avatar circle for own messages to match requested UI. */}
+    </View>
     </View>
   );
 };
@@ -395,6 +407,12 @@ const styles = StyleSheet.create({
     marginVertical: SPACING.xs,
     marginHorizontal: SPACING.md,
   },
+  avatarContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginTop: SPACING.sm,
+    gap: SPACING.sm,
+  },
   groupContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -402,6 +420,18 @@ const styles = StyleSheet.create({
   },
   ownContainer: { alignItems: 'flex-end' },
   otherContainer: { alignItems: 'flex-start' },
+  senderNameTop: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: '700',
+    marginLeft: SPACING.md,
+    marginBottom: SPACING.xs,
+  },
+  leftAvatar: {
+    marginBottom: 2,
+  },
+  rightAvatar: {
+    marginBottom: 2,
+  },
   bubble: {
     maxWidth: '80%',
     paddingHorizontal: SPACING.md,

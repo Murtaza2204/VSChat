@@ -480,7 +480,7 @@ const getInitials = (name: string) =>
   name
     .split(' ')
     .filter(Boolean)
-    .map((part) => part.charAt(0))
+    .map((part) => (part ? part.charAt(0) : ''))
     .join('')
     .slice(0, 2)
     .toUpperCase();

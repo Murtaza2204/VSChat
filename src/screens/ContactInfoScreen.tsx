@@ -7,6 +7,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Image,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '../stores/themeStore';
@@ -15,6 +16,7 @@ import { useAuthStore } from '../stores/authStore';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
 import Avatar from '../components/Avatar';
 import api from '../config/api';
+import messagesUtil from '../utils/messages';
 import { Chat } from '../types';
 
 const mediaItems = [
@@ -35,7 +37,11 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   // derive display name, avatar and phone from possible shapes returned by backend
   let displayName = chat.title;
   const groupMembers = chat.participants || [];
-  const groupMemberCount = groupMembers.length + (chat.isGroup ? 1 : 0);
+  const [membersProfiles, setMembersProfiles] = useState<any[] | null>(null);
+  const [mediaCount, setMediaCount] = useState<number | null>(null);
+  const [ownerId, setOwnerId] = useState<string | null>(chat.ownerId || null);
+  // member count should reflect actual participants array / resolved profiles
+  const groupMemberCount = (membersProfiles ? membersProfiles.length : groupMembers.length);
   const { user } = useAuthStore();
   const currentUserId = user?.id;
   const otherParticipant = !chat.isGroup
@@ -109,6 +115,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
       })();
 
   const [phone, setPhone] = useState<string>(formatPhone(initialPhoneRaw));
+  const [mediaPreviews, setMediaPreviews] = useState<any[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +141,61 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
       cancelled = true;
     };
   }, [chat, user, phone]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!chat) return;
+      const convId = (chat as any).conversationId || chat.id;
+      if (!convId) return;
+      try {
+        const msgs = await messagesUtil.getMessages(convId);
+        if (cancelled) return;
+        // extract media messages (type !== 'text') and take first 6
+        const media = (msgs || []).filter((m: any) => m.type && m.type !== 'text');
+        setMediaPreviews(media.slice(0, 6));
+        setMediaCount(media.length);
+      } catch (e) {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [chat]);
+
+  // fetch authoritative conversation and participant profiles for groups
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!chat || !chat.isGroup) return;
+      try {
+        const myId = (user && user.id) || null;
+        // fetch conversations for user and find this conversation to get latest participants/owner
+        const convRes = await api.get('/conversations', { params: { userId: myId } });
+        const convos: any[] = convRes.data.conversations || [];
+        const convId = (chat as any).conversationId || chat.id;
+        const match = convos.find((c) => String(c._id) === String(convId) || String(c.id) === String(convId));
+        const participants = (match && match.participants) || chat.participants || [];
+        const foundOwner = (match && (match.ownerId || match.createdBy || match.owner)) || chat.ownerId || null;
+        if (!cancelled && foundOwner) setOwnerId(String(foundOwner));
+        if (cancelled) return;
+        if (participants && participants.length) {
+          // lookup user profiles for participants
+          const usersResp = await api.post('/users/lookup', { ids: participants });
+          const users = usersResp.data.users || [];
+          if (!cancelled) setMembersProfiles(users);
+        } else {
+          setMembersProfiles([]);
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [chat, user]);
 
   const quickActions = [
     { label: 'Audio', icon: 'call-outline' },
@@ -180,7 +242,12 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
               {phone}
             </Text>
           ) : null}
-          {about ? (
+<<<<<<< HEAD
+          {chat.isGroup ? (
+            <Text style={[styles.about, { color: theme.text }]} numberOfLines={2}>
+              {chat.description || ''}
+            </Text>
+          ) : about ? (
             <Text style={[styles.about, { color: theme.text }]} numberOfLines={3}>
               {about}
             </Text>
@@ -210,21 +277,30 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
             Media, links, and docs
           </Text>
           <View style={styles.mediaCount}>
-            <Text style={[styles.mediaCountText, { color: theme.textSecondary }]}>33</Text>
+            <Text style={[styles.mediaCountText, { color: theme.textSecondary }]}> {mediaCount !== null ? mediaCount : 0} </Text>
             <Icon name="chevron-forward" size={24} color={theme.textSecondary} />
           </View>
         </TouchableOpacity>
 
         <FlatList
-          data={mediaItems}
-          keyExtractor={(item) => item.id}
+          data={mediaPreviews.length ? mediaPreviews : []}
+          keyExtractor={(item, idx) => String(item.id || item._id || idx)}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.mediaList}
           renderItem={({ item }) => (
             <View style={[styles.mediaTile, { backgroundColor: theme.inputBackground }]}>
-              <Icon name={item.icon} size={30} color={theme.primary} />
-              <Text style={[styles.mediaLabel, { color: theme.text }]}>{item.label}</Text>
+              {item.url || (item.attachment && item.attachment.url) ? (
+                <Image
+                  source={{ uri: item.url || item.attachment.url }}
+                  style={{ width: 56, height: 56, borderRadius: 8 }}
+                />
+              ) : (
+                <Icon name={item.icon || 'image'} size={30} color={theme.primary} />
+              )}
+              <Text style={[styles.mediaLabel, { color: theme.text }]}> 
+                {item.label || (item.type ? item.type.toUpperCase() : '')}
+              </Text>
             </View>
           )}
         />
@@ -272,54 +348,47 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
               <Text style={[styles.addMemberText, { color: theme.text }]}>Add members</Text>
             </TouchableOpacity>
 
-            <View style={styles.memberRow}>
-              <Avatar source="Y" size="medium" theme={theme} />
-              <View style={styles.memberCopy}>
-                <Text style={[styles.memberName, { color: theme.text }]}>You</Text>
-              </View>
-            </View>
-
-            {groupMembers.map((member: any, index: number) => (
-              <View key={member.id} style={styles.memberRow}>
-                <Avatar
-                  source={member.avatar || member.name.charAt(0)}
-                  size="medium"
-                  theme={theme}
-                />
-                <View style={styles.memberCopy}>
-                  <View style={styles.memberTitleRow}>
+            {(membersProfiles || groupMembers).map((member: any, index: number) => {
+              // membersProfiles contains { id, displayName, profilePictureUrl, phoneNumber }
+              const id = member.id || member._id || member;
+              const name = member.displayName || member.name || member.title || '';
+              const avatar = member.profilePictureUrl || member.avatar || (name ? name.charAt(0) : '');
+              return (
+                <View key={id || index} style={styles.memberRow}>
+                  <Avatar source={avatar} size="medium" theme={theme} />
+                  <View style={styles.memberCopy}>
+                    <View style={styles.memberTitleRow}>
+                      <Text
+                        style={[
+                          styles.memberName,
+                          styles.memberNameInRow,
+                          { color: theme.text },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {name || 'Unknown'}
+                      </Text>
+                      {(ownerId && String(id) === String(ownerId)) || (!ownerId && chat.ownerId && String(id) === String(chat.ownerId)) || (index === 0 && !ownerId && !chat.ownerId) ? (
+                        <View
+                          style={[
+                            styles.adminBadge,
+                            { backgroundColor: theme.primary },
+                          ]}
+                        >
+                          <Text style={[styles.adminBadgeText, { color: theme.background }]}>Group Admin</Text>
+                        </View>
+                      ) : null}
+                    </View>
                     <Text
-                      style={[
-                        styles.memberName,
-                        styles.memberNameInRow,
-                        { color: theme.text },
-                      ]}
+                      style={[styles.memberSubtitle, { color: theme.textSecondary }]}
                       numberOfLines={1}
                     >
-                      {member.name}
+                      {(member.phoneNumber || (member as any).phone) || 'Available'}
                     </Text>
-                    {index === 0 && (
-                      <View
-                        style={[
-                          styles.adminBadge,
-                          { backgroundColor: theme.primary },
-                        ]}
-                      >
-                        <Text style={[styles.adminBadgeText, { color: theme.background }]}>
-                          Group Admin
-                        </Text>
-                      </View>
-                    )}
                   </View>
-                  <Text
-                    style={[styles.memberSubtitle, { color: theme.textSecondary }]}
-                    numberOfLines={1}
-                  >
-                    {member.bio || (member as any).phoneNumber || (member as any).phone || 'Available'}
-                  </Text>
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
         )}
 

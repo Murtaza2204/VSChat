@@ -67,7 +67,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const initials = callerName
     .split(' ')
     .filter(Boolean)
-    .map((part: string) => part.charAt(0))
+    .map((part: string) => (part ? part.charAt(0) : ''))
     .join('')
     .slice(0, 2)
     .toUpperCase();
