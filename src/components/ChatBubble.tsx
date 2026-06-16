@@ -116,13 +116,13 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   };
 
   const showAvatar = !!senderAvatar || !!senderName;
-  // always show small avatar for other users; show name for all non-own messages
-  const showAvatarWithName = showAvatar && !isOwn;
+  // Only show avatar/name for group chats (showSenderInfo is true only for groups)
+  const showAvatarWithName = showAvatar && !isOwn && showSenderInfo;
 
   return (
     <View>
-      {/* Show sender name above message for other users */}
-      {!isOwn && senderName ? (
+      {/* Show sender name above message ONLY for group chats */}
+      {!isOwn && senderName && showSenderInfo ? (
         <Text style={[styles.senderNameTop, { color: senderColor }]} numberOfLines={1}>
           {senderName}
         </Text>
@@ -137,7 +137,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
           style,
         ]}
       >
-        {/* Avatar on the left for other users' messages */}
+        {/* Avatar on the left ONLY for group chat messages */}
         {showAvatarWithName ? (
           <Avatar
             source={senderAvatar || (senderName ? senderName.charAt(0) : '')}
@@ -364,14 +364,61 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
           <Text style={[styles.timestamp, { color: theme.textSecondary }]}>{formatTime(timestamp)}</Text>
           {isOwn && (
             (() => {
-              const s = status || (read ? 'seen' : 'sent');
-              const iconName = s === 'sent' ? 'checkmark' : 'checkmark-done';
-              const iconColor = s === 'seen' ? theme.primary : theme.textSecondary;
+              // Use status field to determine which ticks to show
+              // Status can be: 'sent', 'delivered', 'seen'
+              const msgStatus = status || 'sent';
+              
+              if (msgStatus === 'sent') {
+                // Single gray tick - message sent but not delivered
+                return (
+                  <Icon
+                    name="checkmark"
+                    size={14}
+                    color={theme.textSecondary}
+                  />
+                );
+              } else if (msgStatus === 'delivered') {
+                // Double gray tick - message delivered but not read
+                return (
+                  <View style={styles.doubleCheckContainer}>
+                    <Icon
+                      name="checkmark"
+                      size={12}
+                      color={theme.textSecondary}
+                      style={styles.checkmarkOverlap}
+                    />
+                    <Icon
+                      name="checkmark"
+                      size={12}
+                      color={theme.textSecondary}
+                    />
+                  </View>
+                );
+              } else if (msgStatus === 'seen') {
+                // Double blue tick - message read
+                return (
+                  <View style={styles.doubleCheckContainer}>
+                    <Icon
+                      name="checkmark"
+                      size={12}
+                      color={theme.primary}
+                      style={styles.checkmarkOverlap}
+                    />
+                    <Icon
+                      name="checkmark"
+                      size={12}
+                      color={theme.primary}
+                    />
+                  </View>
+                );
+              }
+              
+              // Fallback to single tick
               return (
                 <Icon
-                  name={iconName}
+                  name="checkmark"
                   size={14}
-                  color={iconColor}
+                  color={theme.textSecondary}
                 />
               );
             })()
@@ -497,6 +544,15 @@ const styles = StyleSheet.create({
     paddingBottom: 2,
   },
   timestamp: { fontSize: FONT_SIZES.xs, marginRight: SPACING.xs },
+  doubleCheckContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: SPACING.xs,
+    width: 16,
+  },
+  checkmarkOverlap: {
+    marginRight: -4,
+  },
   mediaStack: {
     maxWidth: '100%',
   },

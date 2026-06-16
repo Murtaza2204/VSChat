@@ -145,7 +145,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       content: msg.content || '',
       type,
       timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
-      read: msg.status === 'seen' || isOwn,
+      read: msg.status === 'seen',
       status: msg.status || 'sent',
       call,
       replyToId: msg.replyToId ? String(msg.replyToId) : undefined,
@@ -1233,14 +1233,24 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       (membersProfiles && membersProfiles.find((p) => String(p.id) === String(item.senderId))) ||
       chat.participants?.find((participant) => participant.id === item.senderId) ||
       null;
+    // Helper function to extract first name from full name
+    const extractFirstName = (fullName: string | null | undefined): string => {
+      if (!fullName) return '';
+      return fullName.trim().split(/\s+/)[0] || '';
+    };
+
     // Resolve sender name: prefer message field, then profile lookup, then senderId, then empty
-    const resolvedSenderName =
+    // For group chats, show first name only
+    const fullSenderName =
       (item.senderName && item.senderName !== 'Them' ? item.senderName : '') ||
       (sender && (sender.displayName || sender.name || sender.title)) ||
       (item.senderId ? String(item.senderId).slice(-6) : '') ||
       'Unknown';
+    
+    const resolvedSenderName = chat.isGroup ? extractFirstName(fullSenderName) : fullSenderName;
 
     const prev = index > 0 ? chatMessages[index - 1] : null;
+    // Only show sender info for group chats, and only when sender changes from previous message
     const shouldShowSender = !!chat.isGroup && item.senderId !== currentUserId && (!prev || String(prev.senderId) !== String(item.senderId));
 
     return (
@@ -1250,6 +1260,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         isOwn={item.senderId === currentUserId}
         theme={theme}
         read={item.read}
+        status={item.status}
         type={item.type}
         call={item.call}
         mediaUrl={item.mediaUrl}

@@ -10,9 +10,9 @@ import { Platform } from 'react-native';
 // 2) If you use an emulator, set USE_ANDROID_EMULATOR=true (or leave adb reverse off) and emulator host will be used
 // 3) For LAN testing (Wi‑Fi), set USE_ADB_REVERSE=false and set ANDROID_HOST to your PC's LAN IP
 
-const ANDROID_HOST = '192.168.31.150'; // <-- Replace with your PC LAN IP when testing over Wi-Fi
-const USE_ADB_REVERSE = true; // true = use adb reverse + localhost (USB physical device)
-const USE_ANDROID_EMULATOR = false; // true = prefer emulator host (10.0.2.2 for Android emulator)
+const ANDROID_HOST = '192.168.1.40'; // <-- Replace with your PC LAN IP when testing over Wi-Fi
+const USE_ADB_REVERSE = false; // true = use adb reverse + localhost (USB physical device)
+const USE_ANDROID_EMULATOR = true; // true = prefer emulator host (10.0.2.2 for Android emulator)
 
 const EMULATOR_HOST_ANDROID = '10.0.2.2'; // Android emulator (Android Studio)
 const GENYMOTION_HOST = '10.0.3.2';
@@ -49,6 +49,55 @@ api.interceptors.request.use(async (config) => {
   }
   return config;
 });
+
+let isRefreshing = false;
+let refreshPromise = null;
+
+api.interceptors.response.use(
+  (resp) => resp,
+  async (error) => {
+    const originalRequest = error.config;
+    if (!originalRequest || originalRequest._retry) return Promise.reject(error);
+
+    if (error.response && error.response.status === 401) {
+      // avoid multiple simultaneous refresh calls
+      if (!isRefreshing) {
+        isRefreshing = true;
+        refreshPromise = (async () => {
+          try {
+            const refreshToken = await AsyncStorage.getItem('refreshToken');
+            if (!refreshToken) throw new Error('No refresh token');
+            const resp = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
+            const { accessToken, refreshToken: newRefreshToken } = resp.data || {};
+            if (accessToken) await AsyncStorage.setItem('accessToken', accessToken);
+            if (newRefreshToken) await AsyncStorage.setItem('refreshToken', newRefreshToken);
+            isRefreshing = false;
+            return accessToken;
+          } catch (e) {
+            isRefreshing = false;
+            throw e;
+          }
+        })();
+      }
+
+      try {
+        const newAccessToken = await refreshPromise;
+        if (newAccessToken) {
+          originalRequest._retry = true;
+          originalRequest.headers = originalRequest.headers || {};
+          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+          return axios(originalRequest);
+        }
+      } catch (e) {
+        // refresh failed — clear tokens and let caller handle (app should redirect to login)
+        try { await AsyncStorage.removeItem('accessToken'); await AsyncStorage.removeItem('refreshToken'); } catch (er) {}
+        return Promise.reject(error);
+      }
+    }
+
+    return Promise.reject(error);
+  },
+);
 
 export default api;
 

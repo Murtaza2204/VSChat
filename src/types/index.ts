@@ -25,6 +25,7 @@ export interface Message {
   type: 'text' | 'image' | 'video' | 'mediaGroup' | 'file' | 'location' | 'liveLocation' | 'call' | 'deleted';
   timestamp: Date;
   read: boolean;
+  status?: 'sent' | 'delivered' | 'seen';
   mediaUrl?: string;
   mediaItems?: MediaItem[];
   reaction?: string;

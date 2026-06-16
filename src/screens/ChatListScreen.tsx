@@ -13,6 +13,7 @@ import {
   Pressable,
   ScrollView,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 const Icon = require('react-native-vector-icons/Ionicons').default;
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
@@ -24,6 +25,7 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonLoader } from '../components/SkeletonLoader';
 import contactSync from '../utils/contactSync';
 import conversationsApi from '../utils/conversations';
+import { connectSocket } from '../utils/socket';
 
 type ChatFilter = 'all' | 'unread' | 'favourites' | 'groups';
 
@@ -122,6 +124,20 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     const unsubscribe = navigation.addListener?.('focus', loadConversations);
     return unsubscribe;
   }, [navigation, user?.id]);
+
+  // Socket updates are handled by socket.ts which automatically updates the store
+  // Just ensure socket is connected when screen is focused
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = await AsyncStorage.getItem('accessToken');
+        connectSocket(token);
+        console.log('[ChatListScreen] socket connected for real-time updates');
+      } catch (e) {
+        console.warn('[ChatListScreen] socket connection error', e);
+      }
+    })();
+  }, []);
 
   const handleChatPress = (chat: any) => {
     setCurrentChat(chat);

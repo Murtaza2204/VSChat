@@ -9,6 +9,7 @@ interface ChatStore {
   searchQuery: string;
   
   setChats: (chats: Chat[]) => void;
+  updateChatLastMessage: (conversationId: string, lastMessage: string, lastMessageTime?: Date) => void;
   setCurrentChat: (chat: Chat | null) => void;
   setMessages: (messages: Message[]) => void;
   addMessage: (chatId: string, message: Message) => void;
@@ -58,6 +59,25 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       set({ chats: normalized });
     } catch (e) {
       set({ chats });
+    }
+  },
+  
+  updateChatLastMessage: (conversationId, lastMessage, lastMessageTime) => {
+    try {
+      const { chats } = get();
+      const updatedChats = chats.map((c) => {
+        if (String(c.conversationId || c.id) === String(conversationId)) {
+          return {
+            ...c,
+            lastMessage,
+            lastMessageTime: lastMessageTime || c.lastMessageTime || new Date(),
+          };
+        }
+        return c;
+      });
+      set({ chats: updatedChats });
+    } catch (e) {
+      console.warn('updateChatLastMessage error:', e);
     }
   },
   
