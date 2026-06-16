@@ -38,7 +38,7 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
         matched.map((u: any) => ({
           id: String(u._id),
           title: u.displayName || u.phoneNumber || String(u._id),
-          avatar: u.profilePictureUrl || (u.displayName ? u.displayName.charAt(0) : undefined),
+          avatar: u.profilePictureUrl || (u.displayName ? u.displayName.charAt(0) : ''),
           phoneNumber: u.phoneNumber,
         })),
       );
@@ -54,7 +54,7 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
           matched2.map((u: any) => ({
             id: u._id,
             title: u.displayName || u.phoneNumber,
-            avatar: u.profilePictureUrl || (u.displayName ? u.displayName.charAt(0) : undefined),
+            avatar: u.profilePictureUrl || (u.displayName ? u.displayName.charAt(0) : ''),
             phoneNumber: u.phoneNumber,
           })),
         );
@@ -167,7 +167,7 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
         onPress={() => handleContactPress(item)}
       >
         <Avatar
-          source={item.avatar || (item.title ? item.title.charAt(0) : undefined)}
+          source={item.avatar || (item.title ? item.title.charAt(0) : '')}
           size="medium"
           theme={theme}
           style={styles.avatar}

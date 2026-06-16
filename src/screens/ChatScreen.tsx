@@ -32,6 +32,7 @@ import Avatar from '../components/Avatar';
 import ChatBubble from '../components/ChatBubble';
 import MessageInput from '../components/MessageInput';
 import messagesApi from '../utils/messages';
+import api from '../config/api';
 import { connectSocket } from '../utils/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import signaling from '../services/signaling';
@@ -70,6 +71,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       ? chat.participants.find((p) => String(p.id) !== String(currentUserId))?.id
       : undefined);
   const [loadedMessages, setLoadedMessages] = useState<Message[]>([]);
+  const [membersProfiles, setMembersProfiles] = useState<any[] | null>(null);
   const chatMessages = useMemo(() => (conversationId ? loadedMessages : (chat?.messages || [])), [conversationId, loadedMessages, chat]);
   const groupMemberCount = (chat.participants?.length || 0) + (chat.isGroup ? 1 : 0);
   const groupSubtitle = chat.isGroup
@@ -96,7 +98,6 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [viewerStartIndex, setViewerStartIndex] = useState(0);
   const viewerScrollRef = React.useRef<ScrollView | null>(null);
   const flatListRef = useRef<FlatList>(null);
-  const shouldAutoScrollRef = useRef(true);
   const liveLocationWatchRef = useRef<number | null>(null);
   const liveLocationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -139,17 +140,13 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     return {
       id: String(msg._id || msg.id),
       senderId,
-      senderName: msg.senderName || (isOwn ? 'You' : 'Them'),
+      senderName: msg.senderName || (isOwn ? 'You' : ''),
       content: msg.content || '',
       type,
       timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
-      // Only mark as read when server reports 'seen'
-      read: msg.status === 'seen',
+      read: msg.status === 'seen' || isOwn,
       status: msg.status || 'sent',
       call,
-      replyToId: msg.replyToId ? String(msg.replyToId) : undefined,
-      forwarded: !!msg.forwarded,
-      forwardedFrom: msg.forwardedFrom || null,
     };
   };
 
@@ -220,56 +217,24 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           const token = await AsyncStorage.getItem('accessToken');
           const socket = connectSocket(token);
           if (socket && socket.connected) {
-            // optimistic local message with replyToId if present
+            // optimistic local message
             const tempId = Math.random().toString();
-            const optimistic: any = {
-              id: tempId,
-              senderId: currentUserId,
-              senderName: 'You',
-              content,
-              type: 'text',
-              timestamp: new Date(),
-              read: false,
-              status: 'sent',
-            };
-            if (replyMessage) {
-              optimistic.replyToId = replyMessage.id;
-            }
+            const optimistic = { id: tempId, senderId: currentUserId, senderName: 'You', content, type: 'text', timestamp: new Date(), read: false, status: 'sent' };
             setLoadedMessages((m) => [...m, optimistic]);
-            socket.emit('message:send', {
-              conversationId,
-              senderId: currentUserId,
-              receiverId: derivedReceiverId,
-              content,
-              type: 'text',
-              replyToId: replyMessage?.id,
-              clientTempId: tempId,
-            });
-            setReplyMessage(null);
-          } else {
+            // for group chats, don't send receiverId
+            const receiverId = chat?.isGroup ? undefined : derivedReceiverId;
+            socket.emit('message:send', { conversationId, senderId: currentUserId, receiverId, content, type: 'text', clientTempId: tempId });
+          }
+          else {
+            const receiverId = chat?.isGroup ? undefined : derivedReceiverId;
             const sent = await messagesApi.sendMessage(
               conversationId,
               currentUserId,
               content,
               'text',
-              derivedReceiverId,
-              replyMessage?.id,
+              receiverId,
             );
-            setLoadedMessages((m) => [
-              ...m,
-              {
-                id: sent._id,
-                senderId: sent.senderId,
-                senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them',
-                content: sent.content,
-                type: sent.type,
-                timestamp: new Date(sent.createdAt),
-                read: false,
-                status: sent.status || 'sent',
-                replyToId: sent.replyToId || replyMessage?.id,
-              },
-            ]);
-            setReplyMessage(null);
+            setLoadedMessages((m) => [...m, { id: sent._id, senderId: sent.senderId, senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them', content: sent.content, type: sent.type, timestamp: new Date(sent.createdAt), read: false, status: sent.status || 'sent' }]);
           }
         } catch (e) {
           console.warn('Send message failed', (e as any)?.message || String(e));
@@ -420,6 +385,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         params: route.params,
       },
     });
+  };
+
+  const openGroupDetails = () => {
+    if (!chat || !chat.isGroup) return;
+    navigation.navigate('GroupDetails', { groupId: chat.conversationId, chat });
   };
 
   const handleSendMedia = () => {
@@ -767,8 +737,6 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
       try {
         const msgs = await messagesApi.getMessages(conversationId);
-        // when loading messages for a conversation, ensure we auto-scroll to bottom
-        shouldAutoScrollRef.current = true;
         setLoadedMessages((msgs || []).map(normalizeServerMessage));
       } catch (e) {
         console.warn('Failed to load messages', (e as any)?.message || String(e));
@@ -778,6 +746,32 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     useEffect(() => {
       loadMessages();
     }, [loadMessages]);
+
+    // fetch participant profiles for group chats to map senderId -> name/avatar
+    useEffect(() => {
+      let cancelled = false;
+      (async () => {
+        if (!chat || !chat.isGroup) return;
+        try {
+          const myId = (user && user.id) || null;
+          const convRes = await api.get('/conversations', { params: { userId: myId } });
+          const convos = convRes.data.conversations || [];
+          const convId = routeConversationId || chat.conversationId || chat.id;
+          const match = convos.find((c) => String(c._id) === String(convId) || String(c.id) === String(convId));
+          const participants = (match && match.participants) || chat.participants || [];
+          if (participants && participants.length) {
+            const usersResp = await api.post('/users/lookup', { ids: participants });
+            const users = usersResp.data.users || [];
+            if (!cancelled) setMembersProfiles(users);
+          } else {
+            setMembersProfiles([]);
+          }
+        } catch (e) {
+          // ignore
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [chat, routeConversationId, user]);
 
     useEffect(() => {
       const unsubscribe = navigation.addListener?.('focus', loadMessages);
@@ -904,83 +898,35 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const handleSendForward = () => {
     if (!forwardTargetMessage || !selectedForwardTargets.length) return;
     const targetChatIdToOpen = selectedForwardTargets[0];
-    const { forwardMessage, setCurrentChat, replaceMessageTempId } = useChatStore.getState();
+    const { forwardMessage, setCurrentChat } = useChatStore.getState();
 
-    // send forwarded message to each selected target (optimistic + socket/API)
-    (async () => {
-      const token = await AsyncStorage.getItem('accessToken');
-      const socket = connectSocket(token);
+    selectedForwardTargets.forEach((targetChatId) => {
+      forwardMessage(targetChatId, forwardTargetMessage);
 
-      for (const targetChatId of selectedForwardTargets) {
-        // local optimistic update
-        const tempId = Math.random().toString();
-        const optimistic = {
-          id: tempId,
-          senderId: currentUserId,
+      if (forwardNote.trim()) {
+        addMessage(targetChatId, {
+          id: Math.random().toString(),
+          senderId: 'me',
           senderName: 'You',
-          content: forwardNote.trim() ? `${forwardTargetMessage.content}\n\n${forwardNote.trim()}` : forwardTargetMessage.content,
-          type: forwardTargetMessage.type || 'text',
+          content: forwardNote.trim(),
+          type: 'text',
           timestamp: new Date(),
           read: true,
-          forwarded: true,
-          forwardedFrom: { senderName: forwardTargetMessage.senderName, originalContent: forwardTargetMessage.content },
-        } as any;
-
-        // append optimistic message into target chat
-        addMessage(targetChatId, optimistic as any);
-
-        // find conversation id for the target chat (if available)
-        const targetChat = useChatStore.getState().chats.find((c) => c.id === targetChatId);
-        const conversationIdForTarget = targetChat?.conversationId || targetChat?.id;
-
-        const payload: any = {
-          conversationId: conversationIdForTarget,
-          senderId: currentUserId,
-          content: forwardTargetMessage.content,
-          type: forwardTargetMessage.type || 'text',
-          forwarded: true,
-          forwardedFrom: { senderName: forwardTargetMessage.senderName, originalContent: forwardTargetMessage.content },
-          clientTempId: tempId,
-        };
-
-        try {
-          if (socket && socket.connected) {
-            socket.emit('message:send', payload);
-          } else {
-            // fallback to API
-            const sent = await messagesApi.sendMessage(
-              conversationIdForTarget,
-              currentUserId,
-              forwardTargetMessage.content,
-              forwardTargetMessage.type || 'text',
-              undefined,
-              undefined,
-              true,
-              { senderName: forwardTargetMessage.senderName, originalContent: forwardTargetMessage.content },
-            );
-            // reconcile optimistic message with server response
-            replaceMessageTempId(tempId, sent);
-          }
-        } catch (e) {
-          console.warn('Forward send failed', e);
-        }
+        });
       }
+    });
 
-      // open first selected chat and cleanup UI
-      const targetChatToOpen = useChatStore.getState().chats.find((c) => c.id === targetChatIdToOpen);
-      closeForwardPicker();
-      setActionMessage(null);
-      if (targetChatToOpen) {
-        setCurrentChat(targetChatToOpen);
-        if (String(chat?.id) !== String(targetChatIdToOpen)) {
-          try {
-            navigation.replace('Chat', { chat: targetChatToOpen });
-          } catch (e) {
-            navigation.navigate('Chat', { chat: targetChatToOpen });
-          }
-        }
-      }
-    })();
+    const targetChatToOpen = useChatStore
+      .getState()
+      .chats.find((targetChat) => targetChat.id === targetChatIdToOpen);
+
+    closeForwardPicker();
+    setActionMessage(null);
+
+    if (targetChatToOpen) {
+      setCurrentChat(targetChatToOpen);
+      navigation.navigate('Chat', { chat: targetChatToOpen });
+    }
   };
 
   const openForwardForMessage = (message: Message) => {
@@ -1048,22 +994,30 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   useEffect(() => {
-    // If auto-scroll is desired, scroll after layout; otherwise respect user's scroll position
-    if (shouldAutoScrollRef.current) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
-    }
+    flatListRef.current?.scrollToEnd({ animated: true });
   }, [chatMessages]);
 
   useEffect(() => {
     return () => clearLiveLocationWatch();
   }, []);
 
-  const renderMessage = ({ item }: { item: Message }) => {
+  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const repliedMessage = item.replyToId
       ? chatMessages.find((m) => m.id === item.replyToId)
       : null;
     const sender =
-      chat.participants?.find((participant) => participant.id === item.senderId) || null;
+      (membersProfiles && membersProfiles.find((p) => String(p.id) === String(item.senderId))) ||
+      chat.participants?.find((participant) => participant.id === item.senderId) ||
+      null;
+    // Resolve sender name: prefer message field, then profile lookup, then senderId, then empty
+    const resolvedSenderName =
+      (item.senderName && item.senderName !== 'Them' ? item.senderName : '') ||
+      (sender && (sender.displayName || sender.name || sender.title)) ||
+      (item.senderId ? String(item.senderId).slice(-6) : '') ||
+      'Unknown';
+
+    const prev = index > 0 ? chatMessages[index - 1] : null;
+    const shouldShowSender = !!chat.isGroup && item.senderId !== currentUserId && (!prev || String(prev.senderId) !== String(item.senderId));
 
     return (
       <ChatBubble
@@ -1072,7 +1026,6 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         isOwn={item.senderId === currentUserId}
         theme={theme}
         read={item.read}
-        status={item.status}
         type={item.type}
         call={item.call}
         mediaUrl={item.mediaUrl}
@@ -1086,9 +1039,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         isSelected={actionMessage?.id === item.id}
         reaction={item.reaction}
         forwarded={item.forwarded}
-        showSenderInfo={!!chat.isGroup && item.senderId !== currentUserId}
-        senderName={item.senderName}
-        senderAvatar={item.senderAvatar || sender?.avatar}
+        showSenderInfo={shouldShowSender}
+        senderName={resolvedSenderName}
+        senderAvatar={
+          item.senderAvatar || (sender && (sender.profilePictureUrl || sender.avatar)) || (item.senderId === currentUserId ? user?.avatar || '' : '')
+        }
         onLongPress={() => handleLongPressMessage(item)}
         replyTo={repliedMessage}
         onReplyPress={() => {
@@ -1240,7 +1195,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                 })
               }
             >
-              <Avatar source={chat.avatar || chat.title.charAt(0)} size="medium" theme={theme} />
+              <Avatar source={chat.avatar || (chat.title ? chat.title.charAt(0) : '')} size="medium" theme={theme} />
               <View style={styles.headerTextBlock}>
                 <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
                   {chat.title}
@@ -1432,21 +1387,9 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         ref={flatListRef}
         data={chatMessages}
         renderItem={renderMessage}
-        keyExtractor={(item, index) => `${String(item.id)}-${index}`}
+        keyExtractor={(item) => item.id}
         contentContainerStyle={styles.messageList}
         onEndReachedThreshold={0.1}
-        onContentSizeChange={() => {
-          if (shouldAutoScrollRef.current) {
-            flatListRef.current?.scrollToEnd({ animated: true });
-          }
-        }}
-        onScroll={({ nativeEvent }) => {
-          try {
-            const { contentOffset, layoutMeasurement, contentSize } = nativeEvent;
-            const isAtBottom = contentOffset.y + layoutMeasurement.height >= (contentSize.height - 20);
-            shouldAutoScrollRef.current = isAtBottom;
-          } catch (e) {}
-        }}
       />
 
       {actionMessage && (

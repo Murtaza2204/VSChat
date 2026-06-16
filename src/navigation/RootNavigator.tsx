@@ -22,6 +22,7 @@ import ContactInfoScreen from '../screens/ContactInfoScreen';
 import SelectContactScreen from '../screens/SelectContactScreen';
 import NewGroupScreen from '../screens/NewGroupScreen';
 import NewGroupDetailsScreen from '../screens/NewGroupDetailsScreen';
+import GroupDetailsScreen from '../screens/GroupDetailsScreen';
 import CallsListScreen from '../screens/CallsListScreen';
 import DialPadScreen from '../screens/DialPadScreen';
 import ReceiverCallScreen from '../screens/ReceiverCallScreen';
@@ -74,6 +75,7 @@ const ChatStack = () => {
       <Stack.Screen name="SelectContact" component={SelectContactScreen} />
       <Stack.Screen name="NewGroup" component={NewGroupScreen} />
       <Stack.Screen name="NewGroupDetails" component={NewGroupDetailsScreen} />
+      <Stack.Screen name="GroupDetails" component={GroupDetailsScreen} />
       <Stack.Screen name="ActiveCall" component={ActiveCallScreen} />
     </Stack.Navigator>
   );
@@ -136,6 +138,7 @@ const MainTabs = () => {
         const shouldHideTabBar =
           (route.name === 'Chats' &&
             (focusedRouteName === 'Chat' ||
+              focusedRouteName === 'GroupDetails' ||
               focusedRouteName === 'NewGroupDetails' ||
               focusedRouteName === 'ActiveCall')) ||
           (route.name === 'Calls' &&

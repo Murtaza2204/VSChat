@@ -7,65 +7,74 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Alert,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import Avatar from '../components/Avatar';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
 import { useChatStore } from '../stores/chatStore';
 import { useThemeStore } from '../stores/themeStore';
-import { Chat, Message } from '../types';
+import { useAuthStore } from '../stores/authStore';
+import { Message } from '../types';
+import groupsApi from '../utils/groups';
 
 const NewGroupDetailsScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
   route,
 }) => {
   const { theme } = useThemeStore();
-  const { chats, createGroup, forwardMessage, setCurrentChat } = useChatStore();
+  const { createGroup } = useChatStore();
+  const { user } = useAuthStore();
   const [groupName, setGroupName] = useState('');
-  const selectedIds = useMemo<string[]>(
-    () => route.params?.selectedIds || [],
+  const selectedMembers = useMemo<any[]>(
+    () => route.params?.selectedContacts || [],
     [route.params],
   );
   const pendingForwardMessage = route.params?.forwardMessage as Message | undefined;
 
-  const selectedMembers = useMemo(
-    () => chats.filter((chat) => selectedIds.includes(chat.id)),
-    [chats, selectedIds],
-  );
-
-  const handleCreateGroup = () => {
-    if (!selectedMembers.length) {
-      return;
+  const handleCreateGroup = async () => {
+    if (!selectedMembers.length) return;
+    try {
+      const ownerId = user?.id;
+      const participantIds = selectedMembers.map((m) => m.userId || m.id);
+      const created = await groupsApi.createGroup(groupName || 'Group', participantIds, ownerId || null);
+      
+      // add to local chat store
+      useChatStore.getState().createGroup(
+        created.title,
+        selectedMembers.map((m) => ({ id: m.userId || m.id, title: m.displayName || m.title })),
+        created.createdAt,
+      );
+      
+      // navigate to Chat screen for the new group
+      navigation.reset({
+        index: 1,
+        routes: [
+          { name: 'ChatList' },
+          {
+            name: 'Chat',
+            params: {
+              conversationId: created._id,
+              participant: { id: created._id, title: created.title, isGroup: true },
+            },
+          },
+        ],
+      });
+    } catch (e) {
+      console.error('Failed to create group', e);
+      Alert.alert('Create group failed', (e as any)?.message || 'Unable to create group');
     }
-
-    const newGroup = createGroup(groupName, selectedMembers);
-
-    if (pendingForwardMessage) {
-      forwardMessage(newGroup.id, pendingForwardMessage);
-    }
-
-    const openedGroup =
-      useChatStore.getState().chats.find((chat) => chat.id === newGroup.id) || newGroup;
-
-    setCurrentChat(openedGroup);
-    navigation.reset({
-      index: 1,
-      routes: [
-        { name: 'ChatList' },
-        { name: 'Chat', params: { chat: openedGroup } },
-      ],
-    });
   };
 
-  const renderMember = (member: Chat) => (
-    <View key={member.id} style={styles.memberItem}>
+  const renderMember = (member: any) => (
+    <View key={member.id || member.userId} style={styles.memberItem}>
       <Avatar
-        source={member.avatar || member.title.charAt(0)}
+        source={member.avatar || (member.title ? member.title.charAt(0) : '')}
         size="large"
         theme={theme}
       />
       <Text style={[styles.memberName, { color: theme.textSecondary }]} numberOfLines={1}>
-        {member.title}
+        {member.title || member.displayName}
       </Text>
     </View>
   );
