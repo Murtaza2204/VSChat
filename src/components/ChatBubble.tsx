@@ -37,6 +37,7 @@ interface ChatBubbleProps {
   senderName?: string;
   senderAvatar?: string;
   showSenderInfo?: boolean;
+  isGroupChat?: boolean;
   status?: string;
 }
 
@@ -63,6 +64,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   senderName,
   senderAvatar,
   showSenderInfo = false,
+  isGroupChat = false,
   status = 'sent',
 }) => {
   const [now, setNow] = useState(Date.now());
@@ -115,49 +117,42 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     }
   };
 
-  const showAvatar = !!senderAvatar || !!senderName;
-  // Only show avatar/name for group chats (showSenderInfo is true only for groups)
-  const showAvatarWithName = showAvatar && !isOwn && showSenderInfo;
+  const isIncomingGroupMessage = isGroupChat && !isOwn;
+  const showAvatarWithName = isIncomingGroupMessage && showSenderInfo;
 
   return (
     <View>
-      {/* Show sender name above message ONLY for group chats */}
-      {!isOwn && senderName && showSenderInfo ? (
-        <Text style={[styles.senderNameTop, { color: senderColor }]} numberOfLines={1}>
-          {senderName}
-        </Text>
-      ) : null}
-      
       <View
         style={[
           styles.container,
-          showAvatarWithName && styles.avatarContainer,
+          isIncomingGroupMessage && styles.avatarContainer,
           isOwn ? styles.ownContainer : styles.otherContainer,
           reaction && { marginBottom: SPACING.lg + SPACING.sm },
           style,
         ]}
       >
-        {/* Avatar on the left ONLY for group chat messages */}
         {showAvatarWithName ? (
           <Avatar
-            source={senderAvatar || (senderName ? senderName.charAt(0) : '')}
+            source={senderAvatar}
             size="small"
             theme={theme}
             style={styles.leftAvatar}
           />
+        ) : isIncomingGroupMessage ? (
+          <View style={styles.leftAvatarSpacer} />
         ) : null}
       <TouchableOpacity
         onLongPress={onLongPress}
         style={[
           styles.bubble,
-          showSenderInfo && styles.groupBubble,
+          isIncomingGroupMessage && styles.groupBubble,
           isMediaMessage && styles.mediaBubble,
           { 
             backgroundColor: isSelected
               ? isOwn
                 ? 'rgba(96, 160, 84, 0.7)'
                 : 'rgba(66, 133, 244, 0.7)'
-              : showSenderInfo
+              : isIncomingGroupMessage
                 ? theme.surface
                 : bubbleColor
           },
@@ -166,6 +161,12 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         ]}
         activeOpacity={0.8}
       >
+        {showSenderInfo && senderName ? (
+          <Text style={[styles.groupSenderName, { color: senderColor }]} numberOfLines={1}>
+            {senderName}
+          </Text>
+        ) : null}
+
         {forwarded ? (
           <View style={styles.forwardedLabel}>
             <Icon name="arrow-redo" size={13} color={theme.textSecondary} />
@@ -378,41 +379,25 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
                   />
                 );
               } else if (msgStatus === 'delivered') {
-                // Double gray tick - message delivered but not read
+                // Use combined double-tick icon (gray) for delivered
                 return (
-                  <View style={styles.doubleCheckContainer}>
-                    <Icon
-                      name="checkmark"
-                      size={12}
-                      color={theme.textSecondary}
-                      style={styles.checkmarkOverlap}
-                    />
-                    <Icon
-                      name="checkmark"
-                      size={12}
-                      color={theme.textSecondary}
-                    />
-                  </View>
+                  <Icon
+                    name="checkmark-done"
+                    size={16}
+                    color={theme.textSecondary}
+                  />
                 );
               } else if (msgStatus === 'seen') {
-                // Double blue tick - message read
+                // Use combined double-tick icon (blue) for read
                 return (
-                  <View style={styles.doubleCheckContainer}>
-                    <Icon
-                      name="checkmark"
-                      size={12}
-                      color={theme.primary}
-                      style={styles.checkmarkOverlap}
-                    />
-                    <Icon
-                      name="checkmark"
-                      size={12}
-                      color={theme.primary}
-                    />
-                  </View>
+                  <Icon
+                    name="checkmark-done"
+                    size={16}
+                    color={theme.primary}
+                  />
                 );
               }
-              
+
               // Fallback to single tick
               return (
                 <Icon
@@ -458,7 +443,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     marginTop: SPACING.sm,
-    gap: SPACING.sm,
   },
   groupContainer: {
     flexDirection: 'row',
@@ -467,14 +451,13 @@ const styles = StyleSheet.create({
   },
   ownContainer: { alignItems: 'flex-end' },
   otherContainer: { alignItems: 'flex-start' },
-  senderNameTop: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: '700',
-    marginLeft: SPACING.md,
-    marginBottom: SPACING.xs,
-  },
   leftAvatar: {
     marginBottom: 2,
+    marginRight: SPACING.sm,
+  },
+  leftAvatarSpacer: {
+    width: 32,
+    marginRight: SPACING.sm,
   },
   rightAvatar: {
     marginBottom: 2,
@@ -488,14 +471,13 @@ const styles = StyleSheet.create({
   },
   groupBubble: {
     maxWidth: '76%',
-    marginLeft: SPACING.sm,
     borderTopLeftRadius: BORDER_RADIUS.md,
   },
   groupSenderAvatar: {
     marginBottom: 2,
   },
   groupSenderName: {
-    fontSize: FONT_SIZES.base,
+    fontSize: FONT_SIZES.sm,
     fontWeight: '800',
     marginBottom: SPACING.xs,
   },

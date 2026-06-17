@@ -7,7 +7,8 @@ import {
   StyleSheet,
   ViewStyle,
 } from 'react-native';
-import { SPACING, FONT_SIZES, BORDER_RADIUS } from '../constants/colors';
+import Icon from 'react-native-vector-icons/Ionicons';
+import { FONT_SIZES } from '../constants/colors';
 
 interface AvatarProps {
   source?: string;
@@ -77,8 +78,10 @@ const Avatar: React.FC<AvatarProps> = ({
       >
         {isImageSource ? (
           <Image source={{ uri: source }} style={sizeStyle} resizeMode="cover" />
-        ) : (
+        ) : source ? (
           <Text style={{ fontSize: getFontSize() }}>{source}</Text>
+        ) : (
+          <Icon name="person" size={Math.round(getFontSize() * 0.92)} color={theme.textSecondary} />
         )}
       </View>
 

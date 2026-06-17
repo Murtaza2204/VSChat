@@ -144,6 +144,7 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     markChatAsRead(chat.id);
     navigation.navigate('Chat', {
       conversationId: chat.conversationId,
+      chat,
       participant: {
         id: chat.id,
         title: chat.title,

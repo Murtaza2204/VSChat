@@ -39,6 +39,18 @@ import signaling from '../services/signaling';
 import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
 import { markConversationNotificationsRead } from '../services/notifications';
 
+const isValidAvatarUri = (value?: string | null) =>
+  !!value &&
+  (value.startsWith('file://') ||
+    value.startsWith('content://') ||
+    value.startsWith('http://') ||
+    value.startsWith('https://'));
+
+const getParticipantId = (participant: any) =>
+  typeof participant === 'string'
+    ? participant
+    : participant?.id || participant?._id || participant?.userId;
+
 const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
   route,
@@ -74,8 +86,9 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const deletedForMeIdsRef = useRef(new Set<string>());
   const [membersProfiles, setMembersProfiles] = useState<any[] | null>(null);
   const chatMessages = useMemo(() => (conversationId ? loadedMessages : (chat?.messages || [])), [conversationId, loadedMessages, chat]);
-  const groupMemberCount = (chat.participants?.length || 0) + (chat.isGroup ? 1 : 0);
-  const groupSubtitle = chat.isGroup
+  const isGroupConversation = !!chat?.isGroup || (chat?.participants?.length || 0) > 2;
+  const groupMemberCount = (chat.participants?.length || 0) + (isGroupConversation ? 1 : 0);
+  const groupSubtitle = isGroupConversation
     ? chat.participants?.length
       ? chat.participants.map((participant) => participant.name).join(', ')
       : `${groupMemberCount} members`
@@ -110,7 +123,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const menuOptions = [
     'New group',
-    chat.isGroup ? 'View group info' : 'View contact',
+    isGroupConversation ? 'View group info' : 'View contact',
     'Search',
     'Media, links, and docs',
     'Mute notifications',
@@ -126,6 +139,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     const senderId = String(msg.senderId || '');
     const isOwn = senderId === String(currentUserId);
     const type = msg.type || 'text';
+    const senderAvatar =
+      msg.senderAvatar || msg.profilePictureUrl || msg.senderProfilePictureUrl || undefined;
     const call =
       type === 'call'
         ? {
@@ -147,6 +162,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
       read: msg.status === 'seen',
       status: msg.status || 'sent',
+      senderAvatar: isValidAvatarUri(senderAvatar) ? senderAvatar : undefined,
       call,
       replyToId: msg.replyToId ? String(msg.replyToId) : undefined,
       forwarded: !!msg.forwarded,
@@ -236,11 +252,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
               if (target) useChatStore.getState().addMessage(target.id, optimistic);
             } catch (e) {}
             // for group chats, don't send receiverId
-            const receiverId = chat?.isGroup ? undefined : derivedReceiverId;
+            const receiverId = isGroupConversation ? undefined : derivedReceiverId;
             socket.emit('message:send', { conversationId, senderId: currentUserId, receiverId, content, type: 'text', clientTempId: tempId, replyToId: optimistic.replyToId });
           }
           else {
-            const receiverId = chat?.isGroup ? undefined : derivedReceiverId;
+            const receiverId = isGroupConversation ? undefined : derivedReceiverId;
             const sent = await messagesApi.sendMessage(
               conversationId,
               currentUserId,
@@ -432,7 +448,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const openGroupDetails = () => {
-    if (!chat || !chat.isGroup) return;
+    if (!chat || !isGroupConversation) return;
     navigation.navigate('GroupDetails', { groupId: chat.conversationId, chat });
   };
 
@@ -801,7 +817,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     useEffect(() => {
       let cancelled = false;
       (async () => {
-        if (!chat || !chat.isGroup) return;
+        if (!chat || !isGroupConversation) return;
         try {
           const myId = (user && user.id) || null;
           const convRes = await api.get('/conversations', { params: { userId: myId } });
@@ -809,8 +825,12 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           const convId = routeConversationId || chat.conversationId || chat.id;
           const match = convos.find((c) => String(c._id) === String(convId) || String(c.id) === String(convId));
           const participants = (match && match.participants) || chat.participants || [];
-          if (participants && participants.length) {
-            const usersResp = await api.post('/users/lookup', { ids: participants });
+          const participantIds = (participants || [])
+            .map(getParticipantId)
+            .filter(Boolean)
+            .map(String);
+          if (participantIds.length) {
+            const usersResp = await api.post('/users/lookup', { ids: participantIds });
             const users = usersResp.data.users || [];
             if (!cancelled) setMembersProfiles(users);
           } else {
@@ -1231,27 +1251,17 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       : null;
     const sender =
       (membersProfiles && membersProfiles.find((p) => String(p.id) === String(item.senderId))) ||
-      chat.participants?.find((participant) => participant.id === item.senderId) ||
+      chat.participants?.find((participant) => String(getParticipantId(participant)) === String(item.senderId)) ||
       null;
-    // Helper function to extract first name from full name
-    const extractFirstName = (fullName: string | null | undefined): string => {
-      if (!fullName) return '';
-      return fullName.trim().split(/\s+/)[0] || '';
-    };
+    const profileAvatar = sender && (sender.profilePictureUrl || sender.avatar);
 
-    // Resolve sender name: prefer message field, then profile lookup, then senderId, then empty
-    // For group chats, show first name only
     const fullSenderName =
       (item.senderName && item.senderName !== 'Them' ? item.senderName : '') ||
       (sender && (sender.displayName || sender.name || sender.title)) ||
-      (item.senderId ? String(item.senderId).slice(-6) : '') ||
       'Unknown';
-    
-    const resolvedSenderName = chat.isGroup ? extractFirstName(fullSenderName) : fullSenderName;
+    const resolvedSenderName = fullSenderName;
 
-    const prev = index > 0 ? chatMessages[index - 1] : null;
-    // Only show sender info for group chats, and only when sender changes from previous message
-    const shouldShowSender = !!chat.isGroup && item.senderId !== currentUserId && (!prev || String(prev.senderId) !== String(item.senderId));
+    const shouldShowSender = isGroupConversation && item.senderId !== currentUserId;
 
     return (
       <ChatBubble
@@ -1275,9 +1285,16 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         reaction={item.reaction}
         forwarded={item.forwarded}
         showSenderInfo={shouldShowSender}
+        isGroupChat={isGroupConversation}
         senderName={resolvedSenderName}
         senderAvatar={
-          item.senderAvatar || (sender && (sender.profilePictureUrl || sender.avatar)) || (item.senderId === currentUserId ? user?.avatar || '' : '')
+          isValidAvatarUri(item.senderAvatar)
+            ? item.senderAvatar
+            : isValidAvatarUri(profileAvatar)
+              ? profileAvatar
+              : item.senderId === currentUserId && isValidAvatarUri(user?.avatar)
+                ? user?.avatar
+                : undefined
         }
         onLongPress={() => handleLongPressMessage(item)}
         replyTo={repliedMessage}
@@ -1435,7 +1452,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                 <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
                   {chat.title}
                 </Text>
-                {!!chat.isGroup && (
+                {isGroupConversation && (
                   <Text
                     style={[styles.headerSubtitle, { color: theme.textSecondary }]}
                     numberOfLines={1}
