@@ -142,13 +142,17 @@ export const useAuthStore = create<AuthStore>((set) => {
               socket.on('message:status', (status) => {
                 try {
                   const chatState = useChatStore.getState();
-                  const updates: any = { status: status.status };
-                  if (status.status === 'seen') {
+                  const updates: any = {};
+                  // preserve existing status if not provided
+                  if (status.status) updates.status = status.status;
+                  // support richer payloads from group read handling
+                  if (typeof status.readCount === 'number') updates.readCount = status.readCount;
+                  if (typeof status.totalRecipients === 'number') updates.totalRecipients = status.totalRecipients;
+                  if (status.status === 'seen' || (typeof updates.readCount === 'number' && typeof updates.totalRecipients === 'number' && updates.readCount >= updates.totalRecipients)) {
                     updates.read = true;
                     updates.seenAt = status.seenAt || status.lastSeenAt || new Date();
-                  } else if (status.deliveredAt) {
-                    updates.deliveredAt = status.deliveredAt;
                   }
+                  if (status.deliveredAt) updates.deliveredAt = status.deliveredAt;
                   chatState.updateMessage(String(status.messageId), updates);
                 } catch (e) {}
               });

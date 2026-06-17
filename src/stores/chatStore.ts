@@ -67,10 +67,60 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const { chats } = get();
       const updatedChats = chats.map((c) => {
         if (String(c.conversationId || c.id) === String(conversationId)) {
+          // Normalize payload: lastMessage can be a string or an object
+          let finalLastMessage = '';
+          try {
+            if (lastMessage && typeof lastMessage === 'object') {
+                // Support reaction payloads: `reactedBy`, `reaction`, and `originalActorId`
+                const actorId = lastMessage.reactedBy || lastMessage.actorId || lastMessage.senderId || lastMessage.lastMessageActorId || lastMessage.originalActorId;
+                const raw = lastMessage.raw || lastMessage.content || lastMessage.text || '';
+                const reaction = lastMessage.reaction || lastMessage.lastMessageReaction;
+
+              // If this payload represents a reaction preview, show "You reacted ..." or "Name reacted ..."
+              if (typeof reaction !== 'undefined' && reaction !== null) {
+                const currentUser = useAuthStore.getState().user;
+                if (String(actorId) === String(currentUser?.id)) {
+                  finalLastMessage = `You reacted ${reaction} to "${raw}"`;
+                } else {
+                  const sender = (c.participants || []).find((p: any) => {
+                    const pid = p?.id || p?.userId || p?._id;
+                    return pid && String(pid) === String(actorId);
+                  });
+                  const senderName = sender?.displayName || sender?.name || sender?.username || 'Someone';
+                  finalLastMessage = `${senderName} reacted ${reaction} to "${raw}"`;
+                }
+              } else if (actorId && c.isGroup) {
+                const currentUser = useAuthStore.getState().user;
+                if (String(actorId) === String(currentUser?.id)) {
+                  finalLastMessage = `You: ${raw}`;
+                } else {
+                  const sender = (c.participants || []).find((p: any) => {
+                    const pid = p?.id || p?.userId || p?._id;
+                    return pid && String(pid) === String(actorId);
+                  });
+                  const senderName = sender?.displayName || sender?.name || sender?.username || 'Someone';
+                  finalLastMessage = `${senderName}: ${raw}`;
+                }
+              } else {
+                finalLastMessage = raw || String(lastMessage);
+              }
+            } else {
+              finalLastMessage = String(lastMessage || '');
+            }
+          } catch (e) {
+            finalLastMessage = String(lastMessage || '');
+          }
+
           return {
             ...c,
-            lastMessage,
+            lastMessage: finalLastMessage,
             lastMessageTime: lastMessageTime || c.lastMessageTime || new Date(),
+            // persist raw/reaction/actor fields when provided so renderers can
+            // reconstruct previews and sender names when reactions change
+            lastMessageRaw: typeof lastMessage === 'object' ? (lastMessage.raw || lastMessage.content || lastMessage.text || c.lastMessageRaw) : c.lastMessageRaw,
+            // preserve original actor id (who sent the last message) if provided
+            lastMessageActorId: typeof lastMessage === 'object' ? (lastMessage.originalActorId || lastMessage.actorId || lastMessage.senderId || lastMessage.lastMessageActorId || c.lastMessageActorId) : c.lastMessageActorId,
+            lastMessageReaction: typeof lastMessage === 'object' ? (lastMessage.reaction || lastMessage.lastMessageReaction || c.lastMessageReaction) : c.lastMessageReaction,
           };
         }
         return c;
@@ -87,7 +137,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   
   addMessage: (chatId, message) => {
     const { chats } = get();
-    const lastMessage =
+    const rawPreview =
       message.content ||
       (message.type === 'image'
         ? 'Photo'
@@ -116,10 +166,24 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           );
         }
 
+        // For group chats, show sender prefix contextual to current user
+        const currentUser = useAuthStore.getState().user;
+        let displayLastMessage = rawPreview;
+        try {
+          if (chat.isGroup) {
+            if (String(message.senderId) === String(currentUser?.id)) {
+              displayLastMessage = `You: ${rawPreview}`;
+            } else {
+              const senderName = message.senderName || message.sender || 'Someone';
+              displayLastMessage = `${senderName}: ${rawPreview}`;
+            }
+          }
+        } catch (e) {}
+
         return {
           ...chat,
           messages: nextMessages,
-          lastMessage,
+          lastMessage: displayLastMessage,
           lastMessageTime: message.timestamp,
           // clear any reaction-based conversation preview so new messages show
           lastMessageReaction: undefined,
@@ -173,10 +237,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         const existing = (chat.messages || []).some((m) => String(m.id) === String(forwardedMessage.id));
         const nextMessages = existing ? chat.messages || [] : [...(chat.messages || []), forwardedMessage];
 
+        // If this is a group chat, prefix with sender label (current user)
+        const displayLastMessage = chat.isGroup ? `You: ${lastMessage}` : lastMessage;
+
         return {
           ...chat,
           messages: nextMessages,
-          lastMessage,
+          lastMessage: displayLastMessage,
           lastMessageTime: forwardedMessage.timestamp,
           lastMessageReaction: undefined,
           lastMessageActorId: undefined,

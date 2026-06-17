@@ -365,47 +365,23 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
           <Text style={[styles.timestamp, { color: theme.textSecondary }]}>{formatTime(timestamp)}</Text>
           {isOwn && (
             (() => {
-              // Use status field to determine which ticks to show
-              // Status can be: 'sent', 'delivered', 'seen'
+              // Determine tick rendering. Preserve one-to-one behavior (status 'seen').
               const msgStatus = status || 'sent';
-              
+              const hasReadCount = typeof (message as any).readCount === 'number' && typeof (message as any).totalRecipients === 'number';
+              const showBlue = hasReadCount ? ((message as any).readCount >= (message as any).totalRecipients) : (msgStatus === 'seen');
+
               if (msgStatus === 'sent') {
-                // Single gray tick - message sent but not delivered
                 return (
-                  <Icon
-                    name="checkmark"
-                    size={14}
-                    color={theme.textSecondary}
-                  />
-                );
-              } else if (msgStatus === 'delivered') {
-                // Use combined double-tick icon (gray) for delivered
-                return (
-                  <Icon
-                    name="checkmark-done"
-                    size={16}
-                    color={theme.textSecondary}
-                  />
-                );
-              } else if (msgStatus === 'seen') {
-                // Use combined double-tick icon (blue) for read
-                return (
-                  <Icon
-                    name="checkmark-done"
-                    size={16}
-                    color={theme.primary}
-                  />
+                  <Icon name="checkmark" size={14} color={theme.textSecondary} />
                 );
               }
 
-              // Fallback to single tick
-              return (
-                <Icon
-                  name="checkmark"
-                  size={14}
-                  color={theme.textSecondary}
-                />
-              );
+              if (showBlue) {
+                return <Icon name="checkmark-done" size={16} color={theme.primary} />;
+              }
+
+              // If delivered but not all have read, show gray double-tick
+              return <Icon name="checkmark-done" size={16} color={theme.textSecondary} />;
             })()
           )}
         </View>

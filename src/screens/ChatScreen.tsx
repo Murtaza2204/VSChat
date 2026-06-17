@@ -386,8 +386,14 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             prev.map((message) => {
               if (String(message.id) !== String(status.messageId)) return message;
               const updates: any = { status: status.status || message.status };
-              if (status.status === 'seen') updates.read = true;
-              if (status.status === 'delivered' && message.read !== true) updates.read = false;
+              if (typeof status.readCount === 'number') updates.readCount = status.readCount;
+              if (typeof status.totalRecipients === 'number') updates.totalRecipients = status.totalRecipients;
+              if (status.status === 'seen' || (typeof updates.readCount === 'number' && typeof updates.totalRecipients === 'number' && updates.readCount >= updates.totalRecipients)) {
+                updates.read = true;
+                updates.seenAt = status.seenAt || new Date();
+              } else if (status.status === 'delivered') {
+                if (message.read !== true) updates.read = false;
+              }
               return { ...message, ...updates };
             }),
           );
@@ -1201,19 +1207,22 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             // update global store and local loaded messages
             try { updateMessage(String(messageId), { reaction }); } catch (e) {}
             setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(messageId) ? { ...m, reaction } : m)));
-            // ensure chat list shows the latest message after reaction change
+            // ensure chat list shows the reaction preview immediately by using the
+            // centralized update path which understands reaction payloads
             try {
               const store = useChatStore.getState();
               const chatItem = store.chats.find((c) => String(c.conversationId) === String(conversationId) || String(c.id) === String(chat?.id));
-              if (chatItem) {
-                const msgs = chatItem.messages || [];
-                // pick the message with the newest timestamp
-                const lastMsg = msgs.slice().sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()).slice(-1)[0];
-                if (lastMsg) {
-                  const updated = store.chats.map((c) => (c.id === chatItem.id ? { ...c, lastMessage: lastMsg.content, lastMessageTime: lastMsg.timestamp } : c));
-                  store.setChats(updated);
+              // Prefer the reacted message's content as snippet if available
+              let snippet = '';
+              try {
+                const reactedMsg = chatItem && chatItem.messages ? (chatItem.messages.find((m: any) => String(m.id) === String(messageId))) : null;
+                if (reactedMsg && reactedMsg.content) snippet = reactedMsg.content;
+                else if (chatItem && chatItem.messages && chatItem.messages.length) {
+                  snippet = chatItem.messages.slice().sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()).slice(-1)[0].content || '';
                 }
-              }
+              } catch (e) { snippet = ''; }
+              // Use updateChatLastMessage with a reaction payload so store formats preview
+              store.updateChatLastMessage(conversationId, { reactedBy: reactedBy, reaction, raw: snippet, originalActorId: chatItem?.lastMessageActorId }, new Date());
             } catch (e) {}
           } catch (e) {}
         });

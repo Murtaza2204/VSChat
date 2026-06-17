@@ -19,11 +19,19 @@ const setupListeners = () => {
   socket.on('conversation:update', (payload: any) => {
     try {
       console.log('[socket] conversation:update received:', payload);
-      const { conversationId, lastMessage, lastMessageAt } = payload || {};
+      const { conversationId, lastMessage, lastMessageAt, lastMessageActorId, lastMessageRaw, lastMessageReaction, lastMessageReactedBy } = payload || {};
       if (!conversationId || !lastMessage) return;
-      
+
       const store = useChatStore.getState();
-      store.updateChatLastMessage(conversationId, lastMessage, lastMessageAt ? new Date(lastMessageAt) : undefined);
+      // If reactor/reaction/raw provided, pass a structured object so `updateChatLastMessage`
+      // can render a reaction preview while preserving the original sender (actorId)
+      if (typeof lastMessageReaction !== 'undefined' || lastMessageReactedBy) {
+        store.updateChatLastMessage(conversationId, { reactedBy: lastMessageReactedBy, reaction: lastMessageReaction, raw: lastMessageRaw || lastMessage, originalActorId: lastMessageActorId }, lastMessageAt ? new Date(lastMessageAt) : undefined);
+      } else if (lastMessageActorId || lastMessageRaw) {
+        store.updateChatLastMessage(conversationId, { actorId: lastMessageActorId, raw: lastMessageRaw || lastMessage }, lastMessageAt ? new Date(lastMessageAt) : undefined);
+      } else {
+        store.updateChatLastMessage(conversationId, lastMessage, lastMessageAt ? new Date(lastMessageAt) : undefined);
+      }
     } catch (e) { 
       console.warn('[socket] conversation:update error:', e); 
     }
@@ -33,10 +41,17 @@ const setupListeners = () => {
   socket.on('message:reacted', (payload: any) => {
     try {
       console.log('[socket] message:reacted received:', payload);
-      // If backend sends lastMessage in reaction update, handle it
+      // If backend sends lastMessage in reaction update, handle it (may include actor id)
       if (payload?.conversationId && payload?.lastMessage) {
         const store = useChatStore.getState();
-        store.updateChatLastMessage(payload.conversationId, payload.lastMessage, payload.lastMessageAt ? new Date(payload.lastMessageAt) : undefined);
+        const { conversationId, lastMessage, lastMessageAt, lastMessageActorId, lastMessageRaw, lastMessageReaction, lastMessageReactedBy } = payload;
+        if (typeof lastMessageReaction !== 'undefined' || lastMessageReactedBy) {
+          store.updateChatLastMessage(conversationId, { reactedBy: lastMessageReactedBy, reaction: lastMessageReaction, raw: lastMessageRaw || lastMessage, originalActorId: lastMessageActorId }, lastMessageAt ? new Date(lastMessageAt) : undefined);
+        } else if (lastMessageActorId || lastMessageRaw) {
+          store.updateChatLastMessage(conversationId, { actorId: lastMessageActorId, raw: lastMessageRaw || lastMessage }, lastMessageAt ? new Date(lastMessageAt) : undefined);
+        } else {
+          store.updateChatLastMessage(conversationId, lastMessage, lastMessageAt ? new Date(lastMessageAt) : undefined);
+        }
       }
     } catch (e) {
       console.warn('[socket] message:reacted error:', e);

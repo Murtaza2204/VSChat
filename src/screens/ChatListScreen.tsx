@@ -63,17 +63,57 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       const chatItems = convos.map((c: any) => {
         const isGroup = c.isGroup === true;
         if (isGroup) {
-          // For groups, use the group title
-          return {
+          // prefer server-computed `unreadCount` (controller sets this) and
+          // fall back to the raw `unreadCounts` map if needed
+          const groupUnread = typeof c.unreadCount === 'number'
+            ? c.unreadCount
+            : (typeof c.unreadCounts === 'object' ? (c.unreadCounts[String(myId)] || 0) : 0);
+
+            // compute lastMessage display for groups, prefer reaction preview
+            let lastMessageText = '';
+            try {
+              if (c.lastMessageReaction) {
+                const reactedBy = c.lastMessageReactedBy || null;
+                const snippet = c.lastMessageRaw || c.lastMessage || '';
+                if (String(reactedBy) === String(myId)) {
+                  lastMessageText = `You reacted ${c.lastMessageReaction} to "${snippet}"`;
+                } else {
+                  // attempt to resolve reactor name from participantsProfiles
+                  const participants = c.participantsProfiles || c.participants || [];
+                  const reactor = participants.find((p: any) => String(p?.id || p) === String(reactedBy));
+                  const reactorName = reactor ? (reactor.displayName || reactor.name || String(reactedBy)) : String(reactedBy);
+                  lastMessageText = `${reactorName} reacted ${c.lastMessageReaction} to "${snippet}"`;
+                }
+              } else {
+                const actorId = c.lastMessageActorId ? String(c.lastMessageActorId) : null;
+                const raw = c.lastMessageRaw || c.lastMessage || '';
+                if (actorId) {
+                  if (String(actorId) === String(myId)) {
+                    lastMessageText = `You: ${raw}`;
+                  } else {
+                    const participants = c.participantsProfiles || c.participants || [];
+                    const sender = participants.find((p: any) => String(p?.id || p) === String(actorId));
+                    const senderName = sender ? (sender.displayName || sender.name || String(actorId)) : String(actorId);
+                    lastMessageText = `${senderName}: ${raw}`;
+                  }
+                } else {
+                  lastMessageText = c.lastMessage || '';
+                }
+              }
+            } catch (e) {
+              lastMessageText = c.lastMessage || '';
+            }
+
+            return {
             id: String(c._id),
             title: c.title || 'Group',
             avatar: '👥',
-            lastMessage: c.lastMessage || '',
+              lastMessage: lastMessageText,
             lastMessageTime: c.lastMessageAt ? new Date(c.lastMessageAt) : new Date(c.createdAt),
             isGroup: true,
             conversationId: c._id,
-            participants: c.participants || [],
-            unreadCount: typeof c.unreadCounts === 'object' && c.unreadCounts[myId] ? c.unreadCounts[myId] : 0,
+            participants: c.participantsProfiles || c.participants || [],
+            unreadCount: groupUnread,
           };
         }
         // One-to-one conversation
@@ -202,66 +242,148 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     return true;
   });
 
-  const renderChatItem = ({ item }: any) => (
-    <TouchableOpacity
-      onPress={() => handleChatPress(item)}
-      style={[
-        styles.chatItem,
-        { backgroundColor: theme.surface, borderBottomColor: theme.border },
-      ]}
-      activeOpacity={0.7}
-    >
-      <View style={styles.avatarContainer}>
-        <Avatar source={item.avatar} size="medium" theme={theme} />
-        {item.unreadCount > 0 && (
-          <View
-            style={[
-              styles.unreadBadge,
-              { backgroundColor: theme.primary },
-            ]}
-          >
-            <Text style={styles.unreadText}>
-              {item.unreadCount > 99 ? '99+' : item.unreadCount}
+  const renderChatItem = ({ item }: any) => {
+    if (item?.isGroup) {
+      try {
+        // debug helper: print key fields so we can verify backend shape when running
+        console.log('[ChatListScreen] group item', { id: item.id, title: item.title, lastMessage: item.lastMessage, lastMessageRaw: item.lastMessageRaw, lastMessageActorId: item.lastMessageActorId, messagesCount: (item.messages || []).length });
+      } catch (e) {}
+    }
+    // compute contextual preview for group chats only
+    let displayPreview = item.lastMessage || '';
+    try {
+      if (item.isGroup) {
+        // Prefer reaction-based preview (if present) so checklist updates immediately
+        if (item.lastMessageReaction || item.lastMessageReactedBy) {
+          const snippet = item.lastMessageRaw || item.lastMessage || '';
+          const reaction = item.lastMessageReaction;
+          const reactedBy = item.lastMessageReactedBy;
+          if (reaction) {
+            if (String(reactedBy) === String(user?.id)) {
+              displayPreview = `You reacted ${reaction} to "${snippet}"`;
+            } else {
+              const found = (item.participants || []).find((p: any) => {
+                const pid = p?.id || p?.userId || p?._id;
+                return pid && String(pid) === String(reactedBy);
+              });
+              const reactorName = found?.displayName || found?.name || found?.username || 'Someone';
+              displayPreview = `${reactorName} reacted ${reaction} to "${snippet}"`;
+            }
+            // reaction preview handled - skip normal last message rendering
+          } else {
+            // reaction cleared - fall through to normal last message rendering
+          }
+        }
+
+        // If no reaction preview or reaction cleared, render based on last message actor
+        if (!item.lastMessageReaction) {
+          const msgs = item.messages || [];
+          const lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
+          if (lastMsg) {
+            const raw = lastMsg.content || lastMsg.text || lastMsg.raw || displayPreview || '';
+            const actorId = lastMsg.senderId || lastMsg.sender || lastMsg.actorId || lastMsg.from;
+            if (actorId) {
+              if (String(actorId) === String(user?.id)) {
+                displayPreview = `You: ${raw}`;
+              } else {
+                const senderName = lastMsg.senderName || lastMsg.sender || (() => {
+                  const found = (item.participants || []).find((p: any) => {
+                    const pid = p?.id || p?.userId || p?._id;
+                    return pid && String(pid) === String(actorId);
+                  });
+                  return found?.displayName || found?.name || found?.username;
+                })() || 'Someone';
+                displayPreview = `${senderName}: ${raw}`;
+              }
+            } else if (item.lastMessageActorId) {
+              if (String(item.lastMessageActorId) === String(user?.id)) {
+                displayPreview = `You: ${item.lastMessageRaw || displayPreview}`;
+              } else {
+                const found = (item.participants || []).find((p: any) => {
+                  const pid = p?.id || p?.userId || p?._id;
+                  return pid && String(pid) === String(item.lastMessageActorId);
+                });
+                const senderName = found?.displayName || found?.name || found?.username || 'Someone';
+                displayPreview = `${senderName}: ${item.lastMessageRaw || displayPreview}`;
+              }
+            }
+          } else if (item.lastMessageActorId) {
+            if (String(item.lastMessageActorId) === String(user?.id)) {
+              displayPreview = `You: ${item.lastMessageRaw || displayPreview}`;
+            } else {
+              const found = (item.participants || []).find((p: any) => {
+                const pid = p?.id || p?.userId || p?._id;
+                return pid && String(pid) === String(item.lastMessageActorId);
+              });
+              const senderName = found?.displayName || found?.name || found?.username || 'Someone';
+              displayPreview = `${senderName}: ${item.lastMessageRaw || displayPreview}`;
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
+    return (
+      <TouchableOpacity
+        onPress={() => handleChatPress(item)}
+        style={[
+          styles.chatItem,
+          { backgroundColor: theme.surface, borderBottomColor: theme.border },
+        ]}
+        activeOpacity={0.7}
+      >
+        <View style={styles.avatarContainer}>
+          <Avatar source={item.avatar} size="medium" theme={theme} />
+          {item.unreadCount > 0 && (
+            <View
+              style={[
+                styles.unreadBadge,
+                { backgroundColor: theme.primary },
+              ]}
+            >
+              <Text style={styles.unreadText}>
+                {item.unreadCount > 99 ? '99+' : item.unreadCount}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.chatContent}>
+          <View style={styles.chatHeader}>
+            <Text
+              style={[
+                styles.chatTitle,
+                { color: theme.text, fontWeight: item.unreadCount > 0 ? '700' : '600' },
+              ]}
+              numberOfLines={1}
+            >
+              {item.title}
+            </Text>
+            <Text
+              style={[
+                styles.timestamp,
+                { color: theme.textSecondary },
+              ]}
+            >
+              {formatTime(new Date(item.lastMessageTime))}
             </Text>
           </View>
-        )}
-      </View>
-
-      <View style={styles.chatContent}>
-        <View style={styles.chatHeader}>
           <Text
             style={[
-              styles.chatTitle,
-              { color: theme.text, fontWeight: item.unreadCount > 0 ? '700' : '600' },
+              styles.lastMessage,
+              { 
+                color: item.unreadCount > 0 ? theme.text : theme.textSecondary,
+                fontWeight: item.unreadCount > 0 ? '600' : '400',
+              },
             ]}
             numberOfLines={1}
           >
-            {item.title}
-          </Text>
-          <Text
-            style={[
-              styles.timestamp,
-              { color: theme.textSecondary },
-            ]}
-          >
-            {formatTime(new Date(item.lastMessageTime))}
+            {displayPreview}
           </Text>
         </View>
-        <Text
-          style={[
-            styles.lastMessage,
-            { 
-              color: item.unreadCount > 0 ? theme.text : theme.textSecondary,
-              fontWeight: item.unreadCount > 0 ? '600' : '400',
-            },
-          ]}
-          numberOfLines={1}
-        >
-          {item.lastMessage}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
