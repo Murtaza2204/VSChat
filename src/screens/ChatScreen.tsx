@@ -153,6 +153,10 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           }
         : msg.call;
 
+    // derive current user's reaction from reactions array when present
+    const reactionsArr = Array.isArray(msg.reactions) ? msg.reactions.map((r: any) => ({ userId: String(r.userId || r.reactBy || r.reactedBy), reaction: r.reaction })) : [];
+    const myReactionObj = reactionsArr.find((r: any) => String(r.userId) === String(currentUserId));
+
     return {
       id: String(msg._id || msg.id),
       senderId,
@@ -167,7 +171,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       replyToId: msg.replyToId ? String(msg.replyToId) : undefined,
       forwarded: !!msg.forwarded,
       forwardedFrom: msg.forwardedFrom || null,
-      reaction: msg.reaction || undefined,
+      reaction: msg.reaction || (myReactionObj ? myReactionObj.reaction : undefined),
+      reactions: reactionsArr,
     };
   };
 
@@ -1139,10 +1144,27 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const handleReactToActionMessage = (reaction: string) => {
     if (!actionMessage) return;
+    const currentUser = currentUserId;
+    const existingReactions = Array.isArray(actionMessage.reactions) ? [...actionMessage.reactions] : [];
+    const had = existingReactions.find((r) => String(r.userId) === String(currentUser));
     const nextReaction = actionMessage.reaction === reaction ? undefined : reaction;
+
+    // compute next reactions array (replace, add or remove current user's reaction)
+    let nextReactions;
+    if (nextReaction) {
+      if (had) {
+        nextReactions = existingReactions.map((r) => (String(r.userId) === String(currentUser) ? { ...r, reaction: nextReaction } : r));
+      } else {
+        nextReactions = [...existingReactions, { userId: String(currentUser), reaction: nextReaction }];
+      }
+    } else {
+      // remove
+      nextReactions = existingReactions.filter((r) => String(r.userId) !== String(currentUser));
+    }
+
     // optimistic update in UI (global store + local loadedMessages)
-    updateMessage(actionMessage.id, { reaction: nextReaction });
-    setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(actionMessage.id) ? { ...m, reaction: nextReaction } : m)));
+    updateMessage(actionMessage.id, { reaction: nextReaction, reactions: nextReactions });
+    setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(actionMessage.id) ? { ...m, reaction: nextReaction, reactions: nextReactions } : m)));
     (async () => {
       try {
         await messagesApi.reactMessage(actionMessage.id, nextReaction || null);
@@ -1196,17 +1218,23 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           const { messageId, deletedBy } = payload || {};
           if (!messageId) return;
           const text = String(deletedBy) === String(currentUserId) ? 'You deleted this message' : 'This message was deleted';
-          updateMessage(String(messageId), { content: text, type: 'deleted', deletedForEveryone: true });
-          setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(messageId) ? { ...m, content: text, type: 'deleted', deletedForEveryone: true } : m)));
+          // clear reactions when a message is deleted for everyone
+          updateMessage(String(messageId), { content: text, type: 'deleted', deletedForEveryone: true, reactions: [], reaction: undefined });
+          setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(messageId) ? { ...m, content: text, type: 'deleted', deletedForEveryone: true, reactions: [], reaction: undefined } : m)));
         });
         socket.on('message:reacted', (payload: any) => {
           if (!mounted) return;
           try {
-            const { messageId, reaction, reactedBy } = payload || {};
+            const { messageId, reaction, reactedBy, reactions } = payload || {};
             if (!messageId) return;
+            // normalize reactions array
+            const normalizedReactions = Array.isArray(reactions) ? reactions.map((r: any) => ({ userId: String(r.userId), reaction: r.reaction })) : (reaction ? [{ userId: String(reactedBy), reaction }] : []);
+            // derive current user's reaction
+            const myReactionObj = normalizedReactions.find((r: any) => String(r.userId) === String(currentUserId));
+            const myReaction = myReactionObj ? myReactionObj.reaction : undefined;
             // update global store and local loaded messages
-            try { updateMessage(String(messageId), { reaction }); } catch (e) {}
-            setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(messageId) ? { ...m, reaction } : m)));
+            try { updateMessage(String(messageId), { reaction: myReaction, reactions: normalizedReactions }); } catch (e) {}
+            setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(messageId) ? { ...m, reaction: myReaction, reactions: normalizedReactions } : m)));
             // ensure chat list shows the reaction preview immediately by using the
             // centralized update path which understands reaction payloads
             try {
@@ -1292,6 +1320,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         onForwardPress={() => openForwardForMessage(item)}
         isSelected={actionMessage?.id === item.id}
         reaction={item.reaction}
+        reactions={item.reactions}
         forwarded={item.forwarded}
         showSenderInfo={shouldShowSender}
         isGroupChat={isGroupConversation}

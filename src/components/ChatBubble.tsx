@@ -31,6 +31,7 @@ interface ChatBubbleProps {
   onForwardPress?: () => void;
   isSelected?: boolean;
   reaction?: string;
+  reactions?: { userId: string; reaction: string }[];
   replyTo?: Message | null;
   onReplyPress?: () => void;
   forwarded?: boolean;
@@ -58,6 +59,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   onForwardPress: _onForwardPress,
   isSelected = false,
   reaction,
+  reactions = [],
   replyTo,
   onReplyPress,
   forwarded = false,
@@ -127,7 +129,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
           styles.container,
           isIncomingGroupMessage && styles.avatarContainer,
           isOwn ? styles.ownContainer : styles.otherContainer,
-          reaction && { marginBottom: SPACING.lg + SPACING.sm },
+          ((reaction) || (Array.isArray(reactions) && reactions.length)) && { marginBottom: SPACING.lg + SPACING.sm },
           style,
         ]}
       >
@@ -385,15 +387,41 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             })()
           )}
         </View>
-        {reaction ? (
-          <View style={[
-            styles.reactionBadge,
-            { backgroundColor: theme.surface },
-            isOwn ? styles.reactionBadgeOwn : styles.reactionBadgeOther,
-          ]}>
-            <Text style={styles.reactionText}>{reaction}</Text>
-          </View>
-        ) : null}
+        {
+          (() => {
+            // prefer explicit reactions array when provided
+            // Do not render reactions on deleted messages
+            if (type === 'deleted') return null;
+            const arr = Array.isArray(reactions) && reactions.length ? reactions : (reaction ? [{ userId: '0', reaction }] : []);
+            if (!arr || arr.length === 0) return null;
+            const totals: Record<string, number> = {};
+            let totalCount = 0;
+            arr.forEach((r) => {
+              if (!r || !r.reaction) return;
+              totals[r.reaction] = (totals[r.reaction] || 0) + 1;
+              totalCount += 1;
+            });
+            const sorted = Object.keys(totals).sort((a, b) => totals[b] - totals[a]);
+            const displayEmojis = sorted.slice(0, 2).join(' ');
+
+            return (
+              <View style={[
+                styles.reactionBadge,
+                { backgroundColor: theme.surface },
+                isOwn ? styles.reactionBadgeOwn : styles.reactionBadgeOther,
+              ]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.reactionText}>{displayEmojis}</Text>
+                  {totalCount > 1 ? (
+                    <View style={{ marginLeft: 6, backgroundColor: theme.primary, minWidth: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ color: theme.background, fontSize: 12 }}>{totalCount}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })()
+        }
       </TouchableOpacity>
 
       {/* Do not show an initial avatar under own messages. If the app should display the current user's avatar, it
@@ -619,8 +647,8 @@ const styles = StyleSheet.create({
   fileSize: { fontSize: FONT_SIZES.xs, marginTop: 4 },
   reactionBadge: {
     position: 'absolute',
-    bottom: -16,
-    minWidth: 28,
+    bottom: -22,
+    minWidth: 32,
     height: 28,
     borderRadius: 14,
     alignItems: 'center',
