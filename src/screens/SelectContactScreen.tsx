@@ -145,14 +145,23 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
     );
   };
 
-  const handleConfirmAddMembers = () => {
+  const handleConfirmAddMembers = async () => {
     if (!groupChatId || selectedContacts.length === 0) {
       return;
     }
 
-    selectedContacts.forEach((contact) => {
-      addGroupMember(groupChatId, contact);
-    });
+    try {
+      const groups = await import('../utils/groups');
+      const addIds = selectedContacts.map((c) => c.id || c.userId);
+      // use conversationId when available (store chat item may have a separate conversationId)
+      const apiGroupId = (groupChat && (groupChat.conversationId || groupChat.id)) || groupChatId;
+      const updated = await groups.updateGroup(apiGroupId, { addMembers: addIds, addedBy: user?.id, addedByName: user?.displayName });
+      // update local store optimistically
+      selectedContacts.forEach((contact) => addGroupMember(groupChatId, contact));
+    } catch (e) {
+      console.warn('Failed to add members', (e as any)?.message || String(e));
+    }
+
     navigation.goBack();
   };
 

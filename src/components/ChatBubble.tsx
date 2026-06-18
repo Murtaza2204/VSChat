@@ -122,6 +122,20 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   const isIncomingGroupMessage = isGroupChat && !isOwn;
   const showAvatarWithName = isIncomingGroupMessage && showSenderInfo;
 
+  // Render system messages as a centered, muted pill
+  if (type === 'system') {
+    const display = (typeof message === 'string' && senderName && message.trim().startsWith('Someone'))
+      ? message.replace(/^Someone\b/, senderName)
+      : message;
+    return (
+      <View style={{ alignItems: 'center', marginVertical: SPACING.sm }}>
+        <View style={[styles.systemContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}> 
+          <Text style={[styles.systemText, { color: theme.textSecondary }]}>{display}</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View>
       <View
@@ -458,6 +472,17 @@ const styles = StyleSheet.create({
   leftAvatar: {
     marginBottom: 2,
     marginRight: SPACING.sm,
+  },
+  systemContainer: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    borderRadius: 16,
+    borderWidth: 1,
+    maxWidth: '80%',
+  },
+  systemText: {
+    fontSize: 13,
+    textAlign: 'center',
   },
   leftAvatarSpacer: {
     width: 32,

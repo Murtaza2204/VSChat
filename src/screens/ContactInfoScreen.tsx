@@ -17,6 +17,8 @@ import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
 import Avatar from '../components/Avatar';
 import api from '../config/api';
 import messagesUtil from '../utils/messages';
+import groupsApi from '../utils/groups';
+import { Alert } from 'react-native';
 import { Chat } from '../types';
 
 const mediaItems = [
@@ -208,12 +210,16 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
     { title: 'Notifications', icon: 'notifications-outline' },
   ];
 
-  const dangerRows = [
-    { title: 'Add to Favorites', icon: 'heart-outline', danger: false },
-    { title: 'Clear chat', icon: 'remove-circle-outline', danger: false },
-    { title: `Block ${displayName}`, icon: 'ban-outline', danger: true },
-    { title: `Report ${displayName}`, icon: 'thumbs-down-outline', danger: true },
-  ];
+  const dangerRows = [];
+  dangerRows.push({ title: 'Add to Favorites', icon: 'heart-outline', danger: false });
+  dangerRows.push({ title: 'Clear chat', icon: 'remove-circle-outline', danger: false });
+  if (chat.isGroup) {
+    dangerRows.push({ title: 'Exit group', icon: 'log-out-outline', danger: true });
+    dangerRows.push({ title: 'Report group', icon: 'thumbs-down-outline', danger: true });
+  } else {
+    dangerRows.push({ title: `Block ${displayName}`, icon: 'ban-outline', danger: true });
+    dangerRows.push({ title: `Report ${displayName}`, icon: 'thumbs-down-outline', danger: true });
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -393,23 +399,57 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
 
         <View style={styles.rowsSection}>
           {dangerRows.map((row) => (
-            <TouchableOpacity key={row.title} style={styles.infoRow} activeOpacity={0.75}>
-              <Icon
-                name={row.icon}
-                size={26}
-                color={row.danger ? theme.error : theme.textSecondary}
-              />
-              <Text
-                style={[
-                  styles.rowTitle,
-                  styles.rowCopy,
-                  { color: row.danger ? theme.error : theme.text },
-                ]}
+              <TouchableOpacity
+                key={row.title}
+                style={styles.infoRow}
+                activeOpacity={0.75}
+                onPress={async () => {
+                  try {
+                    if (chat.isGroup && row.title === 'Exit group') {
+                      const title = `Exit group: "${chat.title || 'Group'}"?`;
+                      Alert.alert(title, undefined, [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Exit group',
+                          style: 'destructive',
+                          onPress: async () => {
+                            try {
+                              await groupsApi.leaveGroup((chat as any).conversationId || chat.id, currentUserId);
+                              try {
+                                const chatState = require('../stores/chatStore').useChatStore.getState();
+                                chatState.deleteChatForMe((chat as any).conversationId || chat.id);
+                                chatState.setCurrentChat(null);
+                              } catch (e) {}
+                              navigation.popToTop();
+                            } catch (e) {
+                              console.warn('leave failed', (e as any)?.message || String(e));
+                              Alert.alert('Error', 'Leave failed');
+                            }
+                          },
+                        },
+                      ]);
+                    } else {
+                      // fallback: no-op or future handlers for other rows
+                    }
+                  } catch (e) { console.warn('danger row press failed', e); }
+                }}
               >
-                {row.title}
-              </Text>
-            </TouchableOpacity>
-          ))}
+                <Icon
+                  name={row.icon}
+                  size={26}
+                  color={row.danger ? theme.error : theme.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.rowTitle,
+                    styles.rowCopy,
+                    { color: row.danger ? theme.error : theme.text },
+                  ]}
+                >
+                  {row.title}
+                </Text>
+              </TouchableOpacity>
+            ))}
         </View>
       </ScrollView>
     </SafeAreaView>

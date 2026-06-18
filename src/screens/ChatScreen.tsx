@@ -86,6 +86,41 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const deletedForMeIdsRef = useRef(new Set<string>());
   const [membersProfiles, setMembersProfiles] = useState<any[] | null>(null);
   const chatMessages = useMemo(() => (conversationId ? loadedMessages : (chat?.messages || [])), [conversationId, loadedMessages, chat]);
+  // format date label according to rules
+  const getDateLabel = (d: Date) => {
+    if (!d) return '';
+    const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const today = new Date();
+    const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const diffMs = +todayDate - +date;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays > 1 && diffDays < 7) {
+      return date.toLocaleDateString(undefined, { weekday: 'long' });
+    }
+    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  };
+
+  // insert date separator items into list
+  const messagesWithSeparators = useMemo(() => {
+    const out: any[] = [];
+    let lastDateKey: string | null = null;
+    const msgs = chatMessages || [];
+    for (let i = 0; i < msgs.length; i++) {
+      const m = msgs[i];
+      const t = m && m.timestamp ? new Date(m.timestamp) : new Date();
+      const key = `${t.getFullYear()}-${t.getMonth() + 1}-${t.getDate()}`;
+      if (key !== lastDateKey) {
+        const label = getDateLabel(t);
+        out.push({ __dateSeparator: true, id: `date-${key}`, dateLabel: label, dateObj: t });
+        lastDateKey = key;
+      }
+      out.push(m);
+    }
+    return out;
+  }, [chatMessages, nowTick]);
   const isGroupConversation = !!chat?.isGroup || (chat?.participants?.length || 0) > 2;
   const groupMemberCount = (chat.participants?.length || 0) + (isGroupConversation ? 1 : 0);
   const groupSubtitle = isGroupConversation
@@ -112,6 +147,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [viewerStartIndex, setViewerStartIndex] = useState(0);
   const viewerScrollRef = React.useRef<ScrollView | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  const [nowTick, setNowTick] = useState(Date.now());
   const liveLocationWatchRef = useRef<number | null>(null);
   const liveLocationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1206,6 +1242,12 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     flatListRef.current?.scrollToEnd({ animated: true });
   }, [chatMessages]);
 
+  // periodic tick to refresh date labels, ensures 'Today'/'Yesterday' update at midnight
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
   useEffect(() => {
     let socket: any = null;
     let mounted = true;
@@ -1282,7 +1324,18 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     return () => clearLiveLocationWatch();
   }, []);
 
-  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
+  const renderMessage = ({ item, index }: { item: any; index: number }) => {
+    // date separator item
+    if (item && item.__dateSeparator) {
+      return (
+        <View style={styles.dateSeparatorWrap} key={item.id}>
+          <View style={[styles.dateSeparatorContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.dateSeparatorText, { color: theme.textSecondary }]}>{item.dateLabel}</Text>
+          </View>
+        </View>
+      );
+    }
+
     const repliedMessage = item.replyToId
       ? chatMessages.find((m) => m.id === item.replyToId)
       : null;
@@ -1298,7 +1351,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       'Unknown';
     const resolvedSenderName = fullSenderName;
 
-    const shouldShowSender = isGroupConversation && item.senderId !== currentUserId;
+    const shouldShowSender = isGroupConversation && item.senderId !== currentUserId && item.type !== 'system';
 
     return (
       <ChatBubble
@@ -1340,8 +1393,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           if (repliedMessage) {
             const messageIndex = chatMessages.findIndex((m) => m.id === repliedMessage.id);
             if (messageIndex !== -1) {
+              // compute index in messagesWithSeparators (accounts for inserted date separators)
+              const targetIndex = messagesWithSeparators.findIndex((it) => !it.__dateSeparator && String(it.id) === String(repliedMessage.id));
+              const scrollIndex = targetIndex !== -1 ? targetIndex : messageIndex;
               flatListRef.current?.scrollToIndex({
-                index: messageIndex,
+                index: scrollIndex,
                 animated: true,
                 viewPosition: 0.5,
               });
@@ -1675,7 +1731,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
       <FlatList
         ref={flatListRef}
-        data={chatMessages}
+        data={messagesWithSeparators}
         renderItem={renderMessage}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.messageList}
@@ -2114,6 +2170,22 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingVertical: SPACING.md,
     justifyContent: 'flex-end',
+  },
+  dateSeparatorWrap: {
+    alignItems: 'center',
+    marginVertical: SPACING.sm,
+  },
+  dateSeparatorContainer: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderRadius: BORDER_RADIUS.full,
+    borderWidth: 1,
+    minWidth: 88,
+    alignItems: 'center',
+  },
+  dateSeparatorText: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: '600',
   },
   reactionTray: {
     position: 'absolute',

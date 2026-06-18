@@ -76,14 +76,20 @@ const GroupDetailsScreen = ({navigation, route}) => {
   };
 
   const handleLeave = () => {
-    Alert.alert('Leave Group', 'Are you sure you want to leave this group?', [
+    const title = `Exit group: "${group?.title || 'Group'}"?`;
+    Alert.alert(title, undefined, [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Leave',
+        text: 'Exit group',
         style: 'destructive',
         onPress: async () => {
           try {
             await groupsApi.leaveGroup(groupId, user?.id);
+            try {
+              const chatState = require('../stores/chatStore').useChatStore.getState();
+              chatState.deleteChatForMe(groupId);
+              chatState.setCurrentChat(null);
+            } catch (e) {}
             navigation.popToTop();
           } catch (e) {
             console.warn('leave failed', (e as any)?.message || String(e));

@@ -156,6 +156,21 @@ export const useAuthStore = create<AuthStore>((set) => {
                   chatState.updateMessage(String(status.messageId), updates);
                 } catch (e) {}
               });
+
+              socket.on('conversation:left', (payload) => {
+                try {
+                  const chatState = useChatStore.getState();
+                  const groupId = payload && payload.groupId;
+                  if (!groupId) return;
+                  // remove conversation from local list
+                  chatState.deleteChatForMe(groupId);
+                  // if currently viewing this conversation, clear it
+                  const current = chatState.currentChat;
+                  if (current && (String(current.conversationId) === String(groupId) || String(current.id) === String(groupId))) {
+                    chatState.setCurrentChat(null);
+                  }
+                } catch (e) { console.warn('conversation:left handler error', e); }
+              });
             }
           } catch (e) { console.warn('Socket init failed', e); }
         }

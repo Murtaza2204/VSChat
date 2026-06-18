@@ -259,7 +259,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   // Delete chat locally (for me)
   deleteChatForMe: (chatId) => {
     const { chats } = get();
-    const remainingChats = chats.filter((c) => c.id !== chatId);
+    const remainingChats = chats.filter((c) => String(c.id) !== String(chatId) && String(c.conversationId || '') !== String(chatId));
     set({ chats: remainingChats });
   },
 
