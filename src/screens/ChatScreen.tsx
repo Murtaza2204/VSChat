@@ -133,7 +133,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [messageText, setMessageText] = useState('');
   const [replyMessage, setReplyMessage] = useState<Message | null>(null);
   const [actionMessage, setActionMessage] = useState<Message | null>(null);
-  const [forwardTargetMessage, setForwardTargetMessage] = useState<Message | null>(null);
+  const [selectedMessages, setSelectedMessages] = useState<Message[]>([]);
+  const [forwardTargetMessages, setForwardTargetMessages] = useState<Message[]>([]);
   const [forwardModalVisible, setForwardModalVisible] = useState(false);
   const [selectedForwardTargets, setSelectedForwardTargets] = useState<string[]>([]);
   const [forwardNote, setForwardNote] = useState('');
@@ -976,7 +977,24 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const handleLongPressMessage = (message: Message) => {
+    // enter selection mode and select the long-pressed message
+    setSelectedMessages([message]);
     setActionMessage(message);
+  };
+
+  const handleToggleSelectMessage = (message: Message) => {
+    // if not in selection mode, ignore
+    if (!selectedMessages || selectedMessages.length === 0) return;
+    const exists = selectedMessages.find((m) => String(m.id) === String(message.id));
+    if (exists) {
+      const next = selectedMessages.filter((m) => String(m.id) !== String(message.id));
+      setSelectedMessages(next);
+      setActionMessage(next.length === 1 ? next[0] : null);
+    } else {
+      const next = [...selectedMessages, message];
+      setSelectedMessages(next);
+      setActionMessage(next.length === 1 ? next[0] : null);
+    }
   };
 
   const forwardTargetChats = chats.filter((c) => c.id !== chat.id);
@@ -999,7 +1017,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const closeForwardPicker = () => {
     setForwardModalVisible(false);
-    setForwardTargetMessage(null);
+    setForwardTargetMessages([]);
     setSelectedForwardTargets([]);
     setForwardNote('');
   };
@@ -1013,12 +1031,14 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const handleSendForward = () => {
-    if (!forwardTargetMessage || !selectedForwardTargets.length) return;
+    if (!forwardTargetMessages || !forwardTargetMessages.length || !selectedForwardTargets.length) return;
     const targetChatIdToOpen = selectedForwardTargets[0];
     const { forwardMessage, setCurrentChat } = useChatStore.getState();
     // Optimistically update local store for each selected target
     selectedForwardTargets.forEach((targetChatId) => {
-      forwardMessage(targetChatId, forwardTargetMessage);
+      forwardTargetMessages.forEach((forwardMsg) => {
+        forwardMessage(targetChatId, forwardMsg);
+      });
 
       if (forwardNote.trim()) {
         addMessage(targetChatId, {
@@ -1032,34 +1052,36 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         });
       }
 
-      // also persist the forwarded message to server so recipients see it
+      // persist forwarded messages to server in order
       try {
         const targetChat = useChatStore
           .getState()
           .chats.find((c) => c.id === targetChatId || String(c.conversationId) === String(targetChatId));
         const convId = targetChat?.conversationId || targetChatId;
-        const forwardedFrom = { senderName: forwardTargetMessage.senderName, originalContent: forwardTargetMessage.content };
-        messagesApi
-          .sendMessage(convId, currentUserId, forwardTargetMessage.content, forwardTargetMessage.type, undefined, undefined, true, forwardedFrom)
-          .then((sent) => {
-            // if server returns a message, ensure chat store knows about it
+        const msgsToSend = forwardTargetMessages.map((m) => ({ content: m.content, type: m.type, forwardedFrom: m.forwardedFrom || { senderName: m.senderName, originalContent: m.content } }));
+        // send sequentially to preserve order
+        (async () => {
+          for (const m of msgsToSend) {
             try {
-              const finalMsg = {
-                id: sent._id,
-                senderId: sent.senderId,
-                senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them',
-                content: sent.content,
-                type: sent.type,
-                timestamp: new Date(sent.createdAt),
-                read: false,
-                status: sent.status || 'sent',
-                forwarded: !!sent.forwarded,
-                forwardedFrom: sent.forwardedFrom || forwardedFrom,
-              } as any;
-              useChatStore.getState().addMessage(targetChatId, finalMsg);
-            } catch (e) {}
-          })
-          .catch((err) => console.warn('Forward persist failed', err));
+              const sent = await messagesApi.sendMessage(convId, currentUserId, m.content, m.type, undefined, undefined, true, m.forwardedFrom);
+              try {
+                const finalMsg = {
+                  id: sent._id,
+                  senderId: sent.senderId,
+                  senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them',
+                  content: sent.content,
+                  type: sent.type,
+                  timestamp: new Date(sent.createdAt),
+                  read: false,
+                  status: sent.status || 'sent',
+                  forwarded: !!sent.forwarded,
+                  forwardedFrom: sent.forwardedFrom || m.forwardedFrom,
+                } as any;
+                useChatStore.getState().addMessage(targetChatId, finalMsg);
+              } catch (e) {}
+            } catch (err) { console.warn('Forward persist failed', err); }
+          }
+        })();
       } catch (e) {
         console.warn('Forward scheduling failed', e);
       }
@@ -1070,6 +1092,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       .chats.find((targetChat) => targetChat.id === targetChatIdToOpen);
 
     closeForwardPicker();
+    setSelectedMessages([]);
     setActionMessage(null);
 
     if (targetChatToOpen) {
@@ -1078,92 +1101,100 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   };
 
-  const openForwardForMessage = (message: Message) => {
-    setForwardTargetMessage(message);
+  const openForwardForMessage = (messageOrMessages: Message | Message[]) => {
+    const arr = Array.isArray(messageOrMessages) ? messageOrMessages : [messageOrMessages];
+    setForwardTargetMessages(arr);
     setSelectedForwardTargets([]);
     setForwardNote('');
     setForwardModalVisible(true);
   };
 
   const handleForwardNewGroupPress = () => {
-    const messageToForward = forwardTargetMessage;
+    const messageToForward = forwardTargetMessages && forwardTargetMessages.length ? forwardTargetMessages[0] : null;
 
     closeForwardPicker();
+    setSelectedMessages([]);
     setActionMessage(null);
     navigation.navigate('NewGroup', { forwardMessage: messageToForward });
   };
 
   const handleReplyToActionMessage = () => {
-    if (!actionMessage) return;
-    setReplyMessage(actionMessage);
+    const single = selectedMessages.length === 1 ? selectedMessages[0] : actionMessage;
+    if (!single) return;
+    setReplyMessage(single);
+    setSelectedMessages([]);
     setActionMessage(null);
   };
 
   const handleToggleStarActionMessage = () => {
-    if (!actionMessage) return;
-    updateMessage(actionMessage.id, { starred: !actionMessage.starred });
-    setActionMessage((message) =>
-      message ? { ...message, starred: !message.starred } : message,
-    );
+    const single = selectedMessages.length === 1 ? selectedMessages[0] : actionMessage;
+    if (!single) return;
+    updateMessage(single.id, { starred: !single.starred });
+    setActionMessage((message) => (message ? { ...message, starred: !message.starred } : message));
+    setSelectedMessages([]);
   };
 
   const handleDeleteActionMessage = () => {
-    if (!actionMessage) return;
-    const isSender = String(actionMessage.senderId) === String(currentUserId);
+    const items = selectedMessages.length ? selectedMessages : (actionMessage ? [actionMessage] : []);
+    if (!items.length) return;
     const isServerId = (id: string) => /^[a-fA-F0-9]{24}$/.test(String(id));
-    if (!isServerId(actionMessage.id)) {
-      Alert.alert('Not ready', 'This message is not yet synced with server. Try again in a moment.');
+    if (!items.every((it) => isServerId(it.id))) {
+      Alert.alert('Not ready', 'One or more messages are not yet synced with server. Try again in a moment.');
       return;
     }
-    if (isSender) {
-      Alert.alert('Delete message', 'Choose deletion option', [
+    const allAreSenders = items.every((it) => String(it.senderId) === String(currentUserId));
+
+    if (allAreSenders) {
+      Alert.alert('Delete messages', 'Choose deletion option', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete for me', onPress: async () => {
-          // optimistic local delete
+          // optimistic local delete for all
+          const ids = items.map((m) => String(m.id));
           try {
-            deleteMessage(actionMessage.id);
-            setLoadedMessages((prev) => prev.filter((m) => String(m.id) !== String(actionMessage.id)));
-            try { deletedForMeIdsRef.current.add(String(actionMessage.id)); setTimeout(() => deletedForMeIdsRef.current.delete(String(actionMessage.id)), 10000); } catch (e) {}
+            ids.forEach((id) => { try { deleteMessage(id); } catch (e) {} });
+            setLoadedMessages((prev) => prev.filter((m) => !ids.includes(String(m.id))));
+            try { ids.forEach((id) => { deletedForMeIdsRef.current.add(String(id)); setTimeout(() => deletedForMeIdsRef.current.delete(String(id)), 10000); }); } catch (e) {}
           } catch (e) { console.warn('local delete failed', e); }
 
           try {
-            await messagesApi.deleteMessageForMe(actionMessage.id);
+            await messagesApi.deleteMessagesForMeBulk(ids);
           } catch (e) {
             console.warn('delete for me failed, reverting locally', e);
-            // attempt to reload messages for conversation to restore state
             try {
               const msgs = await messagesApi.getMessages(conversationId);
               setLoadedMessages(msgs.map(normalizeServerMessage));
             } catch (err) { console.warn('failed to reload messages after revert', err); }
           }
 
+          setSelectedMessages([]);
           setActionMessage(null);
         } },
         { text: 'Delete for everyone', style: 'destructive', onPress: async () => {
           try {
-            const res = await messagesApi.deleteMessageForEveryone(actionMessage.id);
-            // update local message to show deleted placeholder (sender view)
+            const ids = items.map((m) => String(m.id));
+            const res = await messagesApi.deleteMessagesForEveryoneBulk(ids);
+            // update local messages to show deleted placeholder for sender
             const text = 'You deleted this message';
-            updateMessage(actionMessage.id, { content: text, type: 'deleted', deletedForEveryone: true });
-            setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(actionMessage.id) ? { ...m, content: text, type: 'deleted', deletedForEveryone: true } : m)));
+            setLoadedMessages((prev) => prev.map((m) => ids.includes(String(m.id)) ? { ...m, content: text, type: 'deleted', deletedForEveryone: true } : m));
           } catch (e) { console.warn('delete for everyone failed', e); }
+          setSelectedMessages([]);
           setActionMessage(null);
         } },
       ]);
     } else {
       // receiver can only delete for me
-      Alert.alert('Delete message', 'Delete this message for you?', [
+      Alert.alert('Delete messages', 'Delete these messages for you?', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: async () => {
-          // optimistic local delete for receiver as well
+          const ids = items.map((m) => String(m.id));
           try {
-            deleteMessage(actionMessage.id);
-            setLoadedMessages((prev) => prev.filter((m) => String(m.id) !== String(actionMessage.id)));
-            try { deletedForMeIdsRef.current.add(String(actionMessage.id)); setTimeout(() => deletedForMeIdsRef.current.delete(String(actionMessage.id)), 10000); } catch (e) {}
+            ids.forEach((id) => { try { deleteMessage(id); } catch (e) {} });
+            setLoadedMessages((prev) => prev.filter((m) => !ids.includes(String(m.id))));
+            try { ids.forEach((id) => { deletedForMeIdsRef.current.add(String(id)); setTimeout(() => deletedForMeIdsRef.current.delete(String(id)), 10000); }); } catch (e) {}
           } catch (e) { console.warn('local delete failed', e); }
 
           try {
-            await messagesApi.deleteMessageForMe(actionMessage.id);
+            await messagesApi.deleteMessagesForMeBulk(ids);
           } catch (e) {
             console.warn('delete for me failed, reverting locally', e);
             try {
@@ -1172,6 +1203,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             } catch (err) { console.warn('failed to reload messages after revert', err); }
           }
 
+          setSelectedMessages([]);
           setActionMessage(null);
         } },
       ]);
@@ -1179,11 +1211,12 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const handleReactToActionMessage = (reaction: string) => {
-    if (!actionMessage) return;
+    const single = selectedMessages.length === 1 ? selectedMessages[0] : actionMessage;
+    if (!single) return;
     const currentUser = currentUserId;
-    const existingReactions = Array.isArray(actionMessage.reactions) ? [...actionMessage.reactions] : [];
+    const existingReactions = Array.isArray(single.reactions) ? [...single.reactions] : [];
     const had = existingReactions.find((r) => String(r.userId) === String(currentUser));
-    const nextReaction = actionMessage.reaction === reaction ? undefined : reaction;
+    const nextReaction = single.reaction === reaction ? undefined : reaction;
 
     // compute next reactions array (replace, add or remove current user's reaction)
     let nextReactions;
@@ -1199,11 +1232,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
 
     // optimistic update in UI (global store + local loadedMessages)
-    updateMessage(actionMessage.id, { reaction: nextReaction, reactions: nextReactions });
-    setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(actionMessage.id) ? { ...m, reaction: nextReaction, reactions: nextReactions } : m)));
+    updateMessage(single.id, { reaction: nextReaction, reactions: nextReactions });
+    setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(single.id) ? { ...m, reaction: nextReaction, reactions: nextReactions } : m)));
     (async () => {
       try {
-        await messagesApi.reactMessage(actionMessage.id, nextReaction || null);
+        await messagesApi.reactMessage(single.id, nextReaction || null);
       } catch (e) {
         console.warn('react API failed, reverting', e);
         // revert local change by reloading messages
@@ -1214,6 +1247,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       }
     })();
     // Clear action message after reacting to return to original state
+    setSelectedMessages([]);
     setActionMessage(null);
   };
 
@@ -1371,7 +1405,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           setViewerStartIndex(index || 0);
         }}
         onForwardPress={() => openForwardForMessage(item)}
-        isSelected={actionMessage?.id === item.id}
+        isSelected={selectedMessages.some((m) => String(m.id) === String(item.id))}
         reaction={item.reaction}
         reactions={item.reactions}
         forwarded={item.forwarded}
@@ -1388,6 +1422,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                 : undefined
         }
         onLongPress={() => handleLongPressMessage(item)}
+        onPress={() => handleToggleSelectMessage(item)}
         replyTo={repliedMessage}
         onReplyPress={() => {
           if (repliedMessage) {
@@ -1474,30 +1509,32 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           { backgroundColor: theme.surface, borderBottomColor: theme.border },
         ]}
       >
-        {actionMessage ? (
+        {(selectedMessages && selectedMessages.length > 0) ? (
           <>
             <TouchableOpacity
               style={styles.backButton}
-              onPress={() => setActionMessage(null)}
+              onPress={() => { setSelectedMessages([]); setActionMessage(null); }}
             >
               <Icon name="arrow-back" size={26} color={theme.text} />
             </TouchableOpacity>
-            <Text style={[styles.selectionCount, { color: theme.text }]}>1</Text>
+            <Text style={[styles.selectionCount, { color: theme.text }]}>{selectedMessages.length}</Text>
             <View style={styles.selectionActions}>
-              <TouchableOpacity
-                style={styles.selectionActionButton}
-                activeOpacity={0.75}
-                onPress={handleReplyToActionMessage}
-              >
-                <Icon name="arrow-undo" size={24} color={theme.text} />
-              </TouchableOpacity>
+              {selectedMessages.length === 1 ? (
+                <TouchableOpacity
+                  style={styles.selectionActionButton}
+                  activeOpacity={0.75}
+                  onPress={handleReplyToActionMessage}
+                >
+                  <Icon name="arrow-undo" size={24} color={theme.text} />
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity
                 style={styles.selectionActionButton}
                 activeOpacity={0.75}
                 onPress={handleToggleStarActionMessage}
               >
                 <Icon
-                  name={actionMessage.starred ? 'star' : 'star-outline'}
+                  name={(selectedMessages.length === 1 ? selectedMessages[0].starred : actionMessage && actionMessage.starred) ? 'star' : 'star-outline'}
                   size={25}
                   color={theme.text}
                 />
@@ -1512,7 +1549,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
               <TouchableOpacity
                 style={styles.selectionActionButton}
                 activeOpacity={0.75}
-                onPress={() => openForwardForMessage(actionMessage)}
+                onPress={() => openForwardForMessage(selectedMessages.length ? selectedMessages : actionMessage)}
               >
                 <Icon name="arrow-redo" size={25} color={theme.text} />
               </TouchableOpacity>

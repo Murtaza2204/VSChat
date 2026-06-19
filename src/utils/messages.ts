@@ -51,6 +51,36 @@ export const deleteMessageForEveryone = async (messageId) => {
   }
 };
 
+export const deleteMessagesForMeBulk = async (messageIds = []) => {
+  try {
+    const res = await api.post('/messages/delete-for-me-bulk', { messageIds });
+    return res.data;
+  } catch (e) {
+    console.warn('[messagesApi] deleteMessagesForMeBulk error', e && e.message);
+    throw e;
+  }
+};
+
+export const deleteMessagesForEveryoneBulk = async (messageIds = []) => {
+  try {
+    const res = await api.post('/messages/delete-for-everyone-bulk', { messageIds });
+    return res.data;
+  } catch (e) {
+    console.warn('[messagesApi] deleteMessagesForEveryoneBulk error', e && e.message);
+    throw e;
+  }
+};
+
+export const forwardMessagesBulk = async (targetConversationId, messages = []) => {
+  try {
+    const res = await api.post('/messages/forward-bulk', { targetConversationId, messages });
+    return res.data;
+  } catch (e) {
+    console.warn('[messagesApi] forwardMessagesBulk error', e && e.message);
+    throw e;
+  }
+};
+
 export const reactMessage = async (messageId: string, reaction: string | null) => {
   try {
     const res = await api.post('/messages/react', { messageId, reaction });
@@ -62,4 +92,4 @@ export const reactMessage = async (messageId: string, reaction: string | null) =
   }
 };
 
-export default { getMessages, sendMessage, markConversationRead, deleteMessageForMe, deleteMessageForEveryone, reactMessage };
+export default { getMessages, sendMessage, markConversationRead, deleteMessageForMe, deleteMessageForEveryone, deleteMessagesForMeBulk, deleteMessagesForEveryoneBulk, forwardMessagesBulk, reactMessage };

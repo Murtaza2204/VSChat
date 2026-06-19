@@ -22,6 +22,7 @@ interface ChatBubbleProps {
   theme: any;
   read?: boolean;
   onLongPress?: () => void;
+  onPress?: () => void;
   mediaUrl?: string;
   mediaItems?: Message['mediaItems'];
   type?: Message['type'];
@@ -50,6 +51,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   theme,
   read,
   onLongPress,
+  onPress,
   mediaUrl,
   mediaItems,
   type = 'text',
@@ -159,6 +161,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         ) : null}
       <TouchableOpacity
         onLongPress={onLongPress}
+        onPress={onPress}
         style={[
           styles.bubble,
           isIncomingGroupMessage && styles.groupBubble,
