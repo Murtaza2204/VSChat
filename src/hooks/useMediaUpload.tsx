@@ -17,9 +17,12 @@ export default function useMediaUpload() {
     setState({ progress: 0, loading: true, error: null, done: false });
     uploadControllerRef.current = new AbortController();
     try {
+      console.log('[useMediaUpload] Starting upload:', { chatId, fileName: file.name, fileType: file.type, mediaType });
+
       // Step 1: Get signed upload URL
       const urlResp = await getUploadUrl(chatId, file.name, file.type);
       const { uploadUrl, key } = urlResp;
+      console.log('[useMediaUpload] Got signed URL:', { key });
 
       // Step 2: Upload file to S3 using fetch (more reliable in React Native than XHR)
       const fileResp = await fetch(file.uri);
@@ -36,11 +39,13 @@ export default function useMediaUpload() {
       if (!s3Resp.ok) {
         throw new Error(`S3 upload failed: ${s3Resp.status} ${s3Resp.statusText}`);
       }
+      console.log('[useMediaUpload] S3 upload successful');
 
       // Update progress to 100% after successful S3 upload
       setState((s) => ({ ...s, progress: 100 }));
 
       // Step 3: ONLY after successful S3 upload, call complete-upload to create message in DB
+      console.log('[useMediaUpload] Calling complete-upload with:', { chatId, objectKey: key, mimeType: file.type, fileSize: file.size, mediaType });
       const message = await completeUpload({
         chatId,
         objectKey: key,
@@ -49,11 +54,20 @@ export default function useMediaUpload() {
         mediaType,
       });
 
+      console.log('[useMediaUpload] Complete-upload response:', {
+        messageId: message?._id || message?.id,
+        messageType: message?.type,
+        hasMediaItems: !!message?.mediaItems,
+        mediaItemsLength: Array.isArray(message?.mediaItems) ? message.mediaItems.length : 0,
+        hasMediaUrl: !!message?.mediaUrl,
+      });
+
       setState({ progress: 100, loading: false, error: null, done: true });
       return { success: true, message };
     } catch (e: any) {
       // Only set error; do NOT create a message on failure
       const errorMsg = e.name === 'AbortError' ? 'Upload cancelled' : (e.message || 'Upload failed');
+      console.error('[useMediaUpload] Upload error:', errorMsg, e);
       setState({ progress: state.progress || 0, loading: false, error: errorMsg, done: false });
       return { success: false, error: errorMsg };
     }

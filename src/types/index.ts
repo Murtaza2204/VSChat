@@ -22,12 +22,19 @@ export interface Message {
   senderName: string;
   senderAvatar?: string;
   content: string;
-  type: 'text' | 'image' | 'video' | 'mediaGroup' | 'file' | 'location' | 'liveLocation' | 'call' | 'deleted';
+  type: 'text' | 'image' | 'video' | 'mediaGroup' | 'file' | 'location' | 'liveLocation' | 'call' | 'deleted' | 'system';
   timestamp: Date;
   read: boolean;
   status?: 'sent' | 'delivered' | 'seen';
   mediaUrl?: string;
   mediaItems?: MediaItem[];
+  metadata?: {
+    objectKey: string;
+    mimeType?: string | null;
+    fileSize?: number | null;
+    mediaType?: string | null;
+    originalFilename?: string | null;
+  };
   reaction?: string;
   starred?: boolean;
   location?: {

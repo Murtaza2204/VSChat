@@ -1,22 +1,25 @@
 import { MediaMetadata } from '../types/mediaTypes';
-
-const API_BASE = '/api/media';
+import api from '../config/api';
 
 export async function fetchDownloadUrl(objectKey: string): Promise<string> {
-  const res = await fetch(`${API_BASE}/download-url?key=${encodeURIComponent(objectKey)}`);
-  if (!res.ok) throw new Error(`Failed to fetch download url: ${res.status}`);
-  const body = await res.json();
-  return body.downloadUrl;
+  try {
+    const resp = await api.get('/media/download-url', { params: { key: objectKey } });
+    return resp.data.downloadUrl;
+  } catch (e: any) {
+    console.error('[mediaService] fetchDownloadUrl error', e);
+    throw e;
+  }
 }
 
 export async function fetchUploadUrl(chatId: string, filename: string, contentType?: string) {
-  const res = await fetch(`${API_BASE}/upload-url`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chatId, filename, contentType }),
-  });
-  if (!res.ok) throw new Error('Failed to fetch upload url');
-  return res.json();
+  try {
+    const resp = await api.post('/media/upload-url', { chatId, filename, contentType });
+    console.log('[mediaService] fetchUploadUrl response:', resp.data);
+    return resp.data;
+  } catch (e: any) {
+    console.error('[mediaService] fetchUploadUrl error', e);
+    throw e;
+  }
 }
 
 export type DownloadState = { url?: string; loading: boolean; error?: string };

@@ -13,6 +13,7 @@ import MapView, { Marker } from 'react-native-maps';
 import { SPACING, FONT_SIZES, BORDER_RADIUS, SHADOWS } from '../constants/colors';
 import { Message } from '../types';
 import Avatar from './Avatar';
+import useMedia from '../hooks/useMedia';
 
 interface ChatBubbleProps {
   message: string;
@@ -25,6 +26,7 @@ interface ChatBubbleProps {
   onPress?: () => void;
   mediaUrl?: string;
   mediaItems?: Message['mediaItems'];
+  metadata?: Message['metadata'];
   type?: Message['type'];
   call?: Message['call'];
   location?: Message['location'];
@@ -54,6 +56,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   onPress,
   mediaUrl,
   mediaItems,
+  metadata,
   type = 'text',
   call,
   location,
@@ -73,6 +76,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
 }) => {
   const [now, setNow] = useState(Date.now());
   const { width: screenWidth } = useWindowDimensions();
+  const { url: resolvedObjectUrl } = useMedia(metadata?.objectKey, true);
 
   useEffect(() => {
     if (type !== 'liveLocation' || !location?.expiresAt) return undefined;
@@ -87,12 +91,12 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   const bubbleColor = isOwn ? theme.messageGreen : theme.messageBlue;
   const liveLocationActive = type === 'liveLocation' && !!location?.expiresAt && now < location.expiresAt;
   const resolvedMediaItems =
-    mediaItems ||
-    (mediaUrl && (type === 'image' || type === 'video')
+    (mediaItems && mediaItems.length > 0 ? mediaItems : undefined) ||
+    ((mediaUrl || resolvedObjectUrl) && (type === 'image' || type === 'video')
       ? [
           {
-            id: mediaUrl,
-            uri: mediaUrl,
+            id: metadata?.objectKey || mediaUrl || resolvedObjectUrl || 'media',
+            uri: mediaUrl || resolvedObjectUrl || '',
             type,
             name: message || type,
           },
@@ -145,7 +149,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
           styles.container,
           isIncomingGroupMessage && styles.avatarContainer,
           isOwn ? styles.ownContainer : styles.otherContainer,
-          ((reaction) || (Array.isArray(reactions) && reactions.length)) && { marginBottom: SPACING.lg + SPACING.sm },
+          (!!reaction || (Array.isArray(reactions) && reactions.length > 0)) && { marginBottom: SPACING.lg + SPACING.sm },
           style,
         ]}
       >
@@ -326,18 +330,18 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         ) : null}
 
         {/* File / Document */}
-        {type === 'file' && (mediaUrl || message) ? (
+        {type === 'file' && (mediaUrl || resolvedObjectUrl || message) ? (
           <TouchableOpacity 
             activeOpacity={0.85} 
             style={[styles.fileContainer, { backgroundColor: isOwn ? theme.messageGreen : theme.surface }]} 
-            onPress={() => console.info('Open file', mediaUrl || message)}
+            onPress={() => console.info('Open file', mediaUrl || resolvedObjectUrl || message)}
             onLongPress={onLongPress}
           >
             <View style={styles.fileLeft}>
               <Icon name="document" size={26} color={theme.primary} />
             </View>
             <View style={styles.fileMeta}>
-              <Text style={[styles.fileName, { color: theme.text }]} numberOfLines={2}>{filenameFrom(message || mediaUrl)}</Text>
+              <Text style={[styles.fileName, { color: theme.text }]} numberOfLines={2}>{filenameFrom(message || mediaUrl || resolvedObjectUrl || undefined)}</Text>
               <Text style={[styles.fileSize, { color: theme.textSecondary }]}>Document</Text>
             </View>
             <Icon name="download" size={18} color={theme.textSecondary} />

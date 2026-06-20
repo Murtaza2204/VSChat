@@ -44,6 +44,8 @@ import messagesApi from '../utils/messages';
 import api from '../config/api';
 import { connectSocket } from '../utils/socket';
 import { completeUpload, getUploadUrl } from '../services/mediaUploadService';
+import useMediaUpload from '../hooks/useMediaUpload';
+import useMedia from '../hooks/useMedia';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import signaling from '../services/signaling';
 import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
@@ -95,6 +97,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [loadedMessages, setLoadedMessages] = useState<Message[]>([]);
   const deletedForMeIdsRef = useRef(new Set<string>());
   const [membersProfiles, setMembersProfiles] = useState<any[] | null>(null);
+  const { state: uploadState, upload: uploadUsingHook, reset: resetUpload } = useMediaUpload();
   const chatMessages = useMemo(() => (conversationId ? loadedMessages : (chat?.messages || [])), [conversationId, loadedMessages, chat]);
   // format date label according to rules
   const getDateLabel = (d: Date) => {
@@ -155,6 +158,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [pendingMedia, setPendingMedia] = useState<MediaItem[]>([]);
   const [mediaCaption, setMediaCaption] = useState('');
   const [viewerMessage, setViewerMessage] = useState<Message | null>(null);
+  const { url: viewerObjectUrl } = useMedia(viewerMessage?.metadata?.objectKey, !!viewerMessage);
   const [viewerStartIndex, setViewerStartIndex] = useState(0);
   const viewerScrollRef = React.useRef<ScrollView | null>(null);
   const flatListRef = useRef<FlatList>(null);
@@ -185,7 +189,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const normalizeServerMessage = (msg: any): Message => {
     const senderId = String(msg.senderId || '');
     const isOwn = senderId === String(currentUserId);
-    const type = msg.type || 'text';
+    const type = msg.type === 'document' ? 'file' : (msg.type || 'text');
     const senderAvatar =
       msg.senderAvatar || msg.profilePictureUrl || msg.senderProfilePictureUrl || undefined;
     const call =
@@ -204,7 +208,58 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     const reactionsArr = Array.isArray(msg.reactions) ? msg.reactions.map((r: any) => ({ userId: String(r.userId || r.reactBy || r.reactedBy), reaction: r.reaction })) : [];
     const myReactionObj = reactionsArr.find((r: any) => String(r.userId) === String(currentUserId));
 
-    return {
+    // Extract media items from server response (handles multiple possible field names)
+    let mediaItems: Message['mediaItems'] = undefined;
+
+    // Try direct mediaItems array first
+    if (Array.isArray(msg.mediaItems) && msg.mediaItems.length > 0) {
+      mediaItems = msg.mediaItems.map((item: any) => ({
+        id: item.id || item._id || item.url || item.key,
+        uri: item.url || item.uri || item.downloadUrl,
+        type: item.type || item.mediaType || (item.url?.includes('video') ? 'video' : 'image'),
+        name: item.name || item.filename || item.originalFilename || 'Media',
+      })).filter((item: any) => !!item.uri);
+    }
+    // Try attachments array as fallback
+    else if (Array.isArray(msg.attachments) && msg.attachments.length > 0) {
+      mediaItems = msg.attachments.map((item: any) => ({
+        id: item.id || item._id || item.url || item.key,
+        uri: item.url || item.uri || item.downloadUrl,
+        type: item.type || item.mediaType || (item.url?.includes('video') ? 'video' : 'image'),
+        name: item.name || item.filename || item.originalFilename || 'Attachment',
+      })).filter((item: any) => !!item.uri);
+    }
+    // Try media field as fallback (single media object)
+    else if (msg.media && !Array.isArray(msg.media)) {
+      const singleMediaItem = {
+        id: msg.media.id || msg.media._id || msg.media.url || msg.media.key,
+        uri: msg.media.url || msg.media.uri || msg.media.downloadUrl,
+        type: msg.media.type || msg.media.mediaType || (msg.media.url?.includes('video') ? 'video' : 'image'),
+        name: msg.media.name || msg.media.filename || msg.media.originalFilename || 'Media',
+      };
+      mediaItems = singleMediaItem.uri ? [singleMediaItem] : [];
+    }
+    // Handle metadata field if present (from MessageRecord)
+    else if (msg.metadata && msg.metadata.objectKey && (type === 'image' || type === 'video')) {
+      if (msg.downloadUrl) {
+        mediaItems = [{
+          id: msg.metadata.objectKey,
+          uri: msg.downloadUrl,
+          type: msg.metadata.mediaType || type || 'image',
+          name: msg.metadata.originalFilename || 'Media',
+        }];
+      }
+    }
+
+    // Extract location if present
+    const location = msg.location ? {
+      latitude: msg.location.latitude || msg.location.lat,
+      longitude: msg.location.longitude || msg.location.lng,
+      expiresAt: msg.location.expiresAt,
+      durationLabel: msg.location.durationLabel,
+    } : undefined;
+
+    const normalized: Message = {
       id: String(msg._id || msg.id),
       senderId,
       senderName: msg.senderName || (isOwn ? 'You' : ''),
@@ -221,6 +276,30 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       reaction: msg.reaction || (myReactionObj ? myReactionObj.reaction : undefined),
       reactions: reactionsArr,
     };
+
+    // Add media fields if present
+    if (mediaItems && mediaItems.length > 0) normalized.mediaItems = mediaItems;
+    if (msg.mediaUrl) normalized.mediaUrl = msg.mediaUrl;
+    if (msg.downloadUrl && !mediaItems) normalized.mediaUrl = msg.downloadUrl;
+    if (msg.metadata?.objectKey) normalized.metadata = msg.metadata;
+    else {
+      const keyedMedia = msg.mediaItems?.find?.((item: any) => item.objectKey || item.key)
+        || msg.attachments?.find?.((item: any) => item.objectKey || item.key)
+        || msg.media;
+      const objectKey = msg.objectKey || keyedMedia?.objectKey || keyedMedia?.key;
+      if (objectKey) {
+        normalized.metadata = {
+          objectKey,
+          mimeType: msg.mimeType || keyedMedia?.mimeType,
+          fileSize: msg.fileSize || keyedMedia?.fileSize,
+          mediaType: msg.mediaType || keyedMedia?.mediaType || type,
+          originalFilename: msg.originalFilename || keyedMedia?.originalFilename,
+        };
+      }
+    }
+    if (location) normalized.location = location;
+
+    return normalized;
   };
 
   const mapAssetToMediaItem = (asset: Asset, index: number): MediaItem | null => {
@@ -523,12 +602,38 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   // Refresh messages after media upload completes via ImageUploader
   const handleMediaUploadComplete = async (message: any) => {
-    if (!message) return;
+    if (!message) {
+      console.warn('[ChatScreen] handleMediaUploadComplete: no message received');
+      return;
+    }
     try {
+      console.log('[ChatScreen] handleMediaUploadComplete received message:', {
+        id: message._id || message.id,
+        type: message.type,
+        hasMediaItems: !!message.mediaItems,
+        mediaItemsLength: Array.isArray(message.mediaItems) ? message.mediaItems.length : 0,
+        hasMediaUrl: !!message.mediaUrl,
+        hasAttachments: !!message.attachments,
+      });
+
       // Message was created via complete-upload on backend with proper metadata
       // Normalize and add to local state
       const normalized = normalizeServerMessage(message);
-      setLoadedMessages((m) => [...m, normalized]);
+
+      console.log('[ChatScreen] normalized message:', {
+        id: normalized.id,
+        type: normalized.type,
+        hasMediaItems: !!normalized.mediaItems,
+        mediaItemsLength: normalized.mediaItems ? normalized.mediaItems.length : 0,
+        mediaItems: normalized.mediaItems?.map(m => ({ id: m.id, uri: m.uri, type: m.type })),
+      });
+
+      setLoadedMessages((messages) => {
+        const exists = messages.some((item) => String(item.id) === String(normalized.id));
+        return exists
+          ? messages.map((item) => String(item.id) === String(normalized.id) ? normalized : item)
+          : [...messages, normalized];
+      });
       try {
         const target = useChatStore.getState().chats.find((c) => String(c.conversationId) === String(conversationId) || String(c.id) === String(chat?.id));
         if (target) useChatStore.getState().addMessage(target.id, normalized as any);
@@ -764,15 +869,39 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
           // Get signed upload URL
           const urlResponse = await getUploadUrl(conversationId, fileName, mimeType);
-          const uploadUrl = urlResponse.uploadUrl;
-          const key = urlResponse.key;
+          console.log('[ChatScreen] getUploadUrl response:', urlResponse);
+          const uploadUrl = urlResponse?.uploadUrl;
+          const key = urlResponse?.key;
+          if (!uploadUrl || !key) {
+            throw new Error('Server returned invalid upload URL response');
+          }
 
           // Upload to S3 / R2 using native file streaming (works reliably on RN)
           if (!RNFetchBlob) {
-            Alert.alert(
-              'Upload unavailable',
-              'Native upload module not installed. Please rebuild the app to enable file uploads.'
-            );
+            // Native module not installed — fall back to JS upload using useMediaUpload hook
+            try {
+              console.log('[ChatScreen] RNFetchBlob missing — using JS upload fallback');
+              const uploadResult = await uploadUsingHook({
+                chatId: conversationId,
+                file: { uri: asset.uri || '', name: fileName, type: mimeType, size: fileSize },
+                mediaType: 'image',
+              });
+
+              if (!uploadResult || !uploadResult.success) {
+                const errMsg = uploadResult?.error || 'Upload failed';
+                console.error('[ChatScreen] JS upload fallback failed', errMsg);
+                Alert.alert('Error', errMsg);
+                continue;
+              }
+
+              const message = uploadResult.message;
+              if (message) {
+                await handleMediaUploadComplete(message);
+              }
+            } catch (e: any) {
+              console.error('[ChatScreen] JS upload fallback error', e);
+              Alert.alert('Error', e?.message || 'Failed to upload image');
+            }
             continue;
           }
           // Resolve path for RNFetchBlob (remove file:// prefix if present)
@@ -789,6 +918,12 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             }
           }
 
+          console.log('[ChatScreen] uploading media to signed URL', {
+            uploadUrl,
+            localPath,
+            mimeType,
+            key,
+          });
           const uploadResp = await RNFetchBlob.fetch(
             'PUT',
             uploadUrl,
@@ -1430,6 +1565,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         call={item.call}
         mediaUrl={item.mediaUrl}
         mediaItems={item.mediaItems}
+        metadata={item.metadata}
         location={item.location}
         onMediaPress={(index?: number) => {
           setViewerMessage(item);
@@ -1479,12 +1615,12 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const viewerMediaItems =
     viewerMessage?.mediaItems ||
-    (viewerMessage?.mediaUrl &&
+    ((viewerMessage?.mediaUrl || viewerObjectUrl) &&
     (viewerMessage.type === 'image' || viewerMessage.type === 'video')
       ? [
           {
-            id: viewerMessage.mediaUrl,
-            uri: viewerMessage.mediaUrl,
+            id: viewerMessage.metadata?.objectKey || viewerMessage.mediaUrl || viewerObjectUrl,
+            uri: viewerMessage.mediaUrl || viewerObjectUrl,
             type: viewerMessage.type,
             name: viewerMessage.content,
           } as MediaItem,

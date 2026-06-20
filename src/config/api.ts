@@ -20,8 +20,7 @@ const GENYMOTION_HOST = '10.0.3.2';
 const androidHost = USE_ADB_REVERSE
   ? 'localhost'
   : USE_ANDROID_EMULATOR
-  ? EMULATOR_HOST_ANDROID
-  : ANDROID_HOST;
+  ? EMULATOR_HOST_ANDROID  : ANDROID_HOST;
 
 const host = Platform.select({
   android: androidHost,
