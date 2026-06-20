@@ -21,6 +21,15 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Asset, launchCamera, launchImageLibrary } from 'react-native-image-picker';
+let RNFetchBlob: any = null;
+try {
+  // require at runtime so app doesn't crash if native module isn't linked yet
+  // (useful during development while rebuilding native binary).
+  // eslint-disable-next-line global-require
+  RNFetchBlob = require('react-native-blob-util');
+} catch (e) {
+  RNFetchBlob = null;
+}
 import { errorCodes, isErrorWithCode, pick } from '@react-native-documents/picker';
 import Geolocation from 'react-native-geolocation-service';
 import { useChatStore } from '../stores/chatStore';
@@ -34,6 +43,7 @@ import MessageInput from '../components/MessageInput';
 import messagesApi from '../utils/messages';
 import api from '../config/api';
 import { connectSocket } from '../utils/socket';
+import { completeUpload, getUploadUrl } from '../services/mediaUploadService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import signaling from '../services/signaling';
 import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
@@ -501,77 +511,32 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const handleSendMedia = () => {
-    if (!pendingMedia.length) {
-      return;
-    }
-
-    const newMessage: Message = {
-      id: Math.random().toString(),
-      senderId: currentUserId,
-      senderName: user?.name || 'You',
-      content: mediaCaption.trim(),
-      type:
-        pendingMedia.length > 1
-          ? 'mediaGroup'
-          : pendingMedia[0].type === 'video'
-            ? 'video'
-            : 'image',
-      timestamp: new Date(),
-      read: true,
-      mediaUrl: pendingMedia[0].uri,
-      mediaItems: pendingMedia.map((item) => ({ ...item, loading: false })),
-    };
-
-    if (replyMessage) {
-      newMessage.replyToId = replyMessage.id;
-      setReplyMessage(null);
-    }
-
-    if (conversationId) {
-      // send media as a message (simple implementation uses content as media url)
-      if (!currentUserId) {
-        console.warn('Cannot send media: no authenticated user');
-      } else {
-        messagesApi
-          .sendMessage(
-            conversationId,
-            currentUserId,
-            newMessage.mediaUrl || newMessage.content,
-            newMessage.type,
-            derivedReceiverId,
-            newMessage.replyToId,
-          )
-            .then((sent) =>
-            {
-              const finalMsg = {
-                id: sent._id,
-                senderId: sent.senderId,
-                senderName:
-                  sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them',
-                content: sent.content,
-                type: sent.type,
-                timestamp: new Date(sent.createdAt),
-                read: false,
-                status: sent.status || 'sent',
-                replyToId: sent.replyToId,
-              } as any;
-              setLoadedMessages((m) => [...m, finalMsg]);
-              try {
-                const target = useChatStore.getState().chats.find((c) => String(c.conversationId) === String(conversationId) || String(c.id) === String(chat?.id));
-                if (target) useChatStore.getState().addMessage(target.id, finalMsg as any);
-              } catch (e) {}
-            },
-          )
-          .catch((e) => console.warn('Send media failed', e));
-      }
-    } else {
-      addMessage(chat.id, newMessage);
-    }
+    // ⚠️ DEPRECATED: This function is kept for backward compatibility but should NOT be used.
+    // Media uploads now go through ImageUploader component which:
+    // 1. Uploads to S3 with signed URL
+    // 2. Calls /api/media/complete-upload to create message
+    // 3. Never stores local file paths in MongoDB
+    // See: ImageUploader component in src/components/media/ImageUploader.tsx
+    if (!pendingMedia.length) return;
     closeMediaPreview();
+  };
 
-    setTimeout(() => {
-      flatListRef.current?.scrollToEnd({ animated: true });
-    }, 100);
+  // Refresh messages after media upload completes via ImageUploader
+  const handleMediaUploadComplete = async (message: any) => {
+    if (!message) return;
+    try {
+      // Message was created via complete-upload on backend with proper metadata
+      // Normalize and add to local state
+      const normalized = normalizeServerMessage(message);
+      setLoadedMessages((m) => [...m, normalized]);
+      try {
+        const target = useChatStore.getState().chats.find((c) => String(c.conversationId) === String(conversationId) || String(c.id) === String(chat?.id));
+        if (target) useChatStore.getState().addMessage(target.id, normalized as any);
+      } catch (e) {}
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    } catch (e) {
+      console.warn('Error processing uploaded media message', e);
+    }
   };
 
   const addAttachmentMessage = (
@@ -789,7 +754,73 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       return;
     }
 
-    openMediaPreview(result.assets);
+    // Process each selected asset
+    if (result.assets && result.assets.length > 0) {
+      for (const asset of result.assets) {
+        try {
+          const fileName = asset.fileName || `photo_${Date.now()}.jpg`;
+          const mimeType = asset.type || 'image/jpeg';
+          const fileSize = asset.fileSize || 0;
+
+          // Get signed upload URL
+          const urlResponse = await getUploadUrl(conversationId, fileName, mimeType);
+          const uploadUrl = urlResponse.uploadUrl;
+          const key = urlResponse.key;
+
+          // Upload to S3 / R2 using native file streaming (works reliably on RN)
+          if (!RNFetchBlob) {
+            Alert.alert(
+              'Upload unavailable',
+              'Native upload module not installed. Please rebuild the app to enable file uploads.'
+            );
+            continue;
+          }
+          // Resolve path for RNFetchBlob (remove file:// prefix if present)
+          let localPath = asset.uri || '';
+          if (localPath.startsWith('file://')) localPath = localPath.replace('file://', '');
+          // On Android content:// URIs may be returned; resolve to filesystem path
+          if (localPath.startsWith('content://')) {
+            try {
+              const stat = await RNFetchBlob.fs.stat(localPath);
+              if (stat && stat.path) localPath = stat.path;
+            } catch (e) {
+              // fallback: proceed with original uri (RNFetchBlob may still handle content://)
+              console.warn('Failed to stat content uri, proceeding with original uri', e);
+            }
+          }
+
+          const uploadResp = await RNFetchBlob.fetch(
+            'PUT',
+            uploadUrl,
+            { 'Content-Type': mimeType },
+            RNFetchBlob.wrap(localPath)
+          );
+
+          const status = uploadResp.info().status;
+          if (status < 200 || status >= 300) {
+            Alert.alert('Error', `Failed to upload ${fileName} (status ${status})`);
+            continue;
+          }
+
+          // Complete upload and create message
+          const message = await completeUpload({
+            chatId: conversationId,
+            objectKey: key,
+            mimeType: mimeType,
+            fileSize: fileSize,
+            mediaType: 'image',
+          });
+
+          // Add to chat
+          if (message) {
+            await handleMediaUploadComplete(message);
+          }
+        } catch (error: any) {
+          console.error('Image upload error:', error);
+          Alert.alert('Error', error.message || 'Failed to upload image');
+        }
+      }
+    }
   };
 
   const handleCameraPress = async () => {
