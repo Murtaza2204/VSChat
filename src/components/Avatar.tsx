@@ -77,7 +77,12 @@ const Avatar: React.FC<AvatarProps> = ({
         ]}
       >
         {isImageSource ? (
-          <Image source={{ uri: source }} style={sizeStyle} resizeMode="cover" />
+          <Image
+            source={{ uri: source }}
+            style={sizeStyle}
+            resizeMode="cover"
+            onError={(e) => console.log('Avatar IMAGE ERROR', { source, err: e.nativeEvent })}
+          />
         ) : source ? (
           <Text style={{ fontSize: getFontSize() }}>{source}</Text>
         ) : (

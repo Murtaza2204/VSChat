@@ -46,6 +46,36 @@ export const useAuthStore = create<AuthStore>((set) => {
             authFlow: storedAuthFlow === 'login' || storedAuthFlow === 'register' ? storedAuthFlow : null,
           });
 
+          // If we have a token, fetch the latest user profile from backend to avoid stale cache
+          if (token && parsedUser && parsedUser.id) {
+            try {
+              const res = await fetch(`${API_BASE_URL}/users/${parsedUser.id}`, {
+                method: 'GET',
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (res.ok) {
+                const data = await res.json();
+                if (data) {
+                  const latest = {
+                    id: data._id || data.id || parsedUser.id,
+                    name: data.name || data.displayName || parsedUser.name,
+                    phone: data.phoneNumber || parsedUser.phone,
+                    avatar: data.profilePictureUrl || parsedUser.avatar || '👤',
+                    profileCompleted: true,
+                    bio: data.bio || parsedUser.bio || '',
+                    profilePictureUrl: data.profilePictureUrl || parsedUser.profilePictureUrl || null,
+                  };
+                  try {
+                    await AsyncStorage.setItem('user', JSON.stringify(latest));
+                  } catch (e) { console.warn('Could not save refreshed user to storage', e); }
+                  set({ user: latest });
+                  // propagate to chat store
+                  try { useChatStore.getState().updateUserProfilePicture(latest.id, latest.profilePictureUrl); } catch (e) {}
+                }
+              }
+            } catch (e) { console.warn('Failed to refresh user profile on startup', e); }
+          }
+
           try {
             const chatState = useChatStore.getState();
             chatState.setChats(chatState.chats || []);
@@ -231,6 +261,7 @@ export const useAuthStore = create<AuthStore>((set) => {
             phone: data.user.phoneNumber,
             status: data.user.status?.online ? 'online' : 'offline',
             avatar: data.user.profilePictureUrl || '👤',
+            profilePictureUrl: data.user.profilePictureUrl || null,
             profileCompleted: true,
             bio: data.user.bio || '',
           };
@@ -248,6 +279,7 @@ export const useAuthStore = create<AuthStore>((set) => {
           } catch (e) {}
 
           set({ user: backendUser, isAuthenticated: true, phoneVerified: true, isLoading: false, authFlow: 'login' });
+          try { useChatStore.getState().updateUserProfilePicture(backendUser.id, backendUser.profilePictureUrl); } catch (e) {}
           return 'login';
         }
 
@@ -282,9 +314,36 @@ export const useAuthStore = create<AuthStore>((set) => {
             displayName: profileData.name || undefined,
             bio: profileData.bio !== undefined ? profileData.bio : undefined,
           };
+
+          // If avatar is a remote URL (https) include directly, otherwise if it's a local file URI
+          // upload it to backend first via multipart/form-data to /users/profile-picture
           if (profileData.avatar && typeof profileData.avatar === 'string') {
             const val = profileData.avatar;
-            if (!val.startsWith('file://')) body.profilePictureUrl = val;
+            if (val.startsWith('http://') || val.startsWith('https://')) {
+              body.profilePictureUrl = val;
+            } else if (val.startsWith('file://') || val.startsWith('content://')) {
+              try {
+                const uri = val;
+                const form = new FormData();
+                // @ts-ignore
+                form.append('image', { uri, name: 'profile.jpg', type: 'image/jpeg' });
+
+                const uploadRes = await fetch(`${API_BASE_URL}/users/profile-picture`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}` },
+                  body: form,
+                });
+
+                const uploadData = await uploadRes.json();
+                if (uploadRes.ok && uploadData && uploadData.success && uploadData.profilePicture) {
+                  body.profilePictureUrl = uploadData.profilePicture;
+                } else {
+                  console.warn('Profile image upload failed or returned no URL', uploadData);
+                }
+              } catch (e) {
+                console.warn('Profile image upload failed', e);
+              }
+            }
           }
 
           console.info('setupProfile PATCH body:', body);
@@ -309,6 +368,7 @@ export const useAuthStore = create<AuthStore>((set) => {
             phone: updated.phoneNumber,
             status: 'offline',
             avatar: updated.profilePictureUrl || '👤',
+            profilePictureUrl: updated.profilePictureUrl || null,
             profileCompleted: true,
             bio: updated.bio || '',
           };
@@ -316,8 +376,8 @@ export const useAuthStore = create<AuthStore>((set) => {
           try {
             await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
           } catch (e) { console.warn('Could not save updated user to storage'); }
-
           set({ user: updatedUser, isLoading: false });
+          try { useChatStore.getState().updateUserProfilePicture(updatedUser.id, updatedUser.profilePictureUrl); } catch (e) {}
           return updatedUser;
         }
 
@@ -370,6 +430,7 @@ export const useAuthStore = create<AuthStore>((set) => {
           phone: data.user.phoneNumber,
           status: data.user.status?.online ? 'online' : 'offline',
           avatar: data.user.profilePictureUrl || '👤',
+          profilePictureUrl: data.user.profilePictureUrl || null,
           profileCompleted: true,
           bio: data.user.bio || '',
         };
@@ -381,6 +442,7 @@ export const useAuthStore = create<AuthStore>((set) => {
         } catch (e) { console.warn('Could not save registered user or tokens to storage'); }
 
         set({ user: newUser, isAuthenticated: true, isLoading: false, authFlow: null });
+        try { useChatStore.getState().updateUserProfilePicture(newUser.id, newUser.profilePictureUrl); } catch (e) {}
         return newUser;
       } catch (error: any) {
         set({ isLoading: false, error: error.message || 'Profile setup failed' });

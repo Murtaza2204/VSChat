@@ -11,8 +11,8 @@ import { Platform } from 'react-native';
 // 3) For LAN testing (Wi‑Fi), set USE_ADB_REVERSE=false and set ANDROID_HOST to your PC's LAN IP
 
 const ANDROID_HOST = '10.249.11.42'; // <-- Replace with your PC LAN IP when testing over Wi-Fi
-const USE_ADB_REVERSE = true; // true = use adb reverse + localhost (USB physical device)
-const USE_ANDROID_EMULATOR = false; // true = prefer emulator host (10.0.2.2 for Android emulator)
+const USE_ADB_REVERSE = false; // true = use adb reverse + localhost (USB physical device)
+const USE_ANDROID_EMULATOR = true; // true = prefer emulator host (10.0.2.2 for Android emulator)
 
 const EMULATOR_HOST_ANDROID = '10.0.2.2'; // Android emulator (Android Studio)
 const GENYMOTION_HOST = '10.0.3.2';

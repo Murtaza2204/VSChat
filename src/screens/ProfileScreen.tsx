@@ -42,7 +42,7 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.profileSection}>
-          <Avatar source={user?.avatar} size="extra-large" theme={theme} />
+          <Avatar source={user?.profilePictureUrl || user?.avatar} size="extra-large" theme={theme} />
           <Text style={[styles.name, { color: theme.text }]}>
             {user?.name}
           </Text>

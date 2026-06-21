@@ -401,6 +401,32 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   setSearchQuery: (query) => set({ searchQuery: query }),
 
+  updateUserProfilePicture: (userId: string, url: string | null) => {
+    try {
+      const { chats } = get();
+      const updated = chats.map((chat) => {
+        // update group participants
+        const participants = (chat.participants || []).map((p) => {
+          if (String(p.id) === String(userId)) {
+            return { ...p, avatar: url || p.avatar };
+          }
+          return p;
+        });
+
+        // update direct chat avatar if matches userId
+        let avatar = chat.avatar;
+        if (!chat.isGroup && String(chat.id) === String(userId)) {
+          avatar = url || avatar;
+        }
+
+        return { ...chat, participants, avatar };
+      });
+      set({ chats: updated });
+    } catch (e) {
+      console.warn('updateUserProfilePicture error', e);
+    }
+  },
+
   getSearchedChats: () => {
     const { chats, searchQuery } = get();
     if (!searchQuery.trim()) {
