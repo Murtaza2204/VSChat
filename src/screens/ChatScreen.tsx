@@ -1419,28 +1419,22 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           .getState()
           .chats.find((c) => c.id === targetChatId || String(c.conversationId) === String(targetChatId));
         const convId = targetChat?.conversationId || targetChatId;
-        const msgsToSend = forwardTargetMessages.map((m) => ({ content: m.content, type: m.type, forwardedFrom: m.forwardedFrom || { senderName: m.senderName, originalContent: m.content } }));
-        // send sequentially to preserve order
+        // Prepare payloads including media metadata so server can persist forwarded media
+        const msgsToSend = forwardTargetMessages.map((m) => ({
+          content: m.content,
+          type: m.type,
+          forwardedFrom: m.forwardedFrom || { senderName: m.senderName, originalContent: m.content },
+          metadata: m.metadata || undefined,
+          mediaItems: m.mediaItems || undefined,
+          mediaUrl: m.mediaUrl || undefined,
+        }));
+
+        // Use forward-bulk endpoint so server can persist media metadata for forwarded messages
         (async () => {
-          for (const m of msgsToSend) {
-            try {
-              const sent = await messagesApi.sendMessage(convId, currentUserId, m.content, m.type, undefined, undefined, true, m.forwardedFrom);
-              try {
-                const finalMsg = {
-                  id: sent._id,
-                  senderId: sent.senderId,
-                  senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them',
-                  content: sent.content,
-                  type: sent.type,
-                  timestamp: new Date(sent.createdAt),
-                  read: false,
-                  status: sent.status || 'sent',
-                  forwarded: !!sent.forwarded,
-                  forwardedFrom: sent.forwardedFrom || m.forwardedFrom,
-                } as any;
-                useChatStore.getState().addMessage(targetChatId, finalMsg);
-              } catch (e) {}
-            } catch (err) { console.warn('Forward persist failed', err); }
+          try {
+            await messagesApi.forwardMessagesBulk(convId, msgsToSend);
+          } catch (err) {
+            console.warn('Forward persist failed', err);
           }
         })();
       } catch (e) {
@@ -2374,6 +2368,18 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                 </View>
               </View>
             ))}
+
+            {/* Add tile after the last image */}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={handleAddMoreMedia}
+              style={[styles.addPreviewTile, { borderColor: theme.border }]}
+            >
+              <View style={styles.addTileInner}>
+                <Icon name="add" size={28} color={theme.text} />
+                <Text style={[styles.addTileText, { color: theme.textSecondary }]}>Add</Text>
+              </View>
+            </TouchableOpacity>
           </ScrollView>
 
           <View style={[styles.captionBar, { backgroundColor: theme.surface }]}>
@@ -2404,7 +2410,6 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
               ]}
               multiline
             />
-
             <TouchableOpacity
               activeOpacity={0.8}
               onPress={handleSendMedia}
@@ -2810,6 +2815,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#0B141A',
     overflow: 'hidden',
+  },
+  addPreviewTile: {
+    width: '33.33%',
+    aspectRatio: 1,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addTileInner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  addTileText: {
+    fontSize: FONT_SIZES.sm,
+    marginTop: 4,
   },
   previewImage: {
     width: '100%',

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
+import { fetchDownloadUrl } from '../services/mediaService';
 import { Chat, Message } from '../types';
 
 interface ChatStore {
@@ -218,42 +219,65 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                   ? `${message.call?.type === 'video' ? 'Video' : 'Voice'} call`
                 : 'Message');
     const currentUser = useAuthStore.getState().user;
-    const forwardedMessage: Message = {
-      ...message,
-      id: Math.random().toString(),
-      senderId: currentUser?.id || 'me',
-      senderName: currentUser?.name || 'You',
-      timestamp: new Date(),
-      read: true,
-      forwarded: true,
-      forwardedFrom: { senderName: message.senderName, originalContent: message.content },
-      replyToId: undefined,
-      reaction: undefined,
-      starred: undefined,
-    };
 
-    const updatedChats = chats.map((chat) => {
-      if (String(chat.id) === String(targetChatId) || String(chat.conversationId) === String(targetChatId)) {
-        const existing = (chat.messages || []).some((m) => String(m.id) === String(forwardedMessage.id));
-        const nextMessages = existing ? chat.messages || [] : [...(chat.messages || []), forwardedMessage];
+    // Async enrichment: resolve download URLs for media items before inserting forwarded message
+    (async () => {
+      const originalMediaItems = message.mediaItems || message.metadata?.mediaItems || [];
+      const enrichedItems = await Promise.all(
+        (originalMediaItems || []).map(async (it: any) => {
+          if (!it) return it;
+          if (it.uri || it.downloadUrl) return { ...it, uri: it.uri || it.downloadUrl };
+          if (it.objectKey) {
+            try {
+              const uri = await fetchDownloadUrl(it.objectKey);
+              return { ...it, uri };
+            } catch (e) {
+              return { ...it };
+            }
+          }
+          return { ...it };
+        }),
+      );
 
-        // If this is a group chat, prefix with sender label (current user)
-        const displayLastMessage = chat.isGroup ? `You: ${lastMessage}` : lastMessage;
+      const forwardedMessage: Message = {
+        ...message,
+        id: Math.random().toString(),
+        senderId: currentUser?.id || 'me',
+        senderName: currentUser?.name || 'You',
+        timestamp: new Date(),
+        read: true,
+        forwarded: true,
+        forwardedFrom: { senderName: message.senderName, originalContent: message.content },
+        replyToId: undefined,
+        reaction: undefined,
+        starred: undefined,
+        mediaItems: enrichedItems && enrichedItems.length ? enrichedItems : undefined,
+        metadata: { ...(message.metadata || {}), mediaItems: enrichedItems && enrichedItems.length ? enrichedItems : undefined },
+      } as Message;
 
-        return {
-          ...chat,
-          messages: nextMessages,
-          lastMessage: displayLastMessage,
-          lastMessageTime: forwardedMessage.timestamp,
-          lastMessageReaction: undefined,
-          lastMessageActorId: undefined,
-          lastMessageRaw: undefined,
-        };
-      }
-      return chat;
-    });
+      const updatedChats = chats.map((chat) => {
+        if (String(chat.id) === String(targetChatId) || String(chat.conversationId) === String(targetChatId)) {
+          const existing = (chat.messages || []).some((m) => String(m.id) === String(forwardedMessage.id));
+          const nextMessages = existing ? chat.messages || [] : [...(chat.messages || []), forwardedMessage];
 
-    set({ chats: updatedChats });
+          // If this is a group chat, prefix with sender label (current user)
+          const displayLastMessage = chat.isGroup ? `You: ${lastMessage}` : lastMessage;
+
+          return {
+            ...chat,
+            messages: nextMessages,
+            lastMessage: displayLastMessage,
+            lastMessageTime: forwardedMessage.timestamp,
+            lastMessageReaction: undefined,
+            lastMessageActorId: undefined,
+            lastMessageRaw: undefined,
+          };
+        }
+        return chat;
+      });
+
+      set({ chats: updatedChats });
+    })();
   },
 
   // Delete chat locally (for me)
