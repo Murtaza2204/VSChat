@@ -46,6 +46,7 @@ import { connectSocket } from '../utils/socket';
 import { completeUpload, getUploadUrl } from '../services/mediaUploadService';
 import useMediaUpload from '../hooks/useMediaUpload';
 import useMedia from '../hooks/useMedia';
+import FullScreenImageViewer from '../components/FullScreenImageViewer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import signaling from '../services/signaling';
 import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
@@ -944,6 +945,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             mimeType: mimeType,
             fileSize: fileSize,
             mediaType: 'image',
+            content: mediaCaption || undefined,
           });
 
           // Add to chat
@@ -1616,13 +1618,13 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const viewerMediaItems =
     viewerMessage?.mediaItems ||
     ((viewerMessage?.mediaUrl || viewerObjectUrl) &&
-    (viewerMessage.type === 'image' || viewerMessage.type === 'video')
+    (viewerMessage?.type === 'image' || viewerMessage?.type === 'video')
       ? [
           {
-            id: viewerMessage.metadata?.objectKey || viewerMessage.mediaUrl || viewerObjectUrl,
-            uri: viewerMessage.mediaUrl || viewerObjectUrl,
-            type: viewerMessage.type,
-            name: viewerMessage.content,
+            id: viewerMessage?.metadata?.objectKey || viewerMessage?.mediaUrl || viewerObjectUrl,
+            uri: viewerMessage?.mediaUrl || viewerObjectUrl,
+            type: viewerMessage?.type,
+            name: viewerMessage?.content,
           } as MediaItem,
         ]
       : []);
@@ -2188,74 +2190,12 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         </SafeAreaView>
       </Modal>
 
-      <Modal
+      <FullScreenImageViewer
         visible={!!viewerMessage}
-        animationType="slide"
+        mediaItems={viewerMediaItems}
+        startIndex={viewerStartIndex}
         onRequestClose={() => setViewerMessage(null)}
-      >
-        <SafeAreaView style={[styles.viewerContainer, { backgroundColor: theme.background }]}>
-          <View style={[styles.viewerHeader, { backgroundColor: theme.surface }]}>
-            <TouchableOpacity
-              activeOpacity={0.75}
-              onPress={() => setViewerMessage(null)}
-              style={styles.backButton}
-            >
-              <Icon name="arrow-back" size={26} color={theme.text} />
-            </TouchableOpacity>
-            <View style={styles.headerTextBlock}>
-              <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-                {viewerMessage?.senderName || 'You'}
-              </Text>
-              <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>
-                {viewerMediaItems.length} {viewerMediaItems.length === 1 ? 'item' : 'items'}
-              </Text>
-            </View>
-          </View>
-
-          <ScrollView ref={viewerScrollRef} contentContainerStyle={styles.viewerScrollContent} onLayout={() => {
-            // scroll to selected start index
-            setTimeout(() => {
-              if (!viewerScrollRef.current) return;
-              const y = viewerStartIndex * (440); // approximate item height (viewerImage 420 + margin)
-              viewerScrollRef.current.scrollTo({ y, animated: false });
-            }, 50);
-          }}>
-            {viewerMediaItems.map((item) => (
-              <View key={item.id} style={styles.viewerItem}>
-                {item.type === 'image' ? (
-                  <Image
-                    source={{ uri: item.uri }}
-                    style={[styles.viewerImage, { width: screenWidth }]}
-                    resizeMode="contain"
-                  />
-                ) : (
-                  <View
-                    style={[
-                      styles.viewerVideo,
-                      {
-                        width: screenWidth,
-                        backgroundColor: theme.inputBackground,
-                      },
-                    ]}
-                  >
-                    <Icon name="play-circle" size={72} color={theme.primary} />
-                    <TouchableOpacity
-                      activeOpacity={0.75}
-                      onPress={() => Linking.openURL(item.uri)}
-                      style={[styles.viewerPlayButton, { backgroundColor: theme.primary }]}
-                    >
-                      <Icon name="play" size={18} color={theme.background} />
-                      <Text style={[styles.viewerPlayText, { color: theme.background }]}>
-                        Play video
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            ))}
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
+      />
 
       <MessageInput
         value={messageText}
