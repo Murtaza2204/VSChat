@@ -1,7 +1,26 @@
 import { fetchUploadUrl } from './mediaService';
 import api from '../config/api';
 
-export async function completeUpload(payload: { chatId: string; objectKey: string; mimeType: string; fileSize: number; mediaType: string; content?: string }) {
+type CompleteUploadItem = {
+  objectKey: string;
+  mimeType: string;
+  fileSize: number;
+  mediaType: string;
+  originalFilename?: string;
+  order?: number;
+};
+
+type CompleteUploadPayload = {
+  chatId: string;
+  objectKey?: string;
+  mimeType?: string;
+  fileSize?: number;
+  mediaType?: string;
+  content?: string;
+  items?: CompleteUploadItem[];
+};
+
+export async function completeUpload(payload: CompleteUploadPayload) {
   console.log('[mediaUploadService] Calling complete-upload:', { endpoint: '/media/complete-upload', payload });
   try {
     const resp = await api.post('/media/complete-upload', payload);

@@ -13,7 +13,7 @@ export default function useMediaUpload() {
   const [state, setState] = useState<UploadState>({ progress: 0, loading: false, error: null, done: false });
   const uploadControllerRef = useRef<AbortController | null>(null);
 
-  const upload = async ({ chatId, file, mediaType }: { chatId: string; file: { uri: string; name: string; type: string; size?: number }; mediaType: MediaType }) => {
+  const upload = async ({ chatId, file, mediaType, skipCompleteUpload = false }: { chatId: string; file: { uri: string; name: string; type: string; size?: number }; mediaType: MediaType; skipCompleteUpload?: boolean }) => {
     setState({ progress: 0, loading: true, error: null, done: false });
     uploadControllerRef.current = new AbortController();
     try {
@@ -43,6 +43,11 @@ export default function useMediaUpload() {
 
       // Update progress to 100% after successful S3 upload
       setState((s) => ({ ...s, progress: 100 }));
+
+      if (skipCompleteUpload) {
+        setState({ progress: 100, loading: false, error: null, done: true });
+        return { success: true, key };
+      }
 
       // Step 3: ONLY after successful S3 upload, call complete-upload to create message in DB
       console.log('[useMediaUpload] Calling complete-upload with:', { chatId, objectKey: key, mimeType: file.type, fileSize: file.size, mediaType });

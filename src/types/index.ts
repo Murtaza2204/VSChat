@@ -60,7 +60,10 @@ export interface Message {
 
 export interface MediaItem {
   id: string;
-  uri: string;
+  uri?: string;
+  objectKey?: string;
+  mimeType?: string | null;
+  fileSize?: number | null;
   type: 'image' | 'video';
   name: string;
   loading?: boolean;

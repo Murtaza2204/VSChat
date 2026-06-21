@@ -14,6 +14,7 @@ import { SPACING, FONT_SIZES, BORDER_RADIUS, SHADOWS } from '../constants/colors
 import { Message } from '../types';
 import Avatar from './Avatar';
 import useMedia from '../hooks/useMedia';
+import { fetchDownloadUrl } from '../services/mediaService';
 
 interface ChatBubbleProps {
   message: string;
@@ -75,6 +76,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   status = 'sent',
 }) => {
   const [now, setNow] = useState(Date.now());
+  const [resolvedItemUrls, setResolvedItemUrls] = useState<Record<string, string>>({});
   const { width: screenWidth } = useWindowDimensions();
   const { url: resolvedObjectUrl } = useMedia(metadata?.objectKey, true);
 
@@ -90,8 +92,43 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
 
   const bubbleColor = isOwn ? theme.messageGreen : theme.messageBlue;
   const liveLocationActive = type === 'liveLocation' && !!location?.expiresAt && now < location.expiresAt;
-  const resolvedMediaItems =
-    (mediaItems && mediaItems.length > 0 ? mediaItems : undefined) ||
+  useEffect(() => {
+    const itemsNeedingUrls = (mediaItems || []).filter((item: any) => item?.objectKey && !item.uri && !resolvedItemUrls[item.objectKey]);
+    if (!itemsNeedingUrls.length) return undefined;
+
+    let cancelled = false;
+    Promise.all(
+      itemsNeedingUrls.map(async (item: any) => {
+        try {
+          const uri = await fetchDownloadUrl(item.objectKey);
+          return [item.objectKey, uri] as const;
+        } catch (e) {
+          return [item.objectKey, ''] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setResolvedItemUrls((current) => {
+        const next = { ...current };
+        entries.forEach(([key, uri]) => {
+          if (uri) next[key] = uri;
+        });
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mediaItems, resolvedItemUrls]);
+
+  const resolvedMediaItems = (
+    (mediaItems && mediaItems.length > 0
+      ? mediaItems.map((item: any) => ({
+          ...item,
+          uri: item.uri || (item.objectKey ? resolvedItemUrls[item.objectKey] : undefined),
+        })).filter((item: any) => !!item.uri)
+      : undefined) ||
     ((mediaUrl || resolvedObjectUrl) && (type === 'image' || type === 'video')
       ? [
           {
@@ -101,7 +138,8 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             name: message || type,
           },
         ]
-      : []);
+      : [])
+  );
   const isMediaMessage =
     (type === 'image' || type === 'video' || type === 'mediaGroup') &&
     resolvedMediaItems.length > 0;
@@ -266,44 +304,41 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             {resolvedMediaItems.length === 1 && (
               <TouchableOpacity activeOpacity={0.95} onPress={() => onMediaPress?.(0)} onLongPress={onLongPress}>
                 <View style={[styles.mediaTile, styles.singleMediaTile]}>
-                  <Image source={{ uri: resolvedMediaItems[0].uri }} style={styles.image} resizeMode="cover" />
+                  <Image source={{ uri: resolvedMediaItems[0].uri || '' }} style={styles.image} resizeMode="cover" />
                 </View>
               </TouchableOpacity>
             )}
 
-            {/* 2 images: stacked one below another */}
+            {/* 2 images: two side-by-side */}
             {resolvedMediaItems.length === 2 && (
-              <View>
+              <View style={styles.twoMediaRow}>
                 {resolvedMediaItems.map((item, idx) => (
-                  <TouchableOpacity key={item.id} activeOpacity={0.95} onPress={() => onMediaPress?.(idx)} onLongPress={onLongPress}>
-                    <View style={[styles.mediaTile, { height: mediaWidth / 2, marginBottom: SPACING.sm }]}>
-                      <Image source={{ uri: item.uri }} style={styles.image} resizeMode="cover" />
+                  <TouchableOpacity key={item.id} activeOpacity={0.95} onPress={() => onMediaPress?.(idx)} onLongPress={onLongPress} style={styles.twoMediaPressable}>
+                    <View style={[styles.mediaTile, styles.twoMediaTile]}>
+                      <Image source={{ uri: item.uri || '' }} style={styles.image} resizeMode="cover" />
                     </View>
                   </TouchableOpacity>
                 ))}
               </View>
             )}
 
-            {/* 3 images: big left + two small stacked right */}
+            {/* 3 images: one large image above two smaller images */}
             {resolvedMediaItems.length === 3 && (
-              <View style={{ flexDirection: 'row' }}>
-                <TouchableOpacity activeOpacity={0.95} onPress={() => onMediaPress?.(0)} onLongPress={onLongPress} style={{ flex: 2, marginRight: SPACING.sm }}>
-                  <View style={[styles.mediaTile, { height: mediaWidth }]}>
-                    <Image source={{ uri: resolvedMediaItems[0].uri }} style={styles.image} resizeMode="cover" />
+              <View>
+                <TouchableOpacity activeOpacity={0.95} onPress={() => onMediaPress?.(0)} onLongPress={onLongPress}>
+                  <View style={[styles.mediaTile, styles.threeMediaHero]}>
+                    <Image source={{ uri: resolvedMediaItems[0].uri || '' }} style={styles.image} resizeMode="cover" />
                   </View>
                 </TouchableOpacity>
-                <View style={{ flex: 1, justifyContent: 'space-between' }}>
-                  <TouchableOpacity activeOpacity={0.95} onPress={() => onMediaPress?.(1)} onLongPress={onLongPress}>
-                    <View style={[styles.mediaTile, { height: mediaWidth / 2, marginBottom: SPACING.sm }]}>
-                      <Image source={{ uri: resolvedMediaItems[1].uri }} style={styles.image} resizeMode="cover" />
+                <View style={styles.threeMediaBottomRow}>
+                  {resolvedMediaItems.slice(1, 3).map((item, idx) => (
+                    <TouchableOpacity key={item.id} activeOpacity={0.95} onPress={() => onMediaPress?.(idx + 1)} onLongPress={onLongPress} style={styles.twoMediaPressable}>
+                      <View style={[styles.mediaTile, styles.threeMediaBottomTile]}>
+                        <Image source={{ uri: item.uri || '' }} style={styles.image} resizeMode="cover" />
+                      </View>
+                    </TouchableOpacity>
+                  ))}
                     </View>
-                  </TouchableOpacity>
-                  <TouchableOpacity activeOpacity={0.95} onPress={() => onMediaPress?.(2)} onLongPress={onLongPress}>
-                    <View style={[styles.mediaTile, { height: mediaWidth / 2 }]}>
-                      <Image source={{ uri: resolvedMediaItems[2].uri }} style={styles.image} resizeMode="cover" />
-                    </View>
-                  </TouchableOpacity>
-                </View>
               </View>
             )}
 
@@ -312,7 +347,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
               <View style={styles.gridContainer}>
                 {resolvedMediaItems.slice(0, 4).map((item, idx) => (
                   <TouchableOpacity key={item.id} activeOpacity={0.95} onPress={() => onMediaPress?.(idx)} onLongPress={onLongPress} style={styles.gridTile}>
-                    <Image source={{ uri: item.uri }} style={styles.gridImage} resizeMode="cover" />
+                    <Image source={{ uri: item.uri || '' }} style={styles.gridImage} resizeMode="cover" />
                     {idx === 3 && resolvedMediaItems.length > 4 ? (
                       <View style={styles.moreOverlay}>
                         <Text style={styles.moreOverlayText}>+{resolvedMediaItems.length - 4}</Text>
@@ -631,6 +666,28 @@ const styles = StyleSheet.create({
   },
   singleMediaTile: {
     height: 268,
+  },
+  twoMediaRow: {
+    flexDirection: 'row',
+    marginHorizontal: -1,
+  },
+  twoMediaPressable: {
+    flex: 1,
+    paddingHorizontal: 1,
+  },
+  twoMediaTile: {
+    height: 164,
+  },
+  threeMediaHero: {
+    height: 178,
+    marginBottom: 2,
+  },
+  threeMediaBottomRow: {
+    flexDirection: 'row',
+    marginHorizontal: -1,
+  },
+  threeMediaBottomTile: {
+    height: 98,
   },
   image: { width: '100%', height: '100%', borderRadius: BORDER_RADIUS.md },
   videoTile: {

@@ -6,6 +6,8 @@ import {
   Dimensions,
   Animated,
   Image,
+  FlatList,
+  Text,
   TouchableWithoutFeedback,
   TouchableOpacity,
   Platform,
@@ -15,7 +17,7 @@ import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gest
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-type MediaItem = { id: string; uri: string; type?: string; name?: string };
+type MediaItem = { id: string; uri?: string; type?: string; name?: string };
 
 const MAX_ZOOM = 3; // similar to WhatsApp
 
@@ -26,6 +28,7 @@ const FullScreenImageViewer: React.FC<{
   onRequestClose?: () => void;
 }> = ({ visible, mediaItems, startIndex = 0, onRequestClose }) => {
   const indexRef = useRef(startIndex);
+  const listRef = useRef<FlatList<MediaItem> | null>(null);
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [imgW, setImgW] = useState<number>(0);
   const [imgH, setImgH] = useState<number>(0);
@@ -43,6 +46,15 @@ const FullScreenImageViewer: React.FC<{
     indexRef.current = startIndex;
     setCurrentIndex(startIndex);
   }, [startIndex]);
+
+  useEffect(() => {
+    if (!visible) return;
+    requestAnimationFrame(() => {
+      try {
+        listRef.current?.scrollToIndex({ index: startIndex, animated: false });
+      } catch (e) {}
+    });
+  }, [visible, startIndex]);
 
   useEffect(() => {
     if (!visible) return;
@@ -145,7 +157,6 @@ const FullScreenImageViewer: React.FC<{
     }
   };
 
-  const item = mediaItems && mediaItems[currentIndex];
   const { displayWidth, displayHeight } = getDisplaySize();
 
   // center the image in its container and apply pan/scale transforms
@@ -171,27 +182,52 @@ const FullScreenImageViewer: React.FC<{
           </TouchableOpacity>
         </View>
 
+        {mediaItems.length > 1 ? (
+          <View style={styles.counter}>
+            <Text style={styles.counterText}>{currentIndex + 1} of {mediaItems.length}</Text>
+          </View>
+        ) : null}
+
         <View style={styles.viewerArea} pointerEvents="box-none">
-          <PanGestureHandler onGestureEvent={onPanEvent} onHandlerStateChange={onPanStateChange} enabled={true} minDist={10}>
-            <Animated.View style={styles.flexFill}>
-              <PinchGestureHandler onGestureEvent={onPinchEvent} onHandlerStateChange={onPinchStateChange}>
-                <Animated.View style={styles.flexFill}>
-                  <View style={[{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', alignItems: 'center' }]} pointerEvents="box-none">
-                    {item && (
-                      <Animated.Image
-                        source={{ uri: item.uri }}
-                        style={[
-                          { width: displayWidth, height: displayHeight, alignSelf: 'center' },
-                          animatedStyle,
-                        ]}
-                        resizeMode="contain"
-                      />
-                    )}
-                  </View>
-                </Animated.View>
-              </PinchGestureHandler>
-            </Animated.View>
-          </PanGestureHandler>
+          <FlatList
+            ref={listRef}
+            data={mediaItems}
+            keyExtractor={(mediaItem, index) => mediaItem.id || `${mediaItem.uri}-${index}`}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            initialScrollIndex={Math.min(startIndex, Math.max(mediaItems.length - 1, 0))}
+            getItemLayout={(_, index) => ({ length: SCREEN_WIDTH, offset: SCREEN_WIDTH * index, index })}
+            onMomentumScrollEnd={(event) => {
+              const nextIndex = Math.round(event.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+              indexRef.current = nextIndex;
+              setCurrentIndex(nextIndex);
+            }}
+            renderItem={({ item }) => (
+              <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}>
+                <PanGestureHandler onGestureEvent={onPanEvent} onHandlerStateChange={onPanStateChange} enabled={true} minDist={10}>
+                  <Animated.View style={styles.flexFill}>
+                    <PinchGestureHandler onGestureEvent={onPinchEvent} onHandlerStateChange={onPinchStateChange}>
+                      <Animated.View style={styles.flexFill}>
+                        <View style={[{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', alignItems: 'center' }]} pointerEvents="box-none">
+                          {item && (
+                            <Animated.Image
+                              source={{ uri: item.uri || '' }}
+                              style={[
+                                { width: displayWidth, height: displayHeight, alignSelf: 'center' },
+                                animatedStyle,
+                              ]}
+                              resizeMode="contain"
+                            />
+                          )}
+                        </View>
+                      </Animated.View>
+                    </PinchGestureHandler>
+                  </Animated.View>
+                </PanGestureHandler>
+              </View>
+            )}
+          />
         </View>
       </View>
     </Modal>
@@ -222,6 +258,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.35)',
     borderRadius: 22,
+  },
+  counter: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 52 : 32,
+    alignSelf: 'center',
+    zIndex: 45,
+    paddingHorizontal: 12,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  counterText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
 

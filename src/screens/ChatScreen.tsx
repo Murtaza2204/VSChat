@@ -44,6 +44,7 @@ import messagesApi from '../utils/messages';
 import api from '../config/api';
 import { connectSocket } from '../utils/socket';
 import { completeUpload, getUploadUrl } from '../services/mediaUploadService';
+import { fetchDownloadUrl } from '../services/mediaService';
 import useMediaUpload from '../hooks/useMediaUpload';
 import useMedia from '../hooks/useMedia';
 import FullScreenImageViewer from '../components/FullScreenImageViewer';
@@ -158,7 +159,9 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [mediaPreviewVisible, setMediaPreviewVisible] = useState(false);
   const [pendingMedia, setPendingMedia] = useState<MediaItem[]>([]);
   const [mediaCaption, setMediaCaption] = useState('');
+  const [isSendingMedia, setIsSendingMedia] = useState(false);
   const [viewerMessage, setViewerMessage] = useState<Message | null>(null);
+  const [viewerResolvedUrls, setViewerResolvedUrls] = useState<Record<string, string>>({});
   const { url: viewerObjectUrl } = useMedia(viewerMessage?.metadata?.objectKey, !!viewerMessage);
   const [viewerStartIndex, setViewerStartIndex] = useState(0);
   const viewerScrollRef = React.useRef<ScrollView | null>(null);
@@ -215,30 +218,39 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     // Try direct mediaItems array first
     if (Array.isArray(msg.mediaItems) && msg.mediaItems.length > 0) {
       mediaItems = msg.mediaItems.map((item: any) => ({
-        id: item.id || item._id || item.url || item.key,
+        id: item.id || item._id || item.objectKey || item.key || item.url,
         uri: item.url || item.uri || item.downloadUrl,
+        objectKey: item.objectKey || item.key,
+        mimeType: item.mimeType,
+        fileSize: item.fileSize,
         type: item.type || item.mediaType || (item.url?.includes('video') ? 'video' : 'image'),
         name: item.name || item.filename || item.originalFilename || 'Media',
-      })).filter((item: any) => !!item.uri);
+      })).filter((item: any) => !!(item.uri || item.objectKey));
     }
     // Try attachments array as fallback
     else if (Array.isArray(msg.attachments) && msg.attachments.length > 0) {
       mediaItems = msg.attachments.map((item: any) => ({
-        id: item.id || item._id || item.url || item.key,
+        id: item.id || item._id || item.objectKey || item.key || item.url,
         uri: item.url || item.uri || item.downloadUrl,
+        objectKey: item.objectKey || item.key,
+        mimeType: item.mimeType,
+        fileSize: item.fileSize,
         type: item.type || item.mediaType || (item.url?.includes('video') ? 'video' : 'image'),
         name: item.name || item.filename || item.originalFilename || 'Attachment',
-      })).filter((item: any) => !!item.uri);
+      })).filter((item: any) => !!(item.uri || item.objectKey));
     }
     // Try media field as fallback (single media object)
     else if (msg.media && !Array.isArray(msg.media)) {
       const singleMediaItem = {
-        id: msg.media.id || msg.media._id || msg.media.url || msg.media.key,
+        id: msg.media.id || msg.media._id || msg.media.objectKey || msg.media.key || msg.media.url,
         uri: msg.media.url || msg.media.uri || msg.media.downloadUrl,
+        objectKey: msg.media.objectKey || msg.media.key,
+        mimeType: msg.media.mimeType,
+        fileSize: msg.media.fileSize,
         type: msg.media.type || msg.media.mediaType || (msg.media.url?.includes('video') ? 'video' : 'image'),
         name: msg.media.name || msg.media.filename || msg.media.originalFilename || 'Media',
       };
-      mediaItems = singleMediaItem.uri ? [singleMediaItem] : [];
+      mediaItems = (singleMediaItem.uri || singleMediaItem.objectKey) ? [singleMediaItem] : [];
     }
     // Handle metadata field if present (from MessageRecord)
     else if (msg.metadata && msg.metadata.objectKey && (type === 'image' || type === 'video')) {
@@ -311,10 +323,12 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     const type = asset.type?.startsWith('video') ? 'video' : 'image';
 
     return {
-      id: `${Date.now()}-${index}-${asset.fileName || asset.uri}`,
+      id: `${Date.now()}-${index}-${Math.random()}-${asset.fileName || asset.uri}`,
       uri: asset.uri,
       type,
       name: asset.fileName || (type === 'video' ? 'Video' : 'Photo'),
+      mimeType: asset.type || (type === 'video' ? 'video/mp4' : 'image/jpeg'),
+      fileSize: asset.fileSize || 0,
       loading: true,
     };
   };
@@ -337,13 +351,55 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }, 600);
   };
 
+  const appendMediaToPreview = (assets?: Asset[]) => {
+    const mediaItems = (assets || [])
+      .map(mapAssetToMediaItem)
+      .filter((item): item is MediaItem => !!item);
+
+    if (!mediaItems.length) {
+      return;
+    }
+
+    setPendingMedia((items) => [...items, ...mediaItems]);
+    setMediaPreviewVisible(true);
+
+    setTimeout(() => {
+      setPendingMedia((items) => items.map((item) => ({ ...item, loading: false })));
+    }, 600);
+  };
+
+  const handleAddMoreMedia = async () => {
+    if (isSendingMedia) return;
+
+    const result = await launchImageLibrary({
+      mediaType: 'mixed',
+      quality: 0.8,
+      selectionLimit: 0,
+    });
+
+    if (result.didCancel) {
+      return;
+    }
+
+    if (result.errorMessage) {
+      Alert.alert('Gallery', result.errorMessage);
+      return;
+    }
+
+    if (result.assets && result.assets.length > 0) {
+      appendMediaToPreview(result.assets);
+    }
+  };
+
   const closeMediaPreview = () => {
+    if (isSendingMedia) return;
     setMediaPreviewVisible(false);
     setPendingMedia([]);
     setMediaCaption('');
   };
 
   const removePendingMedia = (id: string) => {
+    if (isSendingMedia) return;
     setPendingMedia((items) => {
       const nextItems = items.filter((item) => item.id !== id);
       if (!nextItems.length) {
@@ -590,7 +646,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     navigation.navigate('GroupDetails', { groupId: chat.conversationId, chat });
   };
 
-  const handleSendMedia = () => {
+  const handleSendMediaDeprecated = () => {
     // ⚠️ DEPRECATED: This function is kept for backward compatibility but should NOT be used.
     // Media uploads now go through ImageUploader component which:
     // 1. Uploads to S3 with signed URL
@@ -599,6 +655,119 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     // See: ImageUploader component in src/components/media/ImageUploader.tsx
     if (!pendingMedia.length) return;
     closeMediaPreview();
+  };
+
+  const uploadPendingMediaItem = async (item: MediaItem, index: number) => {
+    const fileName = item.name || `${item.type}_${Date.now()}_${index}`;
+    const mimeType = item.mimeType || (item.type === 'video' ? 'video/mp4' : 'image/jpeg');
+    const fileSize = item.fileSize || 0;
+
+    const urlResponse = await getUploadUrl(conversationId, fileName, mimeType);
+    const uploadUrl = urlResponse?.uploadUrl;
+    const key = urlResponse?.key;
+    if (!uploadUrl || !key) {
+      throw new Error('Server returned invalid upload URL response');
+    }
+
+    if (!RNFetchBlob) {
+      const uploadResult = await uploadUsingHook({
+        chatId: conversationId,
+        file: { uri: item.uri || '', name: fileName, type: mimeType, size: fileSize },
+        mediaType: item.type,
+        skipCompleteUpload: true,
+      });
+
+      if (!uploadResult || !uploadResult.success) {
+        throw new Error(uploadResult?.error || 'Upload failed');
+      }
+
+      return {
+        objectKey: uploadResult.key || key,
+        mimeType,
+        fileSize,
+        mediaType: item.type,
+        originalFilename: fileName,
+        order: index,
+      };
+    }
+
+    let localPath = item.uri || '';
+    if (localPath.startsWith('file://')) localPath = localPath.replace('file://', '');
+    if (localPath.startsWith('content://')) {
+      try {
+        const stat = await RNFetchBlob.fs.stat(localPath);
+        if (stat && stat.path) localPath = stat.path;
+      } catch (e) {
+        console.warn('Failed to stat content uri, proceeding with original uri', e);
+      }
+    }
+
+    const uploadResp = await RNFetchBlob.fetch(
+      'PUT',
+      uploadUrl,
+      { 'Content-Type': mimeType },
+      RNFetchBlob.wrap(localPath),
+    );
+
+    const status = uploadResp.info().status;
+    if (status < 200 || status >= 300) {
+      throw new Error(`Failed to upload ${fileName} (status ${status})`);
+    }
+
+    return {
+      objectKey: key,
+      mimeType,
+      fileSize,
+      mediaType: item.type,
+      originalFilename: fileName,
+      order: index,
+    };
+  };
+
+  const handleSendMedia = async () => {
+    if (!pendingMedia.length || isSendingMedia) return;
+    if (!conversationId) {
+      const localMessage: Message = {
+        id: Math.random().toString(),
+        senderId: currentUserId,
+        senderName: user?.name || 'You',
+        content: mediaCaption.trim(),
+        type: pendingMedia.length > 1 ? 'mediaGroup' : pendingMedia[0].type,
+        timestamp: new Date(),
+        read: true,
+        mediaItems: pendingMedia.map((item) => ({ ...item, loading: false })),
+      };
+      addMessage(chat.id, localMessage);
+      closeMediaPreview();
+      return;
+    }
+
+    try {
+      setIsSendingMedia(true);
+      const uploadedItems = [];
+      for (let index = 0; index < pendingMedia.length; index += 1) {
+        uploadedItems.push(await uploadPendingMediaItem(pendingMedia[index], index));
+      }
+
+      const message = await completeUpload({
+        chatId: conversationId,
+        content: mediaCaption.trim() || undefined,
+        items: uploadedItems,
+      });
+
+      if (message) {
+        await handleMediaUploadComplete(message);
+      }
+
+      setMediaPreviewVisible(false);
+      setPendingMedia([]);
+      setMediaCaption('');
+    } catch (error: any) {
+      console.error('Media upload error:', error);
+      Alert.alert('Error', error?.message || 'Failed to upload media');
+    } finally {
+      setIsSendingMedia(false);
+    }
   };
 
   // Refresh messages after media upload completes via ImageUploader
@@ -860,8 +1029,32 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       return;
     }
 
+    if (result.assets && result.assets.length > 0) {
+      openMediaPreview(result.assets);
+    }
+  };
+
+  const handleGalleryPressDeprecated = async () => {
+    const result = await launchImageLibrary({
+      mediaType: 'mixed',
+      quality: 0.8,
+      selectionLimit: 0,
+    });
+
+    if (result.didCancel) {
+      return;
+    }
+
+    if (result.errorMessage) {
+      Alert.alert('Gallery', result.errorMessage);
+      return;
+    }
+
     // Process each selected asset
     if (result.assets && result.assets.length > 0) {
+      openMediaPreview(result.assets);
+      return;
+
       for (const asset of result.assets) {
         try {
           const fileName = asset.fileName || `photo_${Date.now()}.jpg`;
@@ -1615,8 +1808,46 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     );
   };
 
+  useEffect(() => {
+    const items = viewerMessage?.mediaItems || [];
+    const missing = items.filter((item: any) => item?.objectKey && !item.uri && !viewerResolvedUrls[item.objectKey]);
+    if (!missing.length) return undefined;
+
+    let cancelled = false;
+    Promise.all(
+      missing.map(async (item: any) => {
+        try {
+          const uri = await fetchDownloadUrl(item.objectKey);
+          return [item.objectKey, uri] as const;
+        } catch (e) {
+          return [item.objectKey, ''] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setViewerResolvedUrls((current) => {
+        const next = { ...current };
+        entries.forEach(([key, uri]) => {
+          if (uri) next[key] = uri;
+        });
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [viewerMessage, viewerResolvedUrls]);
+
   const viewerMediaItems =
-    viewerMessage?.mediaItems ||
+    (viewerMessage?.mediaItems
+      ? viewerMessage.mediaItems
+          .map((item: any) => ({
+            ...item,
+            uri: item.uri || (item.objectKey ? viewerResolvedUrls[item.objectKey] : undefined),
+          }))
+          .filter((item: any) => !!item.uri)
+      : undefined) ||
     ((viewerMessage?.mediaUrl || viewerObjectUrl) &&
     (viewerMessage?.type === 'image' || viewerMessage?.type === 'video')
       ? [
@@ -2177,9 +2408,17 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             <TouchableOpacity
               activeOpacity={0.8}
               onPress={handleSendMedia}
-              style={[styles.mediaSendButton, { backgroundColor: theme.primary }]}
+              disabled={isSendingMedia || !pendingMedia.length}
+              style={[
+                styles.mediaSendButton,
+                { backgroundColor: isSendingMedia ? theme.border : theme.primary },
+              ]}
             >
-              <Icon name="send" size={28} color={theme.background} />
+              {isSendingMedia ? (
+                <ActivityIndicator color={theme.background} />
+              ) : (
+                <Icon name="send" size={28} color={theme.background} />
+              )}
               {pendingMedia.length > 1 && (
                 <View style={styles.sendCountBadge}>
                   <Text style={styles.sendCountText}>{pendingMedia.length}</Text>
