@@ -30,6 +30,8 @@ import ActiveCallScreen from '../screens/ActiveCallScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import MyQRScreen from '../screens/MyQRScreen';
+import ScanQRScreen from '../screens/ScanQRScreen';
 
 // Stores
 import { useAuthStore } from '../stores/authStore';
@@ -107,6 +109,8 @@ const ProfileStack = () => {
       }}
     >
       <Stack.Screen name="ProfileMain" component={ProfileScreen} />
+      <Stack.Screen name="MyQR" component={MyQRScreen} />
+      <Stack.Screen name="ScanQR" component={ScanQRScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
       <Stack.Screen name="IncomingCall" component={ReceiverCallScreen} />

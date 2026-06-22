@@ -70,6 +70,30 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           <Icon name="chevron-forward" size={20} color={theme.textSecondary} />
         </TouchableOpacity>
 
+        <TouchableOpacity
+          onPress={() => navigation.navigate('MyQR')}
+          style={[
+            styles.actionButton,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <Icon name="qr-code" size={20} color={theme.primary} />
+          <Text style={[styles.actionText, { color: theme.text }]}>My QR</Text>
+          <Icon name="chevron-forward" size={20} color={theme.textSecondary} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => navigation.navigate('ScanQR')}
+          style={[
+            styles.actionButton,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <Icon name="scan" size={20} color={theme.primary} />
+          <Text style={[styles.actionText, { color: theme.text }]}>Scan QR</Text>
+          <Icon name="chevron-forward" size={20} color={theme.textSecondary} />
+        </TouchableOpacity>
+
         <View style={styles.settingsSection}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>
             Settings
