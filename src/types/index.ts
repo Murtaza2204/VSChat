@@ -51,6 +51,12 @@ export interface Message {
   };
   // Reply/forward support
   replyToId?: string;
+  // When replying to a specific media item inside a multi-image message,
+  // this stores the 0-based index of that media item.
+  replyToMediaItemIndex?: number;
+  // Stable identifiers for the specific media item being referenced.
+  replyToMediaItemId?: string;
+  replyToMediaItemObjectKey?: string;
   forwarded?: boolean;
   forwardedFrom?: {
     senderName: string;

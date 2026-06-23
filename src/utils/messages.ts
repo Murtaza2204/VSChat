@@ -12,12 +12,18 @@ export const sendMessage = async (
   type = 'text',
   receiverId?,
   replyToId?,
+  replyToMediaItemIndex?,
+  replyToMediaItemId?,
+  replyToMediaItemObjectKey?,
   forwarded?: boolean,
   forwardedFrom?: any,
 ) => {
   const body: any = { conversationId, senderId, content, type };
   if (receiverId) body.receiverId = receiverId;
   if (replyToId) body.replyToId = replyToId;
+  if (typeof replyToMediaItemIndex === 'number') body.replyToMediaItemIndex = replyToMediaItemIndex;
+  if (replyToMediaItemId) body.replyToMediaItemId = replyToMediaItemId;
+  if (replyToMediaItemObjectKey) body.replyToMediaItemObjectKey = replyToMediaItemObjectKey;
   if (forwarded) body.forwarded = true;
   if (forwardedFrom) body.forwardedFrom = forwardedFrom;
   const res = await api.post('/messages', body);
@@ -92,4 +98,14 @@ export const reactMessage = async (messageId: string, reaction: string | null) =
   }
 };
 
-export default { getMessages, sendMessage, markConversationRead, deleteMessageForMe, deleteMessageForEveryone, deleteMessagesForMeBulk, deleteMessagesForEveryoneBulk, forwardMessagesBulk, reactMessage };
+export const removeMessageMedia = async (messageId: string, mediaItemIds: string[]) => {
+  try {
+    const res = await api.post('/messages/remove-media', { messageId, mediaItemIds });
+    return res.data;
+  } catch (e) {
+    console.warn('[messagesApi] removeMessageMedia error', e && e.message);
+    throw e;
+  }
+};
+
+export default { getMessages, sendMessage, markConversationRead, deleteMessageForMe, deleteMessageForEveryone, deleteMessagesForMeBulk, deleteMessagesForEveryoneBulk, forwardMessagesBulk, reactMessage, removeMessageMedia };

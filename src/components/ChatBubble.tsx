@@ -37,7 +37,11 @@ interface ChatBubbleProps {
   reaction?: string;
   reactions?: { userId: string; reaction: string }[];
   replyTo?: Message | null;
+  replyToIndex?: number;
+  replyToMediaItemId?: string;
+  replyToMediaItemObjectKey?: string;
   onReplyPress?: () => void;
+  onOpenReplyMedia?: (msg: Message, index?: number) => void;
   forwarded?: boolean;
   senderName?: string;
   senderAvatar?: string;
@@ -68,6 +72,10 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   reactions = [],
   replyTo,
   onReplyPress,
+  onOpenReplyMedia,
+  replyToIndex,
+  replyToMediaItemId,
+  replyToMediaItemObjectKey,
   forwarded = false,
   senderName,
   senderAvatar,
@@ -77,6 +85,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
 }) => {
   const [now, setNow] = useState(Date.now());
   const [resolvedItemUrls, setResolvedItemUrls] = useState<Record<string, string>>({});
+  const [replyThumbUri, setReplyThumbUri] = useState<string | null>(null);
   const { width: screenWidth } = useWindowDimensions();
   const { url: resolvedObjectUrl } = useMedia(metadata?.objectKey, true);
 
@@ -93,10 +102,54 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   const bubbleColor = isOwn ? theme.messageGreen : theme.messageBlue;
   const liveLocationActive = type === 'liveLocation' && !!location?.expiresAt && now < location.expiresAt;
   useEffect(() => {
+    // resolve reply thumbnail URI for the specific media index (if provided)
+    let cancelled = false;
+    (async () => {
+      try {
+        if (replyTo && replyTo.mediaItems && replyTo.mediaItems.length) {
+          const item =
+            replyTo.mediaItems.find((mediaItem: any) => {
+              const itemIds = [mediaItem?.id, mediaItem?.objectKey, mediaItem?.key]
+                .filter(Boolean)
+                .map((value) => String(value));
+              return (
+                (replyToMediaItemId && itemIds.includes(String(replyToMediaItemId))) ||
+                (replyToMediaItemObjectKey && itemIds.includes(String(replyToMediaItemObjectKey)))
+              );
+            }) ||
+            (typeof replyToIndex === 'number' ? replyTo.mediaItems[replyToIndex] : undefined) ||
+            replyTo.mediaItems[0];
+          if (!item) {
+            if (!cancelled) setReplyThumbUri(null);
+            return;
+          }
+          if (item.uri) {
+            if (!cancelled) setReplyThumbUri(item.uri);
+            return;
+          }
+          if (item.objectKey) {
+            try {
+              const uri = await fetchDownloadUrl(item.objectKey);
+              if (!cancelled) setReplyThumbUri(uri || null);
+            } catch (e) {
+              if (!cancelled) setReplyThumbUri(null);
+            }
+            return;
+          }
+        }
+        if (!cancelled) setReplyThumbUri(null);
+      } catch (e) {
+        if (!cancelled) setReplyThumbUri(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [replyTo, replyToIndex, replyToMediaItemId, replyToMediaItemObjectKey]);
+
+  useEffect(() => {
     const itemsNeedingUrls = (mediaItems || []).filter((item: any) => item?.objectKey && !item.uri && !resolvedItemUrls[item.objectKey]);
     if (!itemsNeedingUrls.length) return undefined;
 
-    let cancelled = false;
+    let cancelled2 = false;
     Promise.all(
       itemsNeedingUrls.map(async (item: any) => {
         try {
@@ -107,7 +160,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         }
       }),
     ).then((entries) => {
-      if (cancelled) return;
+      if (cancelled2) return;
       setResolvedItemUrls((current) => {
         const next = { ...current };
         entries.forEach(([key, uri]) => {
@@ -118,7 +171,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     });
 
     return () => {
-      cancelled = true;
+      cancelled2 = true;
     };
   }, [mediaItems, resolvedItemUrls]);
 
@@ -240,7 +293,35 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         {/* Reply Context */}
         {replyTo && (
           <TouchableOpacity
-            onPress={onReplyPress}
+            onPress={() => {
+              try {
+                console.log('[ChatBubble] reply preview pressed', { replyToId: replyTo?.id, hasMedia: !!(replyTo?.mediaItems?.length), onOpenReplyMediaFn: !!onOpenReplyMedia });
+                if (replyTo.mediaItems && replyTo.mediaItems.length && onOpenReplyMedia) {
+                  const idx = (() => {
+                    const matchIndex = replyTo.mediaItems.findIndex((mediaItem: any) => {
+                      const itemIds = [mediaItem?.id, mediaItem?.objectKey, mediaItem?.key]
+                        .filter(Boolean)
+                        .map((value) => String(value));
+                      return (
+                        (replyToMediaItemId && itemIds.includes(String(replyToMediaItemId))) ||
+                        (replyToMediaItemObjectKey && itemIds.includes(String(replyToMediaItemObjectKey)))
+                      );
+                    });
+                    if (matchIndex !== -1) return matchIndex;
+                    if (typeof replyToIndex === 'number') return replyToIndex;
+                    if (typeof replyTo.replyToMediaItemIndex === 'number') return replyTo.replyToMediaItemIndex;
+                    return 0;
+                  })();
+                  console.log('[ChatBubble] calling onOpenReplyMedia with', { msgId: replyTo.id, mediaCount: replyTo.mediaItems.length, replyToIndex: idx });
+                  onOpenReplyMedia(replyTo, idx);
+                } else {
+                  console.log('[ChatBubble] no media or no handler, calling onReplyPress');
+                  onReplyPress && onReplyPress();
+                }
+              } catch (e) {
+                console.error('[ChatBubble] reply preview error', e);
+              }
+            }}
             style={[
               styles.replyContext,
               { borderLeftColor: theme.primary },
@@ -251,18 +332,33 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
               <Text style={[styles.replyContextSender, { color: theme.primary }]} numberOfLines={1}>
                 {replyTo.senderName}
               </Text>
-              <Text
-                style={[styles.replyContextMessage, { color: theme.textSecondary }]}
-                numberOfLines={2}
-              >
-                {replyTo.type === 'image' || replyTo.type === 'video'
-                  ? `📎 ${replyTo.type === 'image' ? 'Photo' : 'Video'}`
-                  : replyTo.type === 'location'
-                    ? '📍 Location'
-                    : replyTo.type === 'file'
-                      ? '📄 Document'
-                      : replyTo.content}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text
+                  style={[styles.replyContextMessage, { color: theme.textSecondary, flex: 1 }]}
+                  numberOfLines={2}
+                >
+                  {replyTo.type === 'image' || replyTo.type === 'video'
+                    ? `📎 ${replyTo.type === 'image' ? 'Photo' : 'Video'}`
+                    : replyTo.type === 'location'
+                      ? '📍 Location'
+                      : replyTo.type === 'file'
+                        ? '📄 Document'
+                        : replyTo.content}
+                </Text>
+                {replyTo.mediaItems && replyTo.mediaItems.length > 0 ? (
+                  <View style={{ width: 40, height: 40, marginLeft: 8 }}>
+                    <Image source={{ uri: replyThumbUri || (replyTo.mediaItems.find((mediaItem: any) => {
+                      const itemIds = [mediaItem?.id, mediaItem?.objectKey, mediaItem?.key]
+                        .filter(Boolean)
+                        .map((value) => String(value));
+                      return (
+                        (replyToMediaItemId && itemIds.includes(String(replyToMediaItemId))) ||
+                        (replyToMediaItemObjectKey && itemIds.includes(String(replyToMediaItemObjectKey)))
+                      );
+                    })?.uri) || (replyTo.mediaItems[(typeof replyToIndex === 'number' ? replyToIndex : 0)]?.uri) || '' }} style={{ width: 40, height: 40, borderRadius: 6 }} />
+                  </View>
+                ) : null}
+              </View>
             </View>
           </TouchableOpacity>
         )}

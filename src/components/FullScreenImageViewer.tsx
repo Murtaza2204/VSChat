@@ -11,13 +11,14 @@ import {
   TouchableWithoutFeedback,
   TouchableOpacity,
   Platform,
+  ScrollView,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-type MediaItem = { id: string; uri?: string; type?: string; name?: string };
+type MediaItem = { id: string; uri?: string; objectKey?: string; type?: string; name?: string };
 
 const MAX_ZOOM = 3; // similar to WhatsApp
 
@@ -26,12 +27,35 @@ const FullScreenImageViewer: React.FC<{
   mediaItems: MediaItem[];
   startIndex?: number;
   onRequestClose?: () => void;
-}> = ({ visible, mediaItems, startIndex = 0, onRequestClose }) => {
+  // optional message object (when opened from chat) so callers can act on it
+  message?: any;
+  // callbacks to handle forward/delete actions using parent screen logic
+  onForwardPress?: (messageOrMessages: any | any[]) => void;
+  onDeletePress?: (messageOrMessages: any | any[]) => void;
+  onReplyPress?: (messageOrMessages: any | any[]) => void;
+}> = ({ visible, mediaItems, startIndex = 0, onRequestClose, message, onForwardPress, onDeletePress, onReplyPress }) => {
   const indexRef = useRef(startIndex);
   const listRef = useRef<FlatList<MediaItem> | null>(null);
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [imgW, setImgW] = useState<number>(0);
   const [imgH, setImgH] = useState<number>(0);
+  const [showControls, setShowControls] = useState(false);
+  const [selectedIndexes, setSelectedIndexes] = useState<number[]>([]);
+  const controlsAnim = useRef(new Animated.Value(0)).current;
+
+  const emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🎉', '➕'];
+
+  const toggleControls = () => {
+    const next = !showControls;
+    setShowControls(next);
+    // clear selections when closing controls
+    if (!next) setSelectedIndexes([]);
+    Animated.timing(controlsAnim, {
+      toValue: next ? 1 : 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  };
 
   const baseScale = useRef(new Animated.Value(1)).current;
   const pinchScale = useRef(new Animated.Value(1)).current;
@@ -41,6 +65,10 @@ const FullScreenImageViewer: React.FC<{
 
   const lastPan = useRef({ x: 0, y: 0 });
   const lastScale = useRef(1);
+
+  useEffect(() => {
+    console.log('[FullScreenImageViewer] prop update: visible=', visible, 'mediaItemsCount=', mediaItems?.length, 'startIndex=', startIndex);
+  }, [visible, mediaItems, startIndex]);
 
   useEffect(() => {
     indexRef.current = startIndex;
@@ -175,20 +203,202 @@ const FullScreenImageViewer: React.FC<{
           <View style={styles.flexFill} />
         </TouchableWithoutFeedback>
 
-        {/* Back / close button */}
+        {/* Back button - always visible */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={onRequestClose} style={styles.backButton} activeOpacity={0.8}>
+          <TouchableOpacity 
+            onPress={() => {
+              if (showControls) {
+                toggleControls();
+              } else {
+                // ensure selections cleared when closing viewer
+                try { setSelectedIndexes([]); } catch (e) {}
+                onRequestClose?.();
+              }
+            }} 
+            style={styles.backButton} 
+            activeOpacity={0.8}
+          >
             <Icon name="arrow-back" size={28} color="#FFFFFF" />
           </TouchableOpacity>
+
+          {/* Selected count shown next to back button when in selection mode */}
+          {showControls && selectedIndexes.length > 0 && (
+            <View style={styles.selectedCountHeader}>
+              <Text style={styles.counterText}>{selectedIndexes.length}</Text>
+            </View>
+          )}
         </View>
 
-        {mediaItems.length > 1 ? (
+        {/* Counter - always visible except on long press */}
+        {mediaItems.length > 1 && !showControls ? (
           <View style={styles.counter}>
             <Text style={styles.counterText}>{currentIndex + 1} of {mediaItems.length}</Text>
           </View>
         ) : null}
 
+        {/* Extra controls - appears on long press */}
+          {showControls && (
+          <Animated.View
+            style={[
+              styles.extraControls,
+              {
+                opacity: controlsAnim,
+              },
+            ]}
+          >
+            {selectedIndexes.length <= 1 && (
+              <TouchableOpacity
+                style={styles.headerIconButton}
+                activeOpacity={0.8}
+                onPress={() => {
+                  try {
+                    if (onReplyPress) {
+                      if (selectedIndexes.length) {
+                        // build a single message-like object for the selected media
+                          if (message && Array.isArray(message.mediaItems) && message.mediaItems.length) {
+                          const selectedItem = message.mediaItems[selectedIndexes[0]];
+                          const single = {
+                            ...message,
+                            mediaItems: [selectedItem],
+                            replyToMediaItemIndex: selectedIndexes[0],
+                            replyToMediaItemId: selectedItem?.id,
+                            replyToMediaItemObjectKey: selectedItem?.objectKey,
+                          };
+                          console.log('[FullScreenImageViewer] Reply (selection) sending replyToMediaItemIndex=', selectedIndexes[0], 'mediaId=', single.mediaItems[0]?.id);
+                          onReplyPress(single);
+                        } else {
+                          const it = mediaItems[selectedIndexes[0]];
+                          console.log('[FullScreenImageViewer] Reply (selection, no message) mediaId=', it?.id);
+                          onReplyPress({ id: it.id, content: '', type: it.type || 'image', mediaItems: [it], mediaUrl: it.uri, replyToMediaItemIndex: selectedIndexes[0], replyToMediaItemId: it.id, replyToMediaItemObjectKey: it.objectKey });
+                        }
+                      } else {
+                        // reply to the currently viewed image: build a message-like object that references the specific media index
+                        if (message && Array.isArray(message.mediaItems) && message.mediaItems.length) {
+                          const selectedItem = message.mediaItems[currentIndex];
+                          const single = {
+                            ...message,
+                            mediaItems: [selectedItem],
+                            replyToMediaItemIndex: currentIndex,
+                            replyToMediaItemId: selectedItem?.id,
+                            replyToMediaItemObjectKey: selectedItem?.objectKey,
+                          };
+                          console.log('[FullScreenImageViewer] Reply (current view) sending replyToMediaItemIndex=', currentIndex, 'mediaId=', single.mediaItems[0]?.id);
+                          onReplyPress(single);
+                        } else {
+                          const it = mediaItems[currentIndex];
+                          console.log('[FullScreenImageViewer] Reply (current view, no message) mediaId=', it?.id);
+                          onReplyPress({ id: it.id, content: '', type: it.type || 'image', mediaItems: [it], mediaUrl: it.uri, replyToMediaItemIndex: currentIndex, replyToMediaItemId: it.id, replyToMediaItemObjectKey: it.objectKey });
+                        }
+                      }
+                    }
+                  } catch (e) {}
+                }}
+              >
+                <Icon name="chatbubble-ellipses-outline" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            )}
+
+            {/* reply button removed per UX request - reply handled by parent chat page */}
+
+            <TouchableOpacity style={styles.headerIconButton} activeOpacity={0.8}>
+              <Icon name="star-outline" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.headerIconButton}
+              activeOpacity={0.8}
+              onPress={() => {
+                try {
+                  if (onDeletePress) {
+                    if (message && selectedIndexes.length) {
+                      const ids = selectedIndexes.map((si) => {
+                        const mi = (message.mediaItems && message.mediaItems[si]) || mediaItems[si];
+                        return mi && (mi.id || mi.objectKey) ? (mi.id || mi.objectKey) : undefined;
+                      }).filter(Boolean);
+                      if (ids.length) onDeletePress({ messageId: message.id, mediaItemIds: ids });
+                    } else if (message) onDeletePress(message);
+                    else {
+                      const it = mediaItems[currentIndex];
+                      onDeletePress({ id: it.id, content: '', type: it.type || 'image', mediaItems: [it], mediaUrl: it.uri });
+                    }
+                  }
+                } catch (e) {}
+              }}
+            >
+              <Icon name="trash-outline" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.headerIconButton}
+              activeOpacity={0.8}
+              onPress={() => {
+                try {
+                  if (onForwardPress) {
+                    if (selectedIndexes.length) {
+                      if (message && Array.isArray(message.mediaItems) && message.mediaItems.length) {
+                        const msgs = selectedIndexes.map((si) => ({ ...message, mediaItems: [message.mediaItems[si]] }));
+                        onForwardPress(msgs);
+                      } else {
+                        const msgs = selectedIndexes.map((si) => {
+                          const it = mediaItems[si];
+                          return { id: it.id, content: '', type: it.type || 'image', mediaItems: [it], mediaUrl: it.uri } as any;
+                        });
+                        onForwardPress(msgs);
+                      }
+                    } else {
+                      if (message) onForwardPress(message);
+                      else {
+                        const it = mediaItems[currentIndex];
+                        onForwardPress({ id: it.id, content: '', type: it.type || 'image', mediaItems: [it], mediaUrl: it.uri });
+                      }
+                    }
+                  }
+                } catch (e) {}
+              }}
+            >
+              <Icon name="arrow-redo" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+          </Animated.View>
+        )}
+
+        {/* Emoji Picker - appears on long press */}
+        {showControls && selectedIndexes.length <= 1 && (
+          <Animated.View
+            style={[
+              styles.emojiPickerContainer,
+              {
+                opacity: controlsAnim,
+              },
+            ]}
+            pointerEvents="box-none"
+          >
+            <View style={styles.emojiPickerContent}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.emojiScrollContent}
+                scrollEnabled={emojis.length > 6}
+              >
+                {emojis.map((emoji, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={styles.emojiButton}
+                    onPress={() => {
+                      console.log('Selected emoji:', emoji);
+                      toggleControls();
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.emojiText}>{emoji}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </Animated.View>
+        )}
+
         <View style={styles.viewerArea} pointerEvents="box-none">
+          
           <FlatList
             ref={listRef}
             data={mediaItems}
@@ -203,24 +413,50 @@ const FullScreenImageViewer: React.FC<{
               indexRef.current = nextIndex;
               setCurrentIndex(nextIndex);
             }}
-            renderItem={({ item }) => (
+            renderItem={({ item, index }) => (
               <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}>
                 <PanGestureHandler onGestureEvent={onPanEvent} onHandlerStateChange={onPanStateChange} enabled={true} minDist={10}>
                   <Animated.View style={styles.flexFill}>
                     <PinchGestureHandler onGestureEvent={onPinchEvent} onHandlerStateChange={onPinchStateChange}>
                       <Animated.View style={styles.flexFill}>
-                        <View style={[{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', alignItems: 'center' }]} pointerEvents="box-none">
-                          {item && (
-                            <Animated.Image
-                              source={{ uri: item.uri || '' }}
-                              style={[
-                                { width: displayWidth, height: displayHeight, alignSelf: 'center' },
-                                animatedStyle,
-                              ]}
-                              resizeMode="contain"
-                            />
-                          )}
-                        </View>
+                        <TouchableWithoutFeedback
+                          onLongPress={() => {
+                            try { setSelectedIndexes([index]); } catch (e) {}
+                            if (!showControls) toggleControls();
+                          }}
+                          onPress={() => {
+                            // when in selection mode, toggle selection for tapped image
+                            if (showControls) {
+                              const exists = selectedIndexes.includes(index);
+                              const next = exists ? selectedIndexes.filter((i) => i !== index) : [...selectedIndexes, index];
+                              setSelectedIndexes(next);
+                              // if this tap cleared the last selection, close selection mode
+                              if (next.length === 0) {
+                                toggleControls();
+                              }
+                            }
+                          }}
+                        >
+                          <View style={[{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', alignItems: 'center' }]} pointerEvents="box-none">
+                            {item && (
+                              <>
+                                <Animated.Image
+                                  source={{ uri: item.uri || '' }}
+                                  style={[
+                                    { width: displayWidth, height: displayHeight, alignSelf: 'center' },
+                                    animatedStyle,
+                                  ]}
+                                  resizeMode="contain"
+                                />
+
+                                {/* Blue selection overlay when selected */}
+                                {selectedIndexes.includes(index) && (
+                                  <View style={styles.longPressOverlay} pointerEvents="none" />
+                                )}
+                              </>
+                            )}
+                          </View>
+                        </TouchableWithoutFeedback>
                       </Animated.View>
                     </PinchGestureHandler>
                   </Animated.View>
@@ -275,6 +511,80 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
+  },
+  extraControls: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 40 : 20,
+    right: 12,
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 12,
+    paddingHorizontal: 4,
+    zIndex: 40,
+    gap: 4,
+  },
+  headerIconButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+  },
+  emojiPickerContainer: {
+    position: 'absolute',
+    bottom: SCREEN_HEIGHT / 2 - 40,
+    left: 0,
+    right: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 50,
+    paddingHorizontal: 16,
+  },
+  emojiPickerContent: {
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  longPressOverlay: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,122,255,0.22)',
+    zIndex: 30,
+  },
+  emojiScrollContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 2,
+  },
+  emojiButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emojiText: {
+    fontSize: 20,
+  },
+  selectedCountHeader: {
+    position: 'absolute',
+    left: 64,
+    top: Platform.OS === 'ios' ? 8 : 6,
+    height: 32,
+    minWidth: 32,
+    paddingHorizontal: 8,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 50,
   },
 });
 
