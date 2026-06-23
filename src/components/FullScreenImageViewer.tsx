@@ -18,7 +18,13 @@ import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gest
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-type MediaItem = { id: string; uri?: string; objectKey?: string; type?: string; name?: string };
+type MediaItem = { id: string; uri?: string; objectKey?: string; key?: string; type?: string; name?: string };
+
+type MediaReaction = {
+  mediaItemId: string;
+  userId: string;
+  reaction: string;
+};
 
 const MAX_ZOOM = 3; // similar to WhatsApp
 
@@ -33,7 +39,8 @@ const FullScreenImageViewer: React.FC<{
   onForwardPress?: (messageOrMessages: any | any[]) => void;
   onDeletePress?: (messageOrMessages: any | any[]) => void;
   onReplyPress?: (messageOrMessages: any | any[]) => void;
-}> = ({ visible, mediaItems, startIndex = 0, onRequestClose, message, onForwardPress, onDeletePress, onReplyPress }) => {
+  onReactPress?: (payload: { messageId: string; mediaItemId: string; mediaItemObjectKey?: string; reaction: string | null }) => void;
+}> = ({ visible, mediaItems, startIndex = 0, onRequestClose, message, onForwardPress, onDeletePress, onReplyPress, onReactPress }) => {
   const indexRef = useRef(startIndex);
   const listRef = useRef<FlatList<MediaItem> | null>(null);
   const [currentIndex, setCurrentIndex] = useState(startIndex);
@@ -41,7 +48,9 @@ const FullScreenImageViewer: React.FC<{
   const [imgH, setImgH] = useState<number>(0);
   const [showControls, setShowControls] = useState(false);
   const [selectedIndexes, setSelectedIndexes] = useState<number[]>([]);
+  const [reactionPickerIndex, setReactionPickerIndex] = useState<number>(startIndex);
   const controlsAnim = useRef(new Animated.Value(0)).current;
+  const reactionEmojis = ['👍', '❤️', '😂', '😮', '😢', '🙏', '😭'];
 
   const emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🎉', '➕'];
 
@@ -116,6 +125,59 @@ const FullScreenImageViewer: React.FC<{
     const scaleFactor = Math.min(SCREEN_WIDTH / imgW, SCREEN_HEIGHT / imgH);
     return { displayWidth: imgW * scaleFactor, displayHeight: imgH * scaleFactor };
   };
+
+  const getMediaItemKeys = (item?: MediaItem | null) => {
+    if (!item) return [];
+    // Only use stable identifiers (id and objectKey) to match reactions.
+    // Avoid using React list `key` since it may be generated and not a stable media id.
+    return [item.id, item.objectKey]
+      .filter(Boolean)
+      .map((value) => String(value));
+  };
+
+  const getCurrentMediaItem = () => mediaItems[currentIndex];
+
+  const getCurrentMediaReactions = (): MediaReaction[] => {
+    const currentItem = getCurrentMediaItem();
+    const reactions = (Array.isArray(message?.mediaReactions) ? message.mediaReactions : []) as MediaReaction[];
+    if (!currentItem || !reactions.length) return [];
+    const keys = getMediaItemKeys(currentItem);
+    if (!keys.length) return [];
+    return reactions.filter((reaction) => keys.includes(String(reaction.mediaItemId)));
+  };
+
+  const getReactionSummary = () => {
+    const totals: Record<string, number> = {};
+    getCurrentMediaReactions().forEach((reaction) => {
+      if (!reaction?.reaction) return;
+      totals[reaction.reaction] = (totals[reaction.reaction] || 0) + 1;
+    });
+
+    return Object.keys(totals)
+      .sort((a, b) => totals[b] - totals[a])
+      .map((reaction) => ({ reaction, count: totals[reaction] }));
+  };
+
+  const handleEmojiSelect = (emoji: string) => {
+    const targetIndex = typeof selectedIndexes[0] === 'number' ? selectedIndexes[0] : reactionPickerIndex;
+    const targetItem = mediaItems[targetIndex];
+    if (!targetItem || !message?.id || !onReactPress) {
+      toggleControls();
+      return;
+    }
+
+    onReactPress({
+      messageId: String(message.id),
+      mediaItemId: String(targetItem.id || targetItem.objectKey || targetItem.key),
+      mediaItemObjectKey: targetItem.objectKey,
+      reaction: emoji,
+    });
+
+    setReactionPickerIndex(targetIndex);
+    toggleControls();
+  };
+
+  const reactionSummary = getReactionSummary();
 
   const onPinchEvent = Animated.event([{ nativeEvent: { scale: pinchScale } }], { useNativeDriver: true });
 
@@ -377,16 +439,13 @@ const FullScreenImageViewer: React.FC<{
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.emojiScrollContent}
-                scrollEnabled={emojis.length > 6}
+                scrollEnabled={reactionEmojis.length > 6}
               >
-                {emojis.map((emoji, index) => (
+                {reactionEmojis.map((emoji, index) => (
                   <TouchableOpacity
                     key={index}
                     style={styles.emojiButton}
-                    onPress={() => {
-                      console.log('Selected emoji:', emoji);
-                      toggleControls();
-                    }}
+                    onPress={() => handleEmojiSelect(emoji)}
                     activeOpacity={0.7}
                   >
                     <Text style={styles.emojiText}>{emoji}</Text>
@@ -419,9 +478,12 @@ const FullScreenImageViewer: React.FC<{
                   <Animated.View style={styles.flexFill}>
                     <PinchGestureHandler onGestureEvent={onPinchEvent} onHandlerStateChange={onPinchStateChange}>
                       <Animated.View style={styles.flexFill}>
-                        <TouchableWithoutFeedback
+                          <TouchableWithoutFeedback
                           onLongPress={() => {
-                            try { setSelectedIndexes([index]); } catch (e) {}
+                            try {
+                              setSelectedIndexes([index]);
+                              setReactionPickerIndex(index);
+                            } catch (e) {}
                             if (!showControls) toggleControls();
                           }}
                           onPress={() => {
@@ -439,21 +501,38 @@ const FullScreenImageViewer: React.FC<{
                         >
                           <View style={[{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', alignItems: 'center' }]} pointerEvents="box-none">
                             {item && (
-                              <>
+                              <Animated.View
+                                style={[
+                                  {
+                                    width: displayWidth,
+                                    height: displayHeight,
+                                    alignSelf: 'center',
+                                  },
+                                  animatedStyle,
+                                ]}
+                              >
                                 <Animated.Image
                                   source={{ uri: item.uri || '' }}
-                                  style={[
-                                    { width: displayWidth, height: displayHeight, alignSelf: 'center' },
-                                    animatedStyle,
-                                  ]}
+                                  style={styles.fullImage}
                                   resizeMode="contain"
                                 />
+
+                                {!!reactionSummary.length && index === currentIndex && (
+                                  <View style={styles.reactionBadge} pointerEvents="none">
+                                    {reactionSummary.map((entry, badgeIndex) => (
+                                      <View key={`${entry.reaction}-${badgeIndex}`} style={styles.reactionItem}>
+                                        <Text style={styles.reactionEmoji}>{entry.reaction}</Text>
+                                        <Text style={styles.reactionCount}>{entry.count}</Text>
+                                      </View>
+                                    ))}
+                                  </View>
+                                )}
 
                                 {/* Blue selection overlay when selected */}
                                 {selectedIndexes.includes(index) && (
                                   <View style={styles.longPressOverlay} pointerEvents="none" />
                                 )}
-                              </>
+                              </Animated.View>
                             )}
                           </View>
                         </TouchableWithoutFeedback>
@@ -572,6 +651,38 @@ const styles = StyleSheet.create({
   },
   emojiText: {
     fontSize: 20,
+  },
+  fullImage: {
+    width: '100%',
+    height: '100%',
+  },
+  reactionBadge: {
+    position: 'absolute',
+    left: 10,
+    bottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    maxWidth: '88%',
+    backgroundColor: 'rgba(17, 24, 39, 0.82)',
+    borderRadius: 18,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    zIndex: 60,
+  },
+  reactionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  reactionEmoji: {
+    fontSize: 15,
+    marginRight: 3,
+  },
+  reactionCount: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
   },
   selectedCountHeader: {
     position: 'absolute',

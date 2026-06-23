@@ -342,8 +342,72 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       }
     }
     if (location) normalized.location = location;
+    if (Array.isArray(msg.mediaReactions)) {
+      normalized.mediaReactions = msg.mediaReactions.map((reaction: any) => ({
+        mediaItemId: String(reaction.mediaItemId || reaction.mediaItemObjectKey || reaction.mediaItemKey || ''),
+        userId: String(reaction.userId || reaction.reactBy || reaction.reactedBy || ''),
+        reaction: reaction.reaction,
+        reactedAt: reaction.reactedAt ? new Date(reaction.reactedAt) : undefined,
+      })).filter((reaction: any) => reaction.mediaItemId && reaction.userId && reaction.reaction);
+    }
 
     return normalized;
+  };
+
+  const getStableMediaItemIds = (item: any) => [item?.id, item?.objectKey, item?.key]
+    .filter(Boolean)
+    .map((value) => String(value));
+
+  const aggregateReactionSummary = (reactions: any[] = []) => {
+    const totals: Record<string, number> = {};
+    reactions.forEach((reaction) => {
+      if (!reaction || !reaction.reaction) return;
+      totals[reaction.reaction] = (totals[reaction.reaction] || 0) + 1;
+    });
+
+    return Object.keys(totals)
+      .sort((a, b) => totals[b] - totals[a])
+      .map((reaction) => ({ reaction, count: totals[reaction] }));
+  };
+
+  const getVisibleMediaReactionSummary = (message: Message) => {
+    const mediaItems = Array.isArray(message?.mediaItems) ? message.mediaItems : [];
+    const mediaReactions = Array.isArray(message?.mediaReactions) ? message.mediaReactions : [];
+    if (!mediaItems.length || !mediaReactions.length) return [];
+
+    const visibleIds = new Set(
+      mediaItems.flatMap((item) => getStableMediaItemIds(item)),
+    );
+
+    const filtered = mediaReactions.filter((reaction: any) => visibleIds.has(String(reaction.mediaItemId)));
+    return aggregateReactionSummary(filtered);
+  };
+
+  const applyMediaReactionUpdate = (reactions: any[] = [], mediaItemId: string, userId: string, reaction: string | null) => {
+    const normalizedMediaItemId = String(mediaItemId);
+    const normalizedUserId = String(userId);
+    const existing = Array.isArray(reactions) ? [...reactions] : [];
+    const currentReaction = existing.find((item) => String(item.userId) === normalizedUserId && String(item.mediaItemId) === normalizedMediaItemId);
+    const nextReaction = currentReaction?.reaction === reaction ? null : reaction;
+
+    if (nextReaction) {
+      if (currentReaction) {
+        return existing.map((item) => (
+          String(item.userId) === normalizedUserId && String(item.mediaItemId) === normalizedMediaItemId
+            ? { ...item, mediaItemId: normalizedMediaItemId, userId: normalizedUserId, reaction: nextReaction, reactedAt: new Date() }
+            : item
+        ));
+      }
+
+      return [
+        ...existing,
+        { mediaItemId: normalizedMediaItemId, userId: normalizedUserId, reaction: nextReaction, reactedAt: new Date() },
+      ];
+    }
+
+    return existing.filter(
+      (item) => !(String(item.userId) === normalizedUserId && String(item.mediaItemId) === normalizedMediaItemId),
+    );
   };
 
   const mediaItemMatchesHiddenSelection = (messageId: string, item: any) => {
@@ -605,6 +669,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     let onSent: ((msg: any) => void) | null = null;
     let onReceive: ((msg: any) => void) | null = null;
     let onStatus: ((status: any) => void) | null = null;
+    let onMediaReacted: ((payload: any) => void) | null = null;
 
     const upsertMessage = (incoming: Message) => {
       if (deletedForMeIdsRef.current.has(String(incoming.id))) return;
@@ -696,9 +761,28 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           );
         };
 
+        onMediaReacted = (payload) => {
+          if (!mounted) return;
+          const incoming = payload?.message || payload;
+          const convId = String(incoming?.conversationId || payload?.conversationId || '');
+          if (!convId || convId !== String(conversationId)) return;
+          if (!incoming?.id && !incoming?._id) return;
+          const normalized = normalizeServerMessage(incoming);
+          setLoadedMessages((prev) => prev.map((message) => (
+            String(message.id) === String(normalized.id) ? normalized : message
+          )));
+          if (viewerMessage && String(viewerMessage.id) === String(normalized.id)) {
+            setViewerMessage(normalized as any);
+          }
+          try {
+            updateMessage(String(normalized.id), normalized as any);
+          } catch (e) {}
+        };
+
         socket.on('message:sent', onSent);
         socket.on('message:receive', onReceive);
         socket.on('message:status', onStatus);
+        socket.on('message:media-reacted', onMediaReacted);
       } catch (e) {
         // ignore
       }
@@ -712,9 +796,10 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         if (onSent) activeSocket.off('message:sent', onSent);
         if (onReceive) activeSocket.off('message:receive', onReceive);
         if (onStatus) activeSocket.off('message:status', onStatus);
+        if (onMediaReacted) activeSocket.off('message:media-reacted', onMediaReacted);
       }
     };
-  }, [conversationId, currentUserId]);
+  }, [conversationId, currentUserId, viewerMessage]);
 
   const handleStartCall = (callType: 'audio' | 'video') => {
     // send invite to recipient then navigate caller to ActiveCall
@@ -1712,7 +1797,15 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(single.id) ? { ...m, reaction: nextReaction, reactions: nextReactions } : m)));
     (async () => {
       try {
-        await messagesApi.reactMessage(single.id, nextReaction || null);
+        const res = await messagesApi.reactMessage(single.id, nextReaction || null);
+        // Handle backend response to ensure consistency
+        if (res?.message) {
+          const normalized = normalizeServerMessage(res.message);
+          setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(normalized.id) ? normalized : m)));
+          try {
+            updateMessage(String(normalized.id), normalized as any);
+          } catch (e) {}
+        }
       } catch (e) {
         console.warn('react API failed, reverting', e);
         // revert local change by reloading messages
@@ -1908,6 +2001,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         isSelected={selectedMessages.some((m) => String(m.id) === String(renderItem.id))}
         reaction={renderItem.reaction}
         reactions={renderItem.reactions}
+        mediaReactionSummary={getVisibleMediaReactionSummary(renderItem)}
         forwarded={renderItem.forwarded}
         showSenderInfo={shouldShowSender}
         isGroupChat={isGroupConversation}
@@ -2042,6 +2136,57 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     console.log('[viewerMediaItems] result count=', result?.length, 'items=', result?.map((i: any) => ({ id: i.id, hasUri: !!i.uri })));
     return result;
   })();
+
+  const handleReactToViewerMedia = async (payload: { messageId: string; mediaItemId: string; mediaItemObjectKey?: string; reaction: string | null }) => {
+    try {
+      if (!payload?.messageId || !payload?.mediaItemId || !conversationId || !currentUserId) return;
+
+      const optimisticMessage = (message: Message) => ({
+        ...message,
+        mediaReactions: applyMediaReactionUpdate(
+          Array.isArray(message?.mediaReactions) ? message.mediaReactions : [],
+          payload.mediaItemId,
+          currentUserId,
+          payload.reaction,
+        ),
+      });
+
+      setLoadedMessages((prev) => prev.map((item) => (
+        String(item.id) === String(payload.messageId) ? optimisticMessage(item) : item
+      )));
+      if (viewerMessage && String(viewerMessage.id) === String(payload.messageId)) {
+        setViewerMessage((current) => current ? optimisticMessage(current) : current);
+      }
+      try {
+        updateMessage(String(payload.messageId), {
+          mediaReactions: applyMediaReactionUpdate(
+            Array.isArray(loadedMessages.find((item) => String(item.id) === String(payload.messageId))?.mediaReactions)
+              ? loadedMessages.find((item) => String(item.id) === String(payload.messageId))?.mediaReactions
+              : [],
+            payload.mediaItemId,
+            currentUserId,
+            payload.reaction,
+          ),
+        } as any);
+      } catch (e) {}
+
+      const res = await messagesApi.reactMediaMessage(payload.messageId, payload.mediaItemId, payload.reaction, payload.mediaItemObjectKey);
+      if (res?.message) {
+        const normalized = normalizeServerMessage(res.message);
+        setLoadedMessages((prev) => prev.map((item) => (
+          String(item.id) === String(normalized.id) ? normalized : item
+        )));
+        if (viewerMessage && String(viewerMessage.id) === String(normalized.id)) {
+          setViewerMessage(normalized as any);
+        }
+        try {
+          updateMessage(String(normalized.id), normalized as any);
+        } catch (e) {}
+      }
+    } catch (e) {
+      console.warn('[ChatScreen] react media failed', e && e.message);
+    }
+  };
 
   const getForwardCheckStyle = (selected: boolean) => [
     styles.forwardCheck,
@@ -2747,6 +2892,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             ]);
           } catch (e) {}
         }}
+        onReactPress={handleReactToViewerMedia}
       />
 
       <MessageInput

@@ -36,6 +36,8 @@ export interface Message {
     originalFilename?: string | null;
   };
   reaction?: string;
+  reactions?: { userId: string; reaction: string }[];
+  mediaReactions?: MediaReaction[];
   starred?: boolean;
   location?: {
     latitude: number;
@@ -73,6 +75,13 @@ export interface MediaItem {
   type: 'image' | 'video';
   name: string;
   loading?: boolean;
+}
+
+export interface MediaReaction {
+  mediaItemId: string;
+  userId: string;
+  reaction: string;
+  reactedAt?: Date;
 }
 
 export interface Chat {
