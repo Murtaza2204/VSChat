@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
+import { useAuthStore } from '../stores/authStore';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -41,6 +42,7 @@ const FullScreenImageViewer: React.FC<{
   onReplyPress?: (messageOrMessages: any | any[]) => void;
   onReactPress?: (payload: { messageId: string; mediaItemId: string; mediaItemObjectKey?: string; reaction: string | null }) => void;
 }> = ({ visible, mediaItems, startIndex = 0, onRequestClose, message, onForwardPress, onDeletePress, onReplyPress, onReactPress }) => {
+  const currentUserId = useAuthStore((state) => state.user?.id);
   const indexRef = useRef(startIndex);
   const listRef = useRef<FlatList<MediaItem> | null>(null);
   const [currentIndex, setCurrentIndex] = useState(startIndex);
@@ -156,6 +158,12 @@ const FullScreenImageViewer: React.FC<{
     return Object.keys(totals)
       .sort((a, b) => totals[b] - totals[a])
       .map((reaction) => ({ reaction, count: totals[reaction] }));
+  };
+
+  const getCurrentUserReaction = () => {
+    const currentMediaReactions = getCurrentMediaReactions();
+    const userReaction = currentMediaReactions.find((r) => String(r.userId) === String(currentUserId));
+    return userReaction?.reaction || null;
   };
 
   const handleEmojiSelect = (emoji: string) => {
@@ -441,16 +449,22 @@ const FullScreenImageViewer: React.FC<{
                 contentContainerStyle={styles.emojiScrollContent}
                 scrollEnabled={reactionEmojis.length > 6}
               >
-                {reactionEmojis.map((emoji, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.emojiButton}
-                    onPress={() => handleEmojiSelect(emoji)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.emojiText}>{emoji}</Text>
-                  </TouchableOpacity>
-                ))}
+                {reactionEmojis.map((emoji, index) => {
+                  const isActive = getCurrentUserReaction() === emoji;
+                  return (
+                    <TouchableOpacity
+                      key={index}
+                      style={[
+                        styles.emojiButton,
+                        isActive && styles.emojiButtonActive,
+                      ]}
+                      onPress={() => handleEmojiSelect(emoji)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.emojiText}>{emoji}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
             </View>
           </Animated.View>
@@ -651,6 +665,11 @@ const styles = StyleSheet.create({
   },
   emojiText: {
     fontSize: 20,
+  },
+  emojiButtonActive: {
+    borderWidth: 2,
+    borderColor: '#7C3AED',
+    backgroundColor: 'rgba(124, 58, 237, 0.2)',
   },
   fullImage: {
     width: '100%',

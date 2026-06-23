@@ -2513,21 +2513,28 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             },
           ]}
         >
-          {quickReactions.map((reaction) => (
-            <TouchableOpacity
-              key={reaction}
-              activeOpacity={0.75}
-              onPress={() => handleReactToActionMessage(reaction)}
-              style={[
-                styles.reactionButton,
-                actionMessage.reaction === reaction && {
-                  backgroundColor: theme.inputBackground,
-                },
-              ]}
-            >
-              <Text style={styles.reactionEmoji}>{reaction}</Text>
-            </TouchableOpacity>
-          ))}
+          {quickReactions.map((reaction) => {
+            const isActiveReaction = actionMessage.reaction === reaction;
+            const isInReactionsArray = Array.isArray(actionMessage.reactions) && actionMessage.reactions.some((r: any) => String(r.userId) === String(currentUserId) && r.reaction === reaction);
+            const isActive = isActiveReaction || isInReactionsArray;
+            return (
+              <TouchableOpacity
+                key={reaction}
+                activeOpacity={0.75}
+                onPress={() => handleReactToActionMessage(reaction)}
+                style={[
+                  styles.reactionButton,
+                  isActive && {
+                    borderWidth: 2,
+                    borderColor: theme.primary,
+                    backgroundColor: `${theme.primary}20`,
+                  },
+                ]}
+              >
+                <Text style={styles.reactionEmoji}>{reaction}</Text>
+              </TouchableOpacity>
+            );
+          })}
           <TouchableOpacity
             activeOpacity={0.75}
             onPress={() => handleReactToActionMessage('👍')}
