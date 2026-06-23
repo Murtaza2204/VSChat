@@ -98,6 +98,22 @@ export const reactMessage = async (messageId: string, reaction: string | null) =
   }
 };
 
+export const reactMediaMessage = async (messageId: string, mediaItemId: string, reaction: string | null, mediaItemObjectKey?: string) => {
+  try {
+    const res = await api.post('/messages/react-media', {
+      messageId,
+      mediaItemId,
+      mediaItemObjectKey,
+      reaction,
+    });
+    console.info('[messagesApi] reactMediaMessage response', { messageId, mediaItemId, reaction, status: res.status, data: res.data });
+    return res.data;
+  } catch (e) {
+    console.warn('[messagesApi] reactMediaMessage error', e && e.message);
+    throw e;
+  }
+};
+
 export const removeMessageMedia = async (messageId: string, mediaItemIds: string[]) => {
   try {
     const res = await api.post('/messages/remove-media', { messageId, mediaItemIds });
@@ -108,4 +124,4 @@ export const removeMessageMedia = async (messageId: string, mediaItemIds: string
   }
 };
 
-export default { getMessages, sendMessage, markConversationRead, deleteMessageForMe, deleteMessageForEveryone, deleteMessagesForMeBulk, deleteMessagesForEveryoneBulk, forwardMessagesBulk, reactMessage, removeMessageMedia };
+export default { getMessages, sendMessage, markConversationRead, deleteMessageForMe, deleteMessageForEveryone, deleteMessagesForMeBulk, deleteMessagesForEveryoneBulk, forwardMessagesBulk, reactMessage, reactMediaMessage, removeMessageMedia };

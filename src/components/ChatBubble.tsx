@@ -36,6 +36,7 @@ interface ChatBubbleProps {
   isSelected?: boolean;
   reaction?: string;
   reactions?: { userId: string; reaction: string }[];
+  mediaReactionSummary?: { reaction: string; count: number }[];
   replyTo?: Message | null;
   replyToIndex?: number;
   replyToMediaItemId?: string;
@@ -70,6 +71,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   isSelected = false,
   reaction,
   reactions = [],
+  mediaReactionSummary = [],
   replyTo,
   onReplyPress,
   onOpenReplyMedia,
@@ -240,7 +242,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
           styles.container,
           isIncomingGroupMessage && styles.avatarContainer,
           isOwn ? styles.ownContainer : styles.otherContainer,
-          (!!reaction || (Array.isArray(reactions) && reactions.length > 0)) && { marginBottom: SPACING.lg + SPACING.sm },
+          (!!reaction || (Array.isArray(reactions) && reactions.length > 0) || (Array.isArray(mediaReactionSummary) && mediaReactionSummary.length > 0)) && { marginBottom: SPACING.lg + SPACING.sm },
           style,
         ]}
       >
@@ -541,20 +543,42 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         </View>
         {
           (() => {
-            // prefer explicit reactions array when provided
             // Do not render reactions on deleted messages
             if (type === 'deleted') return null;
-            const arr = Array.isArray(reactions) && reactions.length ? reactions : (reaction ? [{ userId: '0', reaction }] : []);
-            if (!arr || arr.length === 0) return null;
-            const totals: Record<string, number> = {};
-            let totalCount = 0;
-            arr.forEach((r) => {
-              if (!r || !r.reaction) return;
-              totals[r.reaction] = (totals[r.reaction] || 0) + 1;
-              totalCount += 1;
-            });
-            const sorted = Object.keys(totals).sort((a, b) => totals[b] - totals[a]);
-            const displayEmojis = sorted.slice(0, 2).join(' ');
+
+            // Combine both media reactions and message-level reactions
+            const mediaReactionsList = Array.isArray(mediaReactionSummary) ? mediaReactionSummary : [];
+            const messageReactionArr = Array.isArray(reactions) && reactions.length ? reactions : (reaction ? [{ userId: '0', reaction }] : []);
+
+            // Build combined display
+            const combinedReactions: Record<string, number> = {};
+            const reactionTypes: { type: 'media' | 'message'; reactions: any[] }[] = [];
+
+            // Add media reactions
+            if (mediaReactionsList.length > 0) {
+              reactionTypes.push({ type: 'media', reactions: mediaReactionsList });
+              mediaReactionsList.forEach((entry) => {
+                combinedReactions[entry.reaction] = (combinedReactions[entry.reaction] || 0) + entry.count;
+              });
+            }
+
+            // Add message-level reactions
+            if (messageReactionArr.length > 0) {
+              reactionTypes.push({ type: 'message', reactions: messageReactionArr });
+              messageReactionArr.forEach((r) => {
+                if (r?.reaction) {
+                  combinedReactions[r.reaction] = (combinedReactions[r.reaction] || 0) + 1;
+                }
+              });
+            }
+
+            if (Object.keys(combinedReactions).length === 0) return null;
+
+            const sorted = Object.keys(combinedReactions).sort((a, b) => combinedReactions[b] - combinedReactions[a]);
+            // For multi-image messages, show all emojis; for others, limit to 3
+            const maxEmojisToShow = type === 'mediaGroup' ? sorted.length : 3;
+            const displayEmojis = sorted.slice(0, maxEmojisToShow).join(' ');
+            const totalCount = Object.values(combinedReactions).reduce((sum, count) => sum + count, 0);
 
             return (
               <View style={[
