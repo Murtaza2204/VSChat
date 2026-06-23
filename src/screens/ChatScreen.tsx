@@ -1639,6 +1639,26 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         (async () => {
           try {
             await messagesApi.forwardMessagesBulk(convId, msgsToSend);
+            // After forwarding media, send the note as a text message if provided
+            if (forwardNote.trim()) {
+              try {
+                await messagesApi.sendMessage(
+                  convId,
+                  currentUserId,
+                  forwardNote.trim(),
+                  'text',
+                  undefined,
+                  undefined,
+                  undefined,
+                  undefined,
+                  undefined,
+                  false,
+                  undefined,
+                );
+              } catch (noteErr) {
+                console.warn('Failed to send forward note', noteErr);
+              }
+            }
           } catch (err) {
             console.warn('Forward persist failed', err);
           }
@@ -2114,7 +2134,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const viewerMediaItems = (() => {
     console.log('[viewerMediaItems] computing with mediaItemsCount=', viewerMessage?.mediaItems?.length, 'hasMediaUrl=', !!viewerMessage?.mediaUrl || !!viewerObjectUrl);
-    const result = (viewerMessage?.mediaItems
+    let result = (viewerMessage?.mediaItems
       ? viewerMessage.mediaItems
           .map((item: any) => ({
             ...item,
@@ -2133,6 +2153,12 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           } as MediaItem,
         ]
       : []);
+
+    // Filter out hidden media items (deleted for me)
+    if (viewerMessage && result && result.length > 0) {
+      result = result.filter((item) => !mediaItemMatchesHiddenSelection(String(viewerMessage.id), item));
+    }
+
     console.log('[viewerMediaItems] result count=', result?.length, 'items=', result?.map((i: any) => ({ id: i.id, hasUri: !!i.uri })));
     return result;
   })();
@@ -2802,7 +2828,18 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
             const partial = messageOrMessages && messageOrMessages.messageId && Array.isArray(messageOrMessages.mediaItemIds) ? messageOrMessages : null;
 
-            Alert.alert('Delete', 'Choose deletion option', [
+            // Check if current user is the sender
+            let isSender = false;
+            if (partial) {
+              // Get the message from loadedMessages to check sender
+              const msg = loadedMessages.find((m) => String(m.id) === String(partial.messageId));
+              isSender = msg && String(msg.senderId) === String(currentUserId);
+            } else if (items.length > 0) {
+              // Check if current user sent the first message
+              isSender = String(items[0].senderId) === String(currentUserId);
+            }
+
+            const deleteButtons: any[] = [
               { text: 'Cancel', style: 'cancel' },
               { text: 'Delete for me', style: 'default', onPress: async () => {
                 if (partial) {
@@ -2841,7 +2878,12 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                 setActionMessage(null);
                 setViewerMessage(null);
               } },
-              { text: 'Delete for everyone', style: 'destructive', onPress: async () => {
+            ];
+
+            // Only add "Delete for everyone" option if current user is the sender
+            if (isSender) {
+              deleteButtons.push(
+                { text: 'Delete for everyone', style: 'destructive', onPress: async () => {
                 if (partial) {
                   const { messageId, mediaItemIds } = partial;
                   try {
@@ -2895,9 +2937,14 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                 setSelectedMessages([]);
                 setActionMessage(null);
                 setViewerMessage(null);
-              } },
-            ]);
-          } catch (e) {}
+              } }
+              );
+            }
+
+            Alert.alert('Delete', 'Choose deletion option', deleteButtons);
+          } catch (e) {
+            console.warn('delete action failed', e);
+          }
         }}
         onReactPress={handleReactToViewerMedia}
       />
