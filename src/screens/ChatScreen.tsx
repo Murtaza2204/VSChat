@@ -98,6 +98,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       : undefined);
   const [loadedMessages, setLoadedMessages] = useState<Message[]>([]);
   const deletedForMeIdsRef = useRef(new Set<string>());
+  const hiddenMediaItemIdsRef = useRef(new Map<string, Set<string>>());
   const [membersProfiles, setMembersProfiles] = useState<any[] | null>(null);
   const { state: uploadState, upload: uploadUsingHook, reset: resetUpload } = useMediaUpload();
   const chatMessages = useMemo(() => (conversationId ? loadedMessages : (chat?.messages || [])), [conversationId, loadedMessages, chat]);
@@ -169,6 +170,33 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [nowTick, setNowTick] = useState(Date.now());
   const liveLocationWatchRef = useRef<number | null>(null);
   const liveLocationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Helper to resolve media URIs before opening viewer
+  const resolveMediaUris = async (items: MediaItem[]): Promise<MediaItem[]> => {
+    console.log('[resolveMediaUris] starting with', items?.length, 'items');
+    if (!items || !items.length) return [];
+    const resolved = await Promise.all(
+      items.map(async (item) => {
+        console.log('[resolveMediaUris] processing item', { id: item.id, hasUri: !!item.uri, hasObjectKey: !!item.objectKey });
+        if (item.uri) return item;
+        if (item.objectKey) {
+          try {
+            console.log('[resolveMediaUris] fetching download url for objectKey:', item.objectKey);
+            const uri = await fetchDownloadUrl(item.objectKey);
+            console.log('[resolveMediaUris] got uri:', uri?.substring?.(0, 50));
+            return { ...item, uri: uri || item.uri || '' };
+          } catch (e) {
+            console.error('[resolveMediaUris] error fetching download url', e);
+            return { ...item, uri: item.uri || '' };
+          }
+        }
+        return item;
+      })
+    );
+    const filtered = resolved.filter((item) => !!item.uri);
+    console.log('[resolveMediaUris] returning', filtered.length, 'items with uris');
+    return filtered;
+  };
 
   const liveLocationDurations = [
     { label: '15 min', value: 15 * 60 * 1000 },
@@ -284,6 +312,9 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       senderAvatar: isValidAvatarUri(senderAvatar) ? senderAvatar : undefined,
       call,
       replyToId: msg.replyToId ? String(msg.replyToId) : undefined,
+      replyToMediaItemIndex: typeof msg.replyToMediaItemIndex === 'number' ? msg.replyToMediaItemIndex : undefined,
+      replyToMediaItemId: msg.replyToMediaItemId ? String(msg.replyToMediaItemId) : undefined,
+      replyToMediaItemObjectKey: msg.replyToMediaItemObjectKey ? String(msg.replyToMediaItemObjectKey) : undefined,
       forwarded: !!msg.forwarded,
       forwardedFrom: msg.forwardedFrom || null,
       reaction: msg.reaction || (myReactionObj ? myReactionObj.reaction : undefined),
@@ -313,6 +344,71 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     if (location) normalized.location = location;
 
     return normalized;
+  };
+
+  const mediaItemMatchesHiddenSelection = (messageId: string, item: any) => {
+    const hiddenIds = hiddenMediaItemIdsRef.current.get(String(messageId));
+    if (!hiddenIds || hiddenIds.size === 0) return false;
+
+    const itemIds = [item?.id, item?.objectKey, item?.key, item?.uri]
+      .filter(Boolean)
+      .map((value) => String(value));
+
+    return itemIds.some((id) => hiddenIds.has(id));
+  };
+
+  const getVisibleMessageForRender = (message: Message) => {
+    if (!message) return null;
+
+    const hiddenIds = hiddenMediaItemIdsRef.current.get(String(message.id));
+    if (!hiddenIds || hiddenIds.size === 0) return message;
+
+    if (Array.isArray(message.mediaItems) && message.mediaItems.length > 0) {
+      const remainingMediaItems = message.mediaItems.filter(
+        (item) => !mediaItemMatchesHiddenSelection(String(message.id), item),
+      );
+
+      if (remainingMediaItems.length === message.mediaItems.length) return message;
+
+      if (remainingMediaItems.length > 0) {
+        return {
+          ...message,
+          mediaItems: remainingMediaItems,
+          type: remainingMediaItems.length > 1 ? 'mediaGroup' : remainingMediaItems[0].type || message.type,
+        };
+      }
+
+      return null;
+    }
+
+    const mediaKeys = [message.mediaUrl, message.metadata?.objectKey]
+      .filter(Boolean)
+      .map((value) => String(value));
+
+    if (mediaKeys.some((key) => hiddenIds.has(key))) {
+      return null;
+    }
+
+    return message;
+  };
+
+  const hideMediaItemsLocally = (messageId: string, mediaItemIds: string[]) => {
+    const normalizedMessageId = String(messageId);
+    const existingHiddenIds = hiddenMediaItemIdsRef.current.get(normalizedMessageId) || new Set<string>();
+    mediaItemIds.forEach((id) => existingHiddenIds.add(String(id)));
+    hiddenMediaItemIdsRef.current.set(normalizedMessageId, existingHiddenIds);
+
+    try {
+      const storageKey = `hiddenMediaItems:${String(conversationId || chat?.id || '')}`;
+      const payload: Record<string, string[]> = {};
+      hiddenMediaItemIdsRef.current.forEach((ids, key) => {
+        payload[key] = Array.from(ids);
+      });
+      AsyncStorage.setItem(storageKey, JSON.stringify(payload)).catch(() => {});
+    } catch (e) {}
+
+    // Force a rerender so the filtered view updates immediately.
+    setLoadedMessages((prev) => [...prev]);
   };
 
   const mapAssetToMediaItem = (asset: Asset, index: number): MediaItem | null => {
@@ -431,6 +527,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             const optimistic: any = { id: tempId, senderId: currentUserId, senderName: 'You', content, type: 'text', timestamp: new Date(), read: false, status: 'sent' };
             if (replyMessage) {
               optimistic.replyToId = replyMessage.id;
+              if (typeof replyMessage.replyToMediaItemIndex === 'number') {
+                optimistic.replyToMediaItemIndex = replyMessage.replyToMediaItemIndex;
+              }
+              if (replyMessage.replyToMediaItemId) optimistic.replyToMediaItemId = replyMessage.replyToMediaItemId;
+              if (replyMessage.replyToMediaItemObjectKey) optimistic.replyToMediaItemObjectKey = replyMessage.replyToMediaItemObjectKey;
               setReplyMessage(null);
             }
             setLoadedMessages((m) => [...m, optimistic]);
@@ -441,7 +542,12 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             } catch (e) {}
             // for group chats, don't send receiverId
             const receiverId = isGroupConversation ? undefined : derivedReceiverId;
-            socket.emit('message:send', { conversationId, senderId: currentUserId, receiverId, content, type: 'text', clientTempId: tempId, replyToId: optimistic.replyToId });
+            const payload: any = { conversationId, senderId: currentUserId, receiverId, content, type: 'text', clientTempId: tempId };
+            if (optimistic.replyToId) payload.replyToId = optimistic.replyToId;
+            if (typeof optimistic.replyToMediaItemIndex === 'number') payload.replyToMediaItemIndex = optimistic.replyToMediaItemIndex;
+            if (optimistic.replyToMediaItemId) payload.replyToMediaItemId = optimistic.replyToMediaItemId;
+            if (optimistic.replyToMediaItemObjectKey) payload.replyToMediaItemObjectKey = optimistic.replyToMediaItemObjectKey;
+            socket.emit('message:send', payload);
           }
           else {
             const receiverId = isGroupConversation ? undefined : derivedReceiverId;
@@ -452,8 +558,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
               'text',
               receiverId,
               replyMessage?.id,
+              replyMessage?.replyToMediaItemIndex,
+              replyMessage?.replyToMediaItemId,
+              replyMessage?.replyToMediaItemObjectKey,
             );
-            const finalMsg = { id: sent._id, senderId: sent.senderId, senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them', content: sent.content, type: sent.type, timestamp: new Date(sent.createdAt), read: false, status: sent.status || 'sent', replyToId: sent.replyToId };
+            const finalMsg = { id: sent._id, senderId: sent.senderId, senderName: sent.senderId === currentUserId ? 'You' : sent.senderName || 'Them', content: sent.content, type: sent.type, timestamp: new Date(sent.createdAt), read: false, status: sent.status || 'sent', replyToId: sent.replyToId, replyToMediaItemIndex: sent.replyToMediaItemIndex, replyToMediaItemId: sent.replyToMediaItemId, replyToMediaItemObjectKey: sent.replyToMediaItemObjectKey };
             setLoadedMessages((m) => [...m, finalMsg]);
             try {
               const target = useChatStore.getState().chats.find((c) => String(c.conversationId) === String(conversationId) || String(c.id) === String(chat?.id));
@@ -1210,9 +1319,21 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         return;
       }
 
+    try {
       try {
-        const msgs = await messagesApi.getMessages(conversationId);
-        setLoadedMessages((msgs || []).map(normalizeServerMessage));
+        const storageKey = `hiddenMediaItems:${String(conversationId || chat?.id || '')}`;
+        const rawHidden = await AsyncStorage.getItem(storageKey);
+        const parsedHidden = rawHidden ? JSON.parse(rawHidden) : {};
+        const nextHiddenMap = new Map<string, Set<string>>();
+        Object.entries(parsedHidden || {}).forEach(([messageId, ids]) => {
+          if (!Array.isArray(ids) || !ids.length) return;
+          nextHiddenMap.set(String(messageId), new Set(ids.map((id) => String(id))));
+        });
+        hiddenMediaItemIdsRef.current = nextHiddenMap;
+      } catch (e) {}
+
+      const msgs = await messagesApi.getMessages(conversationId);
+      setLoadedMessages((msgs || []).map(normalizeServerMessage));
       } catch (e) {
         console.warn('Failed to load messages', (e as any)?.message || String(e));
       }
@@ -1721,9 +1842,12 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           <View style={[styles.dateSeparatorContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Text style={[styles.dateSeparatorText, { color: theme.textSecondary }]}>{item.dateLabel}</Text>
           </View>
-        </View>
-      );
-    }
+      </View>
+    );
+  }
+
+    const renderItem = getVisibleMessageForRender(item);
+    if (!renderItem) return null;
 
     const repliedMessage = item.replyToId
       ? chatMessages.find((m) => m.id === item.replyToId)
@@ -1744,42 +1868,65 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
     return (
       <ChatBubble
-        message={item.content}
-        timestamp={item.timestamp}
-        isOwn={item.senderId === currentUserId}
+        message={renderItem.content}
+        timestamp={renderItem.timestamp}
+        isOwn={renderItem.senderId === currentUserId}
         theme={theme}
-        read={item.read}
-        status={item.status}
-        type={item.type}
-        call={item.call}
-        mediaUrl={item.mediaUrl}
-        mediaItems={item.mediaItems}
-        metadata={item.metadata}
-        location={item.location}
+        read={renderItem.read}
+        status={renderItem.status}
+        type={renderItem.type}
+        call={renderItem.call}
+        mediaUrl={renderItem.mediaUrl}
+        mediaItems={renderItem.mediaItems}
+        metadata={renderItem.metadata}
+        location={renderItem.location}
         onMediaPress={(index?: number) => {
-          setViewerMessage(item);
-          setViewerStartIndex(index || 0);
+          console.log('[onMediaPress] called', { itemId: item?.id, index });
+          (async () => {
+            try {
+              const idx = index || 0;
+              // Resolve media URIs before opening viewer
+              if (item?.mediaItems && item.mediaItems.length > 0) {
+                console.log('[onMediaPress] resolving', item.mediaItems.length, 'items');
+                const resolved = await resolveMediaUris(item.mediaItems);
+                console.log('[onMediaPress] resolved to', resolved.length, 'items');
+                if (resolved.length > 0) {
+                  setViewerStartIndex(idx);
+                  setViewerMessage({ ...item, mediaItems: resolved });
+                  return;
+                }
+              }
+              // Fallback: open anyway
+              setViewerStartIndex(idx);
+              setViewerMessage(item);
+            } catch (e) {
+              console.error('[onMediaPress] error', e);
+            }
+          })()
         }}
-        onForwardPress={() => openForwardForMessage(item)}
-        isSelected={selectedMessages.some((m) => String(m.id) === String(item.id))}
-        reaction={item.reaction}
-        reactions={item.reactions}
-        forwarded={item.forwarded}
+        onForwardPress={() => openForwardForMessage(renderItem)}
+        isSelected={selectedMessages.some((m) => String(m.id) === String(renderItem.id))}
+        reaction={renderItem.reaction}
+        reactions={renderItem.reactions}
+        forwarded={renderItem.forwarded}
         showSenderInfo={shouldShowSender}
         isGroupChat={isGroupConversation}
         senderName={resolvedSenderName}
         senderAvatar={
-          isValidAvatarUri(item.senderAvatar)
-            ? item.senderAvatar
+          isValidAvatarUri(renderItem.senderAvatar)
+            ? renderItem.senderAvatar
             : isValidAvatarUri(profileAvatar)
               ? profileAvatar
-              : item.senderId === currentUserId && isValidAvatarUri(user?.avatar)
+              : renderItem.senderId === currentUserId && isValidAvatarUri(user?.avatar)
                 ? user?.avatar
                 : undefined
         }
-        onLongPress={() => handleLongPressMessage(item)}
-        onPress={() => handleToggleSelectMessage(item)}
+        onLongPress={() => handleLongPressMessage(renderItem)}
+        onPress={() => handleToggleSelectMessage(renderItem)}
         replyTo={repliedMessage}
+        replyToIndex={renderItem.replyToMediaItemIndex}
+        replyToMediaItemId={renderItem.replyToMediaItemId}
+        replyToMediaItemObjectKey={renderItem.replyToMediaItemObjectKey}
         onReplyPress={() => {
           if (repliedMessage) {
             const messageIndex = chatMessages.findIndex((m) => m.id === repliedMessage.id);
@@ -1797,6 +1944,44 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
               setTimeout(() => setActionMessage(null), 1500);
             }
           }
+        }}
+        onOpenReplyMedia={(msg, mediaIndex) => {
+          console.log('[ChatScreen] onOpenReplyMedia called', { msgId: msg?.id, mediaCount: msg?.mediaItems?.length, mediaIndex, replyToMediaItemIndex: msg?.replyToMediaItemIndex });
+          (async () => {
+              try {
+                // Prefer a stable media-item identity, then fall back to index.
+                const stableIndex = (() => {
+                  if (!msg?.mediaItems || !msg.mediaItems.length) return -1;
+                  const ids = [msg.replyToMediaItemId, msg.replyToMediaItemObjectKey].filter(Boolean).map((value) => String(value));
+                  if (!ids.length) return -1;
+                  return msg.mediaItems.findIndex((mediaItem: any) => {
+                    const itemIds = [mediaItem?.id, mediaItem?.objectKey, mediaItem?.key].filter(Boolean).map((value) => String(value));
+                    return ids.some((id) => itemIds.includes(id));
+                  });
+                })();
+                // Prefer the mediaIndex argument (from the replying message) when opening a replied media
+                const idx = stableIndex !== -1 ? stableIndex : (typeof mediaIndex === 'number' ? mediaIndex : (typeof msg?.replyToMediaItemIndex === 'number' ? msg.replyToMediaItemIndex : 0));
+                console.log('[onOpenReplyMedia] starting resolution for', msg?.mediaItems?.length, 'items, using index', idx);
+              // Resolve media URIs before opening viewer so images load properly
+              if (msg?.mediaItems && msg.mediaItems.length > 0) {
+                const resolved = await resolveMediaUris(msg.mediaItems);
+                console.log('[onOpenReplyMedia] resolved to', resolved.length, 'items');
+                if (resolved.length > 0) {
+                  // Only show viewer if we have resolved media
+                  console.log('[onOpenReplyMedia] setting viewer with resolved media at index', idx);
+                  setViewerStartIndex(idx);
+                  setViewerMessage({ ...msg, mediaItems: resolved });
+                  return;
+                }
+              }
+              // Fallback: open anyway (single mediaUrl case)
+              console.log('[onOpenReplyMedia] fallback - opening viewer without media items');
+              setViewerStartIndex(idx);
+              setViewerMessage(msg);
+            } catch (e) {
+              console.error('[onOpenReplyMedia] error', e);
+            }
+          })()
         }}
       />
     );
@@ -1833,8 +2018,9 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     };
   }, [viewerMessage, viewerResolvedUrls]);
 
-  const viewerMediaItems =
-    (viewerMessage?.mediaItems
+  const viewerMediaItems = (() => {
+    console.log('[viewerMediaItems] computing with mediaItemsCount=', viewerMessage?.mediaItems?.length, 'hasMediaUrl=', !!viewerMessage?.mediaUrl || !!viewerObjectUrl);
+    const result = (viewerMessage?.mediaItems
       ? viewerMessage.mediaItems
           .map((item: any) => ({
             ...item,
@@ -1853,6 +2039,9 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           } as MediaItem,
         ]
       : []);
+    console.log('[viewerMediaItems] result count=', result?.length, 'items=', result?.map((i: any) => ({ id: i.id, hasUri: !!i.uri })));
+    return result;
+  })();
 
   const getForwardCheckStyle = (selected: boolean) => [
     styles.forwardCheck,
@@ -2439,6 +2628,125 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         mediaItems={viewerMediaItems}
         startIndex={viewerStartIndex}
         onRequestClose={() => setViewerMessage(null)}
+        message={viewerMessage}
+        onForwardPress={(messageOrMessages) => openForwardForMessage(messageOrMessages)}
+        onReplyPress={(messageOrMessages) => {
+          try {
+            const single = Array.isArray(messageOrMessages) ? (messageOrMessages.length ? messageOrMessages[0] : null) : messageOrMessages;
+            if (!single) return;
+            console.log('[ChatScreen] onReplyPress received messageOrMessages, first id=', single.id, 'replyToMediaItemIndex=', single.replyToMediaItemIndex, 'mediaItemsCount=', single.mediaItems?.length);
+            const norm = normalizeServerMessage(single);
+            console.log('[ChatScreen] onReplyPress normalized replyMessage id=', norm.id, 'replyToMediaItemIndex=', norm.replyToMediaItemIndex, 'mediaItemsCount=', norm.mediaItems?.length);
+            setReplyMessage(norm);
+            setSelectedMessages([]);
+            setActionMessage(null);
+            setViewerMessage(null);
+          } catch (e) {}
+        }}
+        onDeletePress={async (messageOrMessages) => {
+          try {
+            const items = Array.isArray(messageOrMessages) ? messageOrMessages : (messageOrMessages ? [messageOrMessages] : (viewerMessage ? [viewerMessage] : []));
+            if (!items || !items.length) return;
+
+            const partial = messageOrMessages && messageOrMessages.messageId && Array.isArray(messageOrMessages.mediaItemIds) ? messageOrMessages : null;
+
+            Alert.alert('Delete', 'Choose deletion option', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Delete for me', style: 'default', onPress: async () => {
+                if (partial) {
+                  const messageId = String(partial.messageId);
+                  const mediaItemIds = Array.from(new Set((partial.mediaItemIds || []).map((id: string) => String(id))));
+                  try {
+                    hideMediaItemsLocally(messageId, mediaItemIds);
+                  } catch (e) {
+                    console.warn('local media hide failed', e);
+                  }
+
+                  setSelectedMessages([]);
+                  setActionMessage(null);
+                  setViewerMessage(null);
+                  return;
+                }
+
+                const ids = items.map((m) => String(m.id));
+                try {
+                  ids.forEach((id) => { try { deleteMessage(id); } catch (e) {} });
+                  setLoadedMessages((prev) => prev.filter((m) => !ids.includes(String(m.id))));
+                  try { ids.forEach((id) => { deletedForMeIdsRef.current.add(String(id)); setTimeout(() => deletedForMeIdsRef.current.delete(String(id)), 10000); }); } catch (e) {}
+                } catch (e) { console.warn('local delete failed', e); }
+
+                try {
+                  await messagesApi.deleteMessagesForMeBulk(ids);
+                } catch (e) {
+                  console.warn('delete for me failed, reverting locally', e);
+                  try {
+                    const msgs = await messagesApi.getMessages(conversationId);
+                    setLoadedMessages(msgs.map(normalizeServerMessage));
+                  } catch (err) { console.warn('failed to reload messages after revert', err); }
+                }
+
+                setSelectedMessages([]);
+                setActionMessage(null);
+                setViewerMessage(null);
+              } },
+              { text: 'Delete for everyone', style: 'destructive', onPress: async () => {
+                if (partial) {
+                  const { messageId, mediaItemIds } = partial;
+                  try {
+                    const res = await messagesApi.removeMessageMedia(messageId, mediaItemIds);
+                    const updated = res && res.message ? res.message : null;
+                    if (updated) {
+                      const norm = normalizeServerMessage(updated);
+                      if (norm.deletedForEveryone) {
+                        const text = String(norm.deletedBy) === String(currentUserId) ? 'You deleted this message' : 'This message was deleted';
+                        try { updateMessage(String(norm.id), { content: text, type: 'deleted', deletedForEveryone: true, reactions: [], reaction: undefined }); } catch (e) {}
+                        setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(norm.id) ? { ...m, content: text, type: 'deleted', deletedForEveryone: true, reactions: [], reaction: undefined } : m)));
+                      } else {
+                        try { updateMessage(String(norm.id), norm); } catch (e) {}
+                        setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(norm.id) ? norm : m)));
+                      }
+                    }
+                  } catch (e) {
+                    console.warn('remove media API failed', e);
+                    Alert.alert('Delete failed', 'Unable to delete selected images.');
+                  }
+                } else {
+                  const ids = items.map((m) => String(m.id));
+                  try {
+                    const res = await messagesApi.deleteMessagesForEveryoneBulk(ids);
+                    const updatedArr = res && (res.messages || res.messagesUpdated || res.messages || null) ? (res.messages || res.messagesUpdated) : null;
+                    if (Array.isArray(updatedArr) && updatedArr.length) {
+                      // apply server-updated messages
+                      updatedArr.forEach((um) => {
+                        try {
+                          const norm = normalizeServerMessage(um);
+                          if (norm.deletedForEveryone) {
+                            const text = String(norm.deletedBy) === String(currentUserId) ? 'You deleted this message' : 'This message was deleted';
+                            try { updateMessage(String(norm.id), { content: text, type: 'deleted', deletedForEveryone: true, reactions: [], reaction: undefined }); } catch (e) {}
+                            setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(norm.id) ? { ...m, content: text, type: 'deleted', deletedForEveryone: true } : m)));
+                          } else {
+                            try { updateMessage(String(norm.id), norm); } catch (e) {}
+                            setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(norm.id) ? norm : m)));
+                          }
+                        } catch (e) {}
+                      });
+                    } else {
+                      // fallback: optimistic placeholder for sender
+                      const text = 'You deleted this message';
+                      setLoadedMessages((prev) => prev.map((m) => ids.includes(String(m.id)) ? { ...m, content: text, type: 'deleted', deletedForEveryone: true } : m));
+                    }
+                  } catch (e) {
+                    console.warn('delete for everyone failed', e);
+                  }
+                }
+
+                setSelectedMessages([]);
+                setActionMessage(null);
+                setViewerMessage(null);
+              } },
+            ]);
+          } catch (e) {}
+        }}
       />
 
       <MessageInput
