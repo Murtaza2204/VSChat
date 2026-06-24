@@ -13,6 +13,7 @@ import MapView, { Marker } from 'react-native-maps';
 import { SPACING, FONT_SIZES, BORDER_RADIUS, SHADOWS } from '../constants/colors';
 import { Message } from '../types';
 import Avatar from './Avatar';
+import { VideoThumbnailComponent } from './VideoThumbnail';
 import useMedia from '../hooks/useMedia';
 import { fetchDownloadUrl } from '../services/mediaService';
 
@@ -348,7 +349,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
                         : replyTo.content}
                 </Text>
                 {replyTo.mediaItems && replyTo.mediaItems.length > 0 ? (
-                  <View style={{ width: 40, height: 40, marginLeft: 8 }}>
+                  <View style={{ width: 40, height: 40, marginLeft: 8, position: 'relative' }}>
                     <Image source={{ uri: replyThumbUri || (replyTo.mediaItems.find((mediaItem: any) => {
                       const itemIds = [mediaItem?.id, mediaItem?.objectKey, mediaItem?.key]
                         .filter(Boolean)
@@ -358,6 +359,19 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
                         (replyToMediaItemObjectKey && itemIds.includes(String(replyToMediaItemObjectKey)))
                       );
                     })?.uri) || (replyTo.mediaItems[(typeof replyToIndex === 'number' ? replyToIndex : 0)]?.uri) || '' }} style={{ width: 40, height: 40, borderRadius: 6 }} />
+                    {(replyTo.mediaItems.find((mediaItem: any) => {
+                      const itemIds = [mediaItem?.id, mediaItem?.objectKey, mediaItem?.key]
+                        .filter(Boolean)
+                        .map((value) => String(value));
+                      return (
+                        (replyToMediaItemId && itemIds.includes(String(replyToMediaItemId))) ||
+                        (replyToMediaItemObjectKey && itemIds.includes(String(replyToMediaItemObjectKey)))
+                      );
+                    })?.type) === 'video' || (replyTo.mediaItems[(typeof replyToIndex === 'number' ? replyToIndex : 0)]?.type) === 'video' ? (
+                      <View style={styles.replyVideoPlayButton}>
+                        <Icon name="play-circle" size={14} color="#FFFFFF" />
+                      </View>
+                    ) : null}
                   </View>
                 ) : null}
               </View>
@@ -402,7 +416,20 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             {resolvedMediaItems.length === 1 && (
               <TouchableOpacity activeOpacity={0.95} onPress={() => onMediaPress?.(0)} onLongPress={onLongPress}>
                 <View style={[styles.mediaTile, styles.singleMediaTile]}>
-                  <Image source={{ uri: resolvedMediaItems[0].uri || '' }} style={styles.image} resizeMode="cover" />
+                  {resolvedMediaItems[0].type === 'video' ? (
+                    <VideoThumbnailComponent
+                      source={{ uri: resolvedMediaItems[0].uri || '' }}
+                      style={styles.image}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <Image source={{ uri: resolvedMediaItems[0].uri || '' }} style={styles.image} resizeMode="cover" />
+                  )}
+                  {resolvedMediaItems[0].type === 'video' && (
+                    <View style={[styles.playButtonOverlay, styles.singlePlayButton]}>
+                      <Icon name="play-circle" size={40} color="#FFFFFF" />
+                    </View>
+                  )}
                 </View>
               </TouchableOpacity>
             )}
@@ -413,7 +440,20 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
                 {resolvedMediaItems.map((item, idx) => (
                   <TouchableOpacity key={item.id} activeOpacity={0.95} onPress={() => onMediaPress?.(idx)} onLongPress={onLongPress} style={styles.twoMediaPressable}>
                     <View style={[styles.mediaTile, styles.twoMediaTile]}>
-                      <Image source={{ uri: item.uri || '' }} style={styles.image} resizeMode="cover" />
+                      {item.type === 'video' ? (
+                        <VideoThumbnailComponent
+                          source={{ uri: item.uri || '' }}
+                          style={styles.image}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <Image source={{ uri: item.uri || '' }} style={styles.image} resizeMode="cover" />
+                      )}
+                      {item.type === 'video' && (
+                        <View style={[styles.playButtonOverlay, styles.twoMediaPlayButton]}>
+                          <Icon name="play-circle" size={32} color="#FFFFFF" />
+                        </View>
+                      )}
                     </View>
                   </TouchableOpacity>
                 ))}
@@ -425,14 +465,40 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
               <View>
                 <TouchableOpacity activeOpacity={0.95} onPress={() => onMediaPress?.(0)} onLongPress={onLongPress}>
                   <View style={[styles.mediaTile, styles.threeMediaHero]}>
-                    <Image source={{ uri: resolvedMediaItems[0].uri || '' }} style={styles.image} resizeMode="cover" />
+                    {resolvedMediaItems[0].type === 'video' ? (
+                      <VideoThumbnailComponent
+                        source={{ uri: resolvedMediaItems[0].uri || '' }}
+                        style={styles.image}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Image source={{ uri: resolvedMediaItems[0].uri || '' }} style={styles.image} resizeMode="cover" />
+                    )}
+                    {resolvedMediaItems[0].type === 'video' && (
+                      <View style={[styles.playButtonOverlay, styles.threeHeroPlayButton]}>
+                        <Icon name="play-circle" size={40} color="#FFFFFF" />
+                      </View>
+                    )}
                   </View>
                 </TouchableOpacity>
                 <View style={styles.threeMediaBottomRow}>
                   {resolvedMediaItems.slice(1, 3).map((item, idx) => (
                     <TouchableOpacity key={item.id} activeOpacity={0.95} onPress={() => onMediaPress?.(idx + 1)} onLongPress={onLongPress} style={styles.twoMediaPressable}>
                       <View style={[styles.mediaTile, styles.threeMediaBottomTile]}>
-                        <Image source={{ uri: item.uri || '' }} style={styles.image} resizeMode="cover" />
+                        {item.type === 'video' ? (
+                          <VideoThumbnailComponent
+                            source={{ uri: item.uri || '' }}
+                            style={styles.image}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <Image source={{ uri: item.uri || '' }} style={styles.image} resizeMode="cover" />
+                        )}
+                        {item.type === 'video' && (
+                          <View style={[styles.playButtonOverlay, styles.threeBottomPlayButton]}>
+                            <Icon name="play-circle" size={24} color="#FFFFFF" />
+                          </View>
+                        )}
                       </View>
                     </TouchableOpacity>
                   ))}
@@ -445,7 +511,20 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
               <View style={styles.gridContainer}>
                 {resolvedMediaItems.slice(0, 4).map((item, idx) => (
                   <TouchableOpacity key={item.id} activeOpacity={0.95} onPress={() => onMediaPress?.(idx)} onLongPress={onLongPress} style={styles.gridTile}>
-                    <Image source={{ uri: item.uri || '' }} style={styles.gridImage} resizeMode="cover" />
+                    {item.type === 'video' ? (
+                      <VideoThumbnailComponent
+                        source={{ uri: item.uri || '' }}
+                        style={styles.gridImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Image source={{ uri: item.uri || '' }} style={styles.gridImage} resizeMode="cover" />
+                    )}
+                    {item.type === 'video' && (
+                      <View style={[styles.playButtonOverlay, styles.gridPlayButton]}>
+                        <Icon name="play-circle" size={24} color="#FFFFFF" />
+                      </View>
+                    )}
                     {idx === 3 && resolvedMediaItems.length > 4 ? (
                       <View style={styles.moreOverlay}>
                         <Text style={styles.moreOverlayText}>+{resolvedMediaItems.length - 4}</Text>
@@ -874,6 +953,47 @@ const styles = StyleSheet.create({
   },
   reactionBadgeOther: {
     left: 12,
+  },
+  replyVideoPlayButton: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  playButtonOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+  singlePlayButton: {
+    width: '100%',
+    height: 268,
+  },
+  twoMediaPlayButton: {
+    width: '100%',
+    height: 164,
+  },
+  threeHeroPlayButton: {
+    width: '100%',
+    height: 178,
+  },
+  threeBottomPlayButton: {
+    width: '100%',
+    height: 98,
+  },
+  gridPlayButton: {
+    width: '100%',
+    height: 156,
   },
   callContent: {
     minWidth: 172,

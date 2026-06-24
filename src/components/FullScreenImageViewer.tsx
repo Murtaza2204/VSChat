@@ -13,6 +13,7 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
+import Video from 'react-native-video';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { PinchGestureHandler, PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useAuthStore } from '../stores/authStore';
@@ -51,6 +52,10 @@ const FullScreenImageViewer: React.FC<{
   const [showControls, setShowControls] = useState(false);
   const [selectedIndexes, setSelectedIndexes] = useState<number[]>([]);
   const [reactionPickerIndex, setReactionPickerIndex] = useState<number>(startIndex);
+  const [videoPlayingMap, setVideoPlayingMap] = useState<Record<number, boolean>>({}); // Track which video is in fullscreen playback
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+  const videoRef = useRef(null);
   const controlsAnim = useRef(new Animated.Value(0)).current;
   const reactionEmojis = ['👍', '❤️', '😂', '😮', '😢', '🙏', '😭'];
 
@@ -99,26 +104,49 @@ const FullScreenImageViewer: React.FC<{
     if (!visible) return;
     const item = mediaItems[currentIndex];
     if (!item || !item.uri) return;
-    // get image intrinsic size
-    Image.getSize(
-      item.uri,
-      (w, h) => {
-        setImgW(w);
-        setImgH(h);
-        // reset transforms
-        baseScale.setValue(1);
-        pinchScale.setValue(1);
-        pan.setOffset({ x: 0, y: 0 });
-        pan.setValue({ x: 0, y: 0 });
-        lastPan.current = { x: 0, y: 0 };
-        lastScale.current = 1;
-      },
-      () => {
-        // fallback: assume square
-        setImgW(SCREEN_WIDTH);
-        setImgH(SCREEN_WIDTH);
-      },
-    );
+
+    // Reset video state when switching media items
+    if (item.type === 'video') {
+      setVideoPlayingMap({});
+      setVideoCurrentTime(0);
+      setVideoDuration(0);
+      if (videoRef.current && typeof (videoRef.current as any).seek === 'function') {
+        (videoRef.current as any).seek(0);
+      }
+    }
+
+    // For videos, use default size; for images, get intrinsic size
+    if (item.type !== 'video') {
+      Image.getSize(
+        item.uri,
+        (w, h) => {
+          setImgW(w);
+          setImgH(h);
+          // reset transforms
+          baseScale.setValue(1);
+          pinchScale.setValue(1);
+          pan.setOffset({ x: 0, y: 0 });
+          pan.setValue({ x: 0, y: 0 });
+          lastPan.current = { x: 0, y: 0 };
+          lastScale.current = 1;
+        },
+        () => {
+          // fallback: assume square
+          setImgW(SCREEN_WIDTH);
+          setImgH(SCREEN_WIDTH);
+        },
+      );
+    } else {
+      // For videos, use screen dimensions
+      setImgW(SCREEN_WIDTH);
+      setImgH(SCREEN_HEIGHT);
+      baseScale.setValue(1);
+      pinchScale.setValue(1);
+      pan.setOffset({ x: 0, y: 0 });
+      pan.setValue({ x: 0, y: 0 });
+      lastPan.current = { x: 0, y: 0 };
+      lastScale.current = 1;
+    }
   }, [visible, currentIndex, mediaItems, baseScale, pinchScale]);
 
   // calculate display size using sizing formula
@@ -547,11 +575,51 @@ const FullScreenImageViewer: React.FC<{
                                   animatedStyle,
                                 ]}
                               >
-                                <Animated.Image
-                                  source={{ uri: item.uri || '' }}
-                                  style={styles.fullImage}
-                                  resizeMode="contain"
-                                />
+                                {item.type === 'video' ? (
+                                  <TouchableOpacity
+                                    activeOpacity={1}
+                                    onPress={() => {
+                                      // Only toggle playback if not in selection mode
+                                      if (!showControls) {
+                                        setVideoPlayingMap((prev) => ({
+                                          ...prev,
+                                          [index]: !prev[index],
+                                        }));
+                                      }
+                                    }}
+                                    onLongPress={() => {
+                                      // Long press to select video (similar to image)
+                                      try {
+                                        setSelectedIndexes([index]);
+                                        setReactionPickerIndex(index);
+                                      } catch (e) {}
+                                      if (!showControls) toggleControls();
+                                    }}
+                                    delayLongPress={500}
+                                    style={styles.videoContainer}
+                                  >
+                                    <Video
+                                      ref={videoRef}
+                                      source={{ uri: item.uri || '' }}
+                                      style={styles.video}
+                                      controls={videoPlayingMap[index] ? true : false}
+                                      resizeMode="contain"
+                                      paused={!videoPlayingMap[index]}
+                                    />
+                                    {/* Show play button overlay when video is not playing */}
+                                    {!videoPlayingMap[index] && (
+                                      <View style={styles.videoPlayButtonOverlay}>
+                                        <Icon name="play-circle" size={60} color="#FFFFFF" />
+                                      </View>
+                                    )}
+                                  </TouchableOpacity>
+                                ) : (
+                                  <Animated.Image
+                                    source={{ uri: item.uri || '' }}
+                                    style={styles.fullImage}
+                                    resizeMode="contain"
+                                  />
+                                )}
 
                                 {!!reactionSummary.length && index === currentIndex && (
                                   <View style={styles.reactionBadge} pointerEvents="none">
@@ -737,6 +805,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 50,
+  },
+  videoContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000000',
+  },
+  video: {
+    width: '100%',
+    height: '100%',
+  },
+  videoPlayButtonOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
   },
 });
 

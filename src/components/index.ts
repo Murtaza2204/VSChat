@@ -9,3 +9,4 @@ export { default as EmptyState } from './EmptyState';
 export { default as SkeletonPlaceholder, SkeletonLoader } from './SkeletonLoader';
 export { default as CallCard } from './CallCard';
 export { default as UserCard } from './UserCard';
+export { VideoThumbnailComponent } from './VideoThumbnail';
