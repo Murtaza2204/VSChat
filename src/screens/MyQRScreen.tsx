@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Alert, Share, TextInput } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import api from '../config/api';
 import { useAuthStore } from '../stores/authStore';
@@ -11,6 +11,7 @@ const MyQRScreen = ({ navigation }) => {
   const { user } = useAuthStore();
   const [loading, setLoading] = useState(true);
   const [qr, setQr] = useState(null);
+  const [deepLink, setDeepLink] = useState(null);
 
   const fetchQr = async () => {
     setLoading(true);
@@ -26,6 +27,15 @@ const MyQRScreen = ({ navigation }) => {
   };
 
   useEffect(() => { fetchQr(); }, []);
+
+  useEffect(() => {
+    // build a deep-link URL that other users can open to start a chat
+    const publicId = qr && (qr.publicUserId || qr.publicId || qr.id) ? (qr.publicUserId || qr.publicId || qr.id) : (user && user.publicUserId ? user.publicUserId : null);
+    if (publicId) {
+      const url = `vschat://user/${publicId}`;
+      setDeepLink(url);
+    }
+  }, [qr, user]);
 
   const handleRegenerate = async () => {
     setLoading(true);
@@ -53,19 +63,25 @@ const MyQRScreen = ({ navigation }) => {
         )}
         <Text style={[styles.name, { color: theme.text }]}>{qr?.displayName || user?.displayName || 'You'}</Text>
 
-        {payload ? (
-          <View style={styles.qrBox}>
-            <QRCode value={payload} size={220} />
+        <Text style={[styles.notice, { color: theme.textSecondary }]}>QR generation is temporarily disabled. You can share the link below to let others start a chat with you.</Text>
+
+        {deepLink ? (
+          <View style={[styles.deepLinkBox, { borderColor: theme.border }]}> 
+            <TextInput value={deepLink} selectTextOnFocus editable={false} style={[styles.deepLinkText, { color: theme.text }]} />
+            <TouchableOpacity style={[styles.shareButton, { backgroundColor: theme.primary }]} onPress={async () => {
+              try {
+                await Share.share({ message: deepLink });
+              } catch (e) {
+                console.warn('share failed', e && e.message);
+                Alert.alert('Error', 'Could not share link');
+              }
+            }}>
+              <Text style={{ color: theme.background, fontWeight: '600' }}>Share Link</Text>
+            </TouchableOpacity>
           </View>
         ) : (
-          <Text style={{ color: theme.textSecondary }}>No QR available</Text>
+          <Text style={{ color: theme.textSecondary }}>Deep link not available</Text>
         )}
-
-        <Text style={[styles.hint, { color: theme.textSecondary, marginTop: 12 }]}>Scan this QR to connect with you</Text>
-
-        <TouchableOpacity style={[styles.button, { backgroundColor: theme.primary }]} onPress={handleRegenerate}>
-          <Text style={{ color: theme.background, fontWeight: '600' }}>Regenerate QR</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -79,6 +95,10 @@ const styles = StyleSheet.create({
   qrBox: { padding: 16, backgroundColor: '#fff', borderRadius: 8 },
   hint: { fontSize: 14 },
   button: { marginTop: 20, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 8 },
+  notice: { textAlign: 'center', paddingHorizontal: 20 },
+  deepLinkBox: { width: '90%', marginTop: 12, borderWidth: 1, borderRadius: 8, padding: 8, flexDirection: 'row', alignItems: 'center' },
+  deepLinkText: { flex: 1, paddingVertical: 8, paddingHorizontal: 8 },
+  shareButton: { marginLeft: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6 },
 });
 
 export default MyQRScreen;

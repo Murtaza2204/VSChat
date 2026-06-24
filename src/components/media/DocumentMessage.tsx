@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ActivityIndicator, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ActivityIndicator, TouchableOpacity, StyleSheet, Linking, Alert } from 'react-native';
 import useMedia from '../../hooks/useMedia';
 import { MessageRecord } from '../../types/mediaTypes';
 
@@ -14,7 +14,19 @@ export default function DocumentMessage({ message, visible }: { message: Message
       {loading && <ActivityIndicator />}
       {error && (<View style={styles.error}><Text>Failed to load document</Text><TouchableOpacity onPress={retry}><Text>Retry</Text></TouchableOpacity></View>)}
       {url && !loading && !error && (
-        <TouchableOpacity onPress={() => { /* open document via Linking.openURL(url) in future */ }} style={styles.doc}><Text>Open Document</Text></TouchableOpacity>
+        <TouchableOpacity onPress={async () => {
+          try {
+            const supported = await Linking.canOpenURL(url);
+            if (supported) {
+              await Linking.openURL(url);
+            } else {
+              Alert.alert('Open Document', 'Cannot open this document URL');
+            }
+          } catch (e) {
+            console.warn('Open document failed', e);
+            Alert.alert('Open Document', 'Failed to open document');
+          }
+        }} style={styles.doc}><Text>Open Document</Text></TouchableOpacity>
       )}
     </View>
   );

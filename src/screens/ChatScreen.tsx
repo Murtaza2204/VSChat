@@ -19,6 +19,8 @@ import {
   Dimensions,
   Linking,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
+import { ToastAndroid } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Asset, launchCamera, launchImageLibrary } from 'react-native-image-picker';
 let RNFetchBlob: any = null;
@@ -155,6 +157,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [selectedForwardTargets, setSelectedForwardTargets] = useState<string[]>([]);
   const [forwardNote, setForwardNote] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
+  const [selectionMenuVisible, setSelectionMenuVisible] = useState(false);
   const [locationMenuVisible, setLocationMenuVisible] = useState(false);
   const [liveDurationVisible, setLiveDurationVisible] = useState(false);
   const [mediaPreviewVisible, setMediaPreviewVisible] = useState(false);
@@ -168,6 +171,9 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const viewerScrollRef = React.useRef<ScrollView | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const [nowTick, setNowTick] = useState(Date.now());
+  const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
+  const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50 MB
+  const MAX_DOCUMENT_SIZE = 20 * 1024 * 1024; // 20 MB
   const liveLocationWatchRef = useRef<number | null>(null);
   const liveLocationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -863,7 +869,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       throw new Error('Server returned invalid upload URL response');
     }
 
-    if (!RNFetchBlob) {
+    if (!RNFetchBlob || typeof RNFetchBlob.fetch !== 'function' || typeof RNFetchBlob.wrap !== 'function') {
+      console.warn('[ChatScreen] RNFetchBlob not available or missing functions, using JS upload hook');
       const uploadResult = await uploadUsingHook({
         chatId: conversationId,
         file: { uri: item.uri || '', name: fileName, type: mimeType, size: fileSize },
@@ -895,20 +902,20 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         console.warn('Failed to stat content uri, proceeding with original uri', e);
       }
     }
+    try {
+      const uploadResp = await RNFetchBlob.fetch(
+        'PUT',
+        uploadUrl,
+        { 'Content-Type': mimeType },
+        RNFetchBlob.wrap(localPath),
+      );
 
-    const uploadResp = await RNFetchBlob.fetch(
-      'PUT',
-      uploadUrl,
-      { 'Content-Type': mimeType },
-      RNFetchBlob.wrap(localPath),
-    );
-
-    const status = uploadResp.info().status;
+      const status = uploadResp.info().status;
     if (status < 200 || status >= 300) {
       throw new Error(`Failed to upload ${fileName} (status ${status})`);
     }
 
-    return {
+      return {
       objectKey: key,
       mimeType,
       fileSize,
@@ -916,6 +923,28 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       originalFilename: fileName,
       order: index,
     };
+    } catch (e) {
+      console.warn('[ChatScreen] RNFetchBlob upload failed, falling back to JS upload hook', e);
+      const uploadResult2 = await uploadUsingHook({
+        chatId: conversationId,
+        file: { uri: item.uri || '', name: fileName, type: mimeType, size: fileSize },
+        mediaType: item.type,
+        skipCompleteUpload: true,
+      });
+
+      if (!uploadResult2 || !uploadResult2.success) {
+        throw new Error(uploadResult2?.error || e?.message || 'Upload failed');
+      }
+
+      return {
+        objectKey: uploadResult2.key || key,
+        mimeType,
+        fileSize,
+        mediaType: item.type,
+        originalFilename: fileName,
+        order: index,
+      };
+    }
   };
 
   const handleSendMedia = async () => {
@@ -1384,7 +1413,29 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     try {
       const [doc] = await pick({ mode: 'open', allowMultiSelection: false });
       if (doc?.uri) {
-        addAttachmentMessage(doc.name || 'Document', 'file', doc.uri);
+        // enforce size limit
+        const size = doc.size || doc.fileSize || 0;
+        if (size && size > MAX_DOCUMENT_SIZE) {
+          Alert.alert('Document too large', `Selected file exceeds the ${Math.round(MAX_DOCUMENT_SIZE / (1024 * 1024))} MB limit.`);
+          return;
+        }
+
+        const mediaItem: MediaItem = {
+          id: `${Date.now()}-doc-${Math.random()}`,
+          uri: doc.uri,
+          type: 'document',
+          name: doc.name || 'Document',
+          mimeType: doc.mimeType || doc.type || 'application/octet-stream',
+          fileSize: size,
+          loading: true,
+        };
+
+        setPendingMedia([mediaItem]);
+        setMediaCaption('');
+        setMediaPreviewVisible(true);
+        setTimeout(() => {
+          setPendingMedia((items) => items.map((item) => ({ ...item, loading: false })));
+        }, 600);
       }
     } catch (error) {
       if (
@@ -2308,7 +2359,9 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                 <Icon name="arrow-redo" size={25} color={theme.text} />
               </TouchableOpacity>
               <TouchableOpacity style={styles.selectionActionButton} activeOpacity={0.75}>
-                <Icon name="ellipsis-vertical" size={22} color={theme.text} />
+                <TouchableOpacity onPress={() => setSelectionMenuVisible(true)} style={{ padding: 6 }}>
+                  <Icon name="ellipsis-vertical" size={22} color={theme.text} />
+                </TouchableOpacity>
               </TouchableOpacity>
             </View>
           </>
@@ -2374,6 +2427,51 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           </>
         )}
       </View>
+
+      <Modal
+        visible={selectionMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectionMenuVisible(false)}
+      >
+        <Pressable style={styles.menuBackdrop} onPress={() => setSelectionMenuVisible(false)}>
+          <View style={[styles.menuContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}> 
+            {/* Copy */}
+            {selectedMessages.length === 1 && selectedMessages[0].type === 'text' && selectedMessages[0].content ? (
+              <TouchableOpacity
+                style={styles.menuItem}
+                activeOpacity={0.75}
+                onPress={async () => {
+                  try {
+                    const text = selectedMessages[0].content;
+                    Clipboard.setString(text);
+                    if (Platform.OS === 'android') ToastAndroid.show('Message copied to clipboard', ToastAndroid.SHORT);
+                    else Alert.alert('Message copied to clipboard');
+                    setSelectedMessages([]);
+                    setActionMessage(null);
+                    setSelectionMenuVisible(false);
+                  } catch (e) {
+                    console.warn('copy failed', e);
+                    Alert.alert('Copy failed', 'Could not copy message');
+                    setSelectionMenuVisible(false);
+                  }
+                }}
+              >
+                <Text style={[styles.menuText, { color: theme.text }]}>Copy</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {/* Cancel Selection */}
+            <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.75}
+              onPress={() => { setSelectedMessages([]); setActionMessage(null); setSelectionMenuVisible(false); }}
+            >
+              <Text style={[styles.menuText, { color: theme.text }]}>Cancel Selection</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={menuVisible}

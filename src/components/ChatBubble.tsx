@@ -463,7 +463,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         ) : null}
 
         {/* File / Document */}
-        {type === 'file' && (mediaUrl || resolvedObjectUrl || message) ? (
+        { (type === 'file' || type === 'document') && (mediaUrl || resolvedObjectUrl || message) ? (
           <TouchableOpacity 
             activeOpacity={0.85} 
             style={[styles.fileContainer, { backgroundColor: isOwn ? theme.messageGreen : theme.surface }]} 

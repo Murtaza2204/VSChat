@@ -8,19 +8,12 @@ import { useAuthStore } from '../stores/authStore';
 const ScanQRScreen = ({ navigation }) => {
   const { theme } = useThemeStore();
   const { user } = useAuthStore();
-  const [scanningAvailable, setScanningAvailable] = useState(false);
+  const [scanningAvailable] = useState(false);
   const [manualInput, setManualInput] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    // Attempt to detect if native scanner library is available
-    try {
-      // eslint-disable-next-line global-require
-      const QRCodeScanner = require('react-native-qrcode-scanner');
-      if (QRCodeScanner) setScanningAvailable(true);
-    } catch (e) {
-      setScanningAvailable(false);
-    }
+    // Scanner library removed; keep fallback input only
   }, []);
 
   const handleDecoded = async (data) => {
@@ -41,17 +34,23 @@ const ScanQRScreen = ({ navigation }) => {
       const resp = await api.post('/conversations/direct', { publicUserId });
       const conversation = resp.data.conversation;
       if (!conversation) return Alert.alert('Error', 'Could not open conversation');
-      // navigate to Chat screen with conversation id
-      navigation.navigate('Chat', { conversationId: conversation._id, participant: conversation.participantProfile });
+      // navigate to nested Chat screen (Main -> Chats -> Chat)
+      navigation.navigate('Main', { screen: 'Chats', params: { screen: 'Chat', params: { conversationId: conversation._id, participant: conversation.participantProfile } } });
     } catch (e) {
-      console.warn('resolve/create convo failed', e && e.message);
-      Alert.alert('Error', 'Could not open conversation');
+      console.warn('resolve/create convo failed', e && e.message, e && e.response && e.response.data);
+      const serverMsg = e && e.response && (e.response.data && (e.response.data.message || e.response.data.error)) ? (e.response.data.message || e.response.data.error) : null;
+      Alert.alert('Error', serverMsg || 'Could not open conversation');
     } finally { setBusy(false); }
   };
 
   const handleStartChat = async () => {
-    const id = manualInput.trim();
-    if (!id) return Alert.alert('Enter publicUserId');
+    const text = manualInput.trim();
+    if (!text) return Alert.alert('Enter publicUserId');
+    // accept full deep-link or raw id
+    const match1 = text.match(/vschat:\/\/user\/([0-9a-fA-F-]{36})/);
+    const match2 = text.match(/https?:\/\/[^\/]+\/u\/([0-9a-fA-F-]{36})/);
+    const id = match1 ? match1[1] : (match2 ? match2[1] : text);
+    console.warn('Resolving publicUserId payload', { publicUserId: id });
     await handleResolve(id);
   };
 
@@ -60,19 +59,11 @@ const ScanQRScreen = ({ navigation }) => {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}> 
       <View style={styles.header}><Text style={{ color: theme.text, fontSize: 18 }}>Scan QR</Text></View>
-      {scanningAvailable ? (
-        // dynamically require to avoid crash when library missing
-        (() => {
-          const QRCodeScanner = require('react-native-qrcode-scanner').default;
-          return <QRCodeScanner onRead={(e) => handleDecoded(e)} topContent={<Text style={{ color: theme.textSecondary }}>Point your camera at a VS Chat QR</Text>} />;
-        })()
-      ) : (
-        <View style={styles.fallback}>
-          <Text style={{ color: theme.textSecondary }}>Camera scanner not available. Paste publicUserId or deep-link URL below:</Text>
-          <TextInput style={[styles.input, { color: theme.text, borderColor: theme.border }]} value={manualInput} onChangeText={setManualInput} placeholder="vschat://user/{uuid}" placeholderTextColor={theme.textSecondary} />
-          <TouchableOpacity style={[styles.button, { backgroundColor: theme.primary }]} onPress={handleStartChat}><Text style={{ color: theme.background }}>Start Chat</Text></TouchableOpacity>
-        </View>
-      )}
+      <View style={styles.fallback}>
+        <Text style={{ color: theme.textSecondary }}>Camera scanner removed. Paste publicUserId or deep-link URL below:</Text>
+        <TextInput style={[styles.input, { color: theme.text, borderColor: theme.border }]} value={manualInput} onChangeText={setManualInput} placeholder="vschat://user/{uuid}" placeholderTextColor={theme.textSecondary} />
+        <TouchableOpacity style={[styles.button, { backgroundColor: theme.primary }]} onPress={handleStartChat}><Text style={{ color: theme.background }}>Start Chat</Text></TouchableOpacity>
+      </View>
     </View>
   );
 };
