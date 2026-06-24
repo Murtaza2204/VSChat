@@ -2944,6 +2944,34 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                   const messageId = String(partial.messageId);
                   const mediaItemIds = Array.from(new Set((partial.mediaItemIds || []).map((id: string) => String(id))));
                   try {
+                    // Filter out deleted items FIRST before calling hideMediaItemsLocally
+                    // This ensures loadedMessages is updated before hideMediaItemsLocally triggers setLoadedMessages
+                    if (viewerMessage && String(viewerMessage.id) === messageId) {
+                      const filteredMediaItems = (viewerMessage.mediaItems || []).filter((item: any) => {
+                        const itemId = String(item.id || item.objectKey || item.key || '');
+                        return !mediaItemIds.includes(itemId);
+                      });
+                      
+                      // Update loadedMessages FIRST so hideMediaItemsLocally doesn't overwrite it
+                      setLoadedMessages((prev) =>
+                        prev.map((m) =>
+                          String(m.id) === messageId
+                            ? { ...m, mediaItems: filteredMediaItems }
+                            : m
+                        )
+                      );
+                      
+                      if (filteredMediaItems.length === 0) {
+                        // No items left, close the viewer after deletion
+                        setViewerMessage(null);
+                      } else {
+                        // Update viewerMessage with filtered items
+                        const newViewerMessage = { ...viewerMessage, mediaItems: filteredMediaItems };
+                        setViewerMessage(newViewerMessage);
+                      }
+                    }
+                    
+                    // Now call hideMediaItemsLocally - it will use the updated loadedMessages
                     hideMediaItemsLocally(messageId, mediaItemIds);
                   } catch (e) {
                     console.warn('local media hide failed', e);
@@ -2951,7 +2979,6 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
                   setSelectedMessages([]);
                   setActionMessage(null);
-                  setViewerMessage(null);
                   return;
                 }
 
@@ -2993,9 +3020,23 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                         const text = String(norm.deletedBy) === String(currentUserId) ? 'You deleted this message' : 'This message was deleted';
                         try { updateMessage(String(norm.id), { content: text, type: 'deleted', deletedForEveryone: true, reactions: [], reaction: undefined }); } catch (e) {}
                         setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(norm.id) ? { ...m, content: text, type: 'deleted', deletedForEveryone: true, reactions: [], reaction: undefined } : m)));
+                        
+                        // Update viewerMessage if it matches
+                        if (viewerMessage && String(viewerMessage.id) === messageId) {
+                          setViewerMessage(null);
+                        }
                       } else {
                         try { updateMessage(String(norm.id), norm); } catch (e) {}
                         setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(norm.id) ? norm : m)));
+                        
+                        // Update viewerMessage with the normalized message containing the updated mediaItems
+                        if (viewerMessage && String(viewerMessage.id) === messageId) {
+                          if ((norm.mediaItems && norm.mediaItems.length === 0) || (!norm.mediaItems && !norm.mediaUrl)) {
+                            setViewerMessage(null);
+                          } else {
+                            setViewerMessage(norm as any);
+                          }
+                        }
                       }
                     }
                   } catch (e) {

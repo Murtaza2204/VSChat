@@ -324,40 +324,42 @@ const FullScreenImageViewer: React.FC<{
                   try {
                     if (onReplyPress) {
                       if (selectedIndexes.length) {
-                        // build a single message-like object for the selected media
-                          if (message && Array.isArray(message.mediaItems) && message.mediaItems.length) {
-                          const selectedItem = message.mediaItems[selectedIndexes[0]];
-                          const single = {
-                            ...message,
-                            mediaItems: [selectedItem],
-                            replyToMediaItemIndex: selectedIndexes[0],
-                            replyToMediaItemId: selectedItem?.id,
-                            replyToMediaItemObjectKey: selectedItem?.objectKey,
-                          };
-                          console.log('[FullScreenImageViewer] Reply (selection) sending replyToMediaItemIndex=', selectedIndexes[0], 'mediaId=', single.mediaItems[0]?.id);
-                          onReplyPress(single);
-                        } else {
-                          const it = mediaItems[selectedIndexes[0]];
-                          console.log('[FullScreenImageViewer] Reply (selection, no message) mediaId=', it?.id);
-                          onReplyPress({ id: it.id, content: '', type: it.type || 'image', mediaItems: [it], mediaUrl: it.uri, replyToMediaItemIndex: selectedIndexes[0], replyToMediaItemId: it.id, replyToMediaItemObjectKey: it.objectKey });
-                        }
+                        // Reply to selected media item - use filtered mediaItems, not message.mediaItems
+                        const selectedItem = mediaItems[selectedIndexes[0]];
+                        const single = {
+                          id: message?.id,
+                          senderId: message?.senderId,
+                          senderName: message?.senderName,
+                          senderAvatar: message?.senderAvatar,
+                          timestamp: message?.timestamp,
+                          content: message?.content || '',
+                          type: selectedItem?.type || 'image',
+                          mediaItems: [selectedItem],
+                          replyToMediaItemIndex: 0,
+                          replyToMediaItemId: selectedItem?.id,
+                          replyToMediaItemObjectKey: selectedItem?.objectKey,
+                        };
+                        console.log('[FullScreenImageViewer] Reply (selection) mediaId=', selectedItem?.id);
+                        onReplyPress(single);
                       } else {
-                        // reply to the currently viewed image: build a message-like object that references the specific media index
-                        if (message && Array.isArray(message.mediaItems) && message.mediaItems.length) {
-                          const selectedItem = message.mediaItems[currentIndex];
+                        // Reply to currently viewed image - use filtered mediaItems, not message.mediaItems
+                        const selectedItem = mediaItems[currentIndex];
+                        if (selectedItem) {
                           const single = {
-                            ...message,
+                            id: message?.id,
+                            senderId: message?.senderId,
+                            senderName: message?.senderName,
+                            senderAvatar: message?.senderAvatar,
+                            timestamp: message?.timestamp,
+                            content: message?.content || '',
+                            type: selectedItem?.type || 'image',
                             mediaItems: [selectedItem],
-                            replyToMediaItemIndex: currentIndex,
+                            replyToMediaItemIndex: 0,
                             replyToMediaItemId: selectedItem?.id,
                             replyToMediaItemObjectKey: selectedItem?.objectKey,
                           };
-                          console.log('[FullScreenImageViewer] Reply (current view) sending replyToMediaItemIndex=', currentIndex, 'mediaId=', single.mediaItems[0]?.id);
+                          console.log('[FullScreenImageViewer] Reply (current view) mediaId=', selectedItem?.id);
                           onReplyPress(single);
-                        } else {
-                          const it = mediaItems[currentIndex];
-                          console.log('[FullScreenImageViewer] Reply (current view, no message) mediaId=', it?.id);
-                          onReplyPress({ id: it.id, content: '', type: it.type || 'image', mediaItems: [it], mediaUrl: it.uri, replyToMediaItemIndex: currentIndex, replyToMediaItemId: it.id, replyToMediaItemObjectKey: it.objectKey });
                         }
                       }
                     }
@@ -381,15 +383,21 @@ const FullScreenImageViewer: React.FC<{
                 try {
                   if (onDeletePress) {
                     if (message && selectedIndexes.length) {
+                      // Delete selected items - use filtered mediaItems to get IDs
                       const ids = selectedIndexes.map((si) => {
-                        const mi = (message.mediaItems && message.mediaItems[si]) || mediaItems[si];
+                        const mi = mediaItems[si];
                         return mi && (mi.id || mi.objectKey) ? (mi.id || mi.objectKey) : undefined;
                       }).filter(Boolean);
                       if (ids.length) onDeletePress({ messageId: message.id, mediaItemIds: ids });
-                    } else if (message) onDeletePress(message);
-                    else {
-                      const it = mediaItems[currentIndex];
-                      onDeletePress({ id: it.id, content: '', type: it.type || 'image', mediaItems: [it], mediaUrl: it.uri });
+                    } else if (message) {
+                      // Delete single current item - use filtered mediaItems
+                      const item = mediaItems[currentIndex];
+                      if (item && (item.id || item.objectKey)) {
+                        onDeletePress({ messageId: message.id, mediaItemIds: [item.id || item.objectKey] });
+                      }
+                    } else {
+                      const item = mediaItems[currentIndex];
+                      onDeletePress({ id: item.id, content: '', type: item.type || 'image', mediaItems: [item], mediaUrl: item.uri });
                     }
                   }
                 } catch (e) {}
@@ -405,21 +413,35 @@ const FullScreenImageViewer: React.FC<{
                 try {
                   if (onForwardPress) {
                     if (selectedIndexes.length) {
-                      if (message && Array.isArray(message.mediaItems) && message.mediaItems.length) {
-                        const msgs = selectedIndexes.map((si) => ({ ...message, mediaItems: [message.mediaItems[si]] }));
-                        onForwardPress(msgs);
-                      } else {
-                        const msgs = selectedIndexes.map((si) => {
-                          const it = mediaItems[si];
-                          return { id: it.id, content: '', type: it.type || 'image', mediaItems: [it], mediaUrl: it.uri } as any;
-                        });
-                        onForwardPress(msgs);
-                      }
+                      // Forward selected items - use filtered mediaItems, not message.mediaItems
+                      const msgs = selectedIndexes.map((si) => {
+                        const item = mediaItems[si];
+                        return {
+                          id: message?.id,
+                          senderId: message?.senderId,
+                          senderName: message?.senderName,
+                          senderAvatar: message?.senderAvatar,
+                          timestamp: message?.timestamp,
+                          content: message?.content || '',
+                          type: item?.type || 'image',
+                          mediaItems: [item],
+                        };
+                      });
+                      onForwardPress(msgs);
                     } else {
-                      if (message) onForwardPress(message);
-                      else {
-                        const it = mediaItems[currentIndex];
-                        onForwardPress({ id: it.id, content: '', type: it.type || 'image', mediaItems: [it], mediaUrl: it.uri });
+                      // Forward currently viewed item - use filtered mediaItems, not message.mediaItems
+                      const currentItem = mediaItems[currentIndex];
+                      if (currentItem) {
+                        onForwardPress({
+                          id: message?.id,
+                          senderId: message?.senderId,
+                          senderName: message?.senderName,
+                          senderAvatar: message?.senderAvatar,
+                          timestamp: message?.timestamp,
+                          content: message?.content || '',
+                          type: currentItem?.type || 'image',
+                          mediaItems: [currentItem],
+                        });
                       }
                     }
                   }
