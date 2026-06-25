@@ -8,7 +8,11 @@ import {
   TouchableOpacity,
   View,
   Image,
+  Alert,
+  Platform,
+  ToastAndroid,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '../stores/themeStore';
 import { useChatStore } from '../stores/chatStore';
@@ -18,7 +22,6 @@ import Avatar from '../components/Avatar';
 import api from '../config/api';
 import messagesUtil from '../utils/messages';
 import groupsApi from '../utils/groups';
-import { Alert } from 'react-native';
 import { Chat } from '../types';
 
 const mediaItems = [
@@ -205,10 +208,14 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
     { label: 'Search', icon: 'search-outline' },
   ];
 
+  const isIndividualChat = !chat.isGroup;
+
   const settingsRows = [
     { title: 'Manage storage', subtitle: '92.9 MB', icon: 'images-outline' },
-    { title: 'Notifications', icon: 'notifications-outline' },
   ];
+  if (!isIndividualChat) {
+    settingsRows.push({ title: 'Notifications', icon: 'notifications-outline' });
+  }
 
   const dangerRows = [];
   dangerRows.push({ title: 'Add to Favorites', icon: 'heart-outline', danger: false });
@@ -217,9 +224,54 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
     dangerRows.push({ title: 'Exit group', icon: 'log-out-outline', danger: true });
     dangerRows.push({ title: 'Report group', icon: 'thumbs-down-outline', danger: true });
   } else {
-    dangerRows.push({ title: `Block ${displayName}`, icon: 'ban-outline', danger: true });
-    dangerRows.push({ title: `Report ${displayName}`, icon: 'thumbs-down-outline', danger: true });
+    dangerRows.push({ title: 'Delete chat', icon: 'trash-outline', danger: true });
   }
+
+  const showSuccessMessage = (message: string) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    } else {
+      Alert.alert('Success', message);
+    }
+  };
+
+  const cleanupConversationStorage = async (conversationId: string) => {
+    try {
+      await AsyncStorage.removeItem(`hiddenMediaItems:${conversationId}`);
+    } catch (e) {
+      // ignore storage cleanup errors
+    }
+  };
+
+  const persistDeletedChatId = async (conversationId: string) => {
+    try {
+      const raw = await AsyncStorage.getItem('deletedChats');
+      const deletedChats = raw ? JSON.parse(raw) : [];
+      const next = Array.isArray(deletedChats) ? deletedChats : [];
+      if (!next.includes(conversationId)) {
+        next.push(conversationId);
+        await AsyncStorage.setItem('deletedChats', JSON.stringify(next));
+      }
+    } catch (e) {
+      // ignore persistence errors
+    }
+  };
+
+  const handleDeleteChat = async () => {
+    try {
+      const conversationId = String((chat as any).conversationId || chat.id || '');
+      const chatState = require('../stores/chatStore').useChatStore.getState();
+      chatState.deleteChatForMe(conversationId);
+      chatState.setCurrentChat(null);
+      await cleanupConversationStorage(conversationId);
+      await persistDeletedChatId(conversationId);
+      showSuccessMessage('Chat deleted');
+      navigation.popToTop();
+    } catch (e) {
+      console.warn('delete chat failed', e);
+      Alert.alert('Error', 'Unable to delete chat. Please try again.');
+    }
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -408,7 +460,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                     if (chat.isGroup && row.title === 'Exit group') {
                       const title = `Exit group: "${chat.title || 'Group'}"?`;
                       Alert.alert(title, undefined, [
-                        { text: 'Cancel', style: 'cancel' },
+                                { text: 'Cancel', style: 'cancel' },
                         {
                           text: 'Exit group',
                           style: 'destructive',
@@ -428,6 +480,19 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                           },
                         },
                       ]);
+                    } else if (row.title === 'Delete chat') {
+                      Alert.alert(
+                        'Delete chat',
+                        'Are you sure you want to delete this chat? This action will remove the chat from your message list.',
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          {
+                            text: 'Delete',
+                            style: 'destructive',
+                            onPress: handleDeleteChat,
+                          },
+                        ],
+                      );
                     } else {
                       // fallback: no-op or future handlers for other rows
                     }

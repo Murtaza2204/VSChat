@@ -58,6 +58,8 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       if (!myId) {
         return;
       }
+      const rawHidden = await AsyncStorage.getItem('deletedChats');
+      const hiddenChatIds = rawHidden ? (JSON.parse(rawHidden) as string[]) : [];
       const convos = await conversationsApi.getConversations(myId);
       // map conversations to Chat-like items
       const chatItems = convos.map((c: any) => {
@@ -150,7 +152,12 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         };
       });
 
-      setChats(chatItems);
+      const visibleChats = chatItems.filter((chat) => {
+        const key = String(chat.conversationId || chat.id || '');
+        return !hiddenChatIds.includes(key);
+      });
+
+      setChats(visibleChats);
     } catch (e) {
       console.warn('Failed to load conversations', String(e));
     }
