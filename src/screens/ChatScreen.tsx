@@ -258,7 +258,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         mimeType: item.mimeType,
         fileSize: item.fileSize,
         type: item.type || item.mediaType || (item.url?.includes('video') ? 'video' : 'image'),
-        name: item.name || item.filename || item.originalFilename || 'Media',
+        name: item.originalFilename || item.name || item.filename || 'Media',
       })).filter((item: any) => !!(item.uri || item.objectKey));
     }
     // Try attachments array as fallback
@@ -270,7 +270,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         mimeType: item.mimeType,
         fileSize: item.fileSize,
         type: item.type || item.mediaType || (item.url?.includes('video') ? 'video' : 'image'),
-        name: item.name || item.filename || item.originalFilename || 'Attachment',
+        name: item.originalFilename || item.name || item.filename || 'Attachment',
       })).filter((item: any) => !!(item.uri || item.objectKey));
     }
     // Try media field as fallback (single media object)
@@ -282,7 +282,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         mimeType: msg.media.mimeType,
         fileSize: msg.media.fileSize,
         type: msg.media.type || msg.media.mediaType || (msg.media.url?.includes('video') ? 'video' : 'image'),
-        name: msg.media.name || msg.media.filename || msg.media.originalFilename || 'Media',
+        name: msg.media.originalFilename || msg.media.name || msg.media.filename || 'Media',
       };
       mediaItems = (singleMediaItem.uri || singleMediaItem.objectKey) ? [singleMediaItem] : [];
     }
@@ -328,7 +328,17 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     };
 
     // Add media fields if present
-    if (mediaItems && mediaItems.length > 0) normalized.mediaItems = mediaItems;
+    if (mediaItems && mediaItems.length > 0) {
+      const docName = msg.metadata?.originalFilename || msg.originalFilename || (typeof msg.content === 'string' ? msg.content : null);
+      normalized.mediaItems = mediaItems.map((item: any) => (
+        (type === 'file' || type === 'document') && docName && (!item.name || /^(media|attachment|document)$/i.test(String(item.name)))
+          ? { ...item, name: docName }
+          : item
+      ));
+      if (docName && (type === 'file' || type === 'document')) {
+        (normalized as any).originalFilename = docName;
+      }
+    }
     if (msg.mediaUrl) normalized.mediaUrl = msg.mediaUrl;
     if (msg.downloadUrl && !mediaItems) normalized.mediaUrl = msg.downloadUrl;
     if (msg.metadata?.objectKey) normalized.metadata = msg.metadata;
@@ -344,6 +354,15 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           fileSize: msg.fileSize || keyedMedia?.fileSize,
           mediaType: msg.mediaType || keyedMedia?.mediaType || type,
           originalFilename: msg.originalFilename || keyedMedia?.originalFilename,
+        };
+      }
+    }
+    if ((type === 'file' || type === 'document') && !normalized.metadata?.originalFilename) {
+      const fallbackDocName = msg.metadata?.originalFilename || msg.originalFilename || (typeof msg.content === 'string' ? msg.content : null);
+      if (fallbackDocName) {
+        normalized.metadata = {
+          ...(normalized.metadata || { objectKey: msg.metadata?.objectKey || msg.objectKey || '' }),
+          originalFilename: fallbackDocName,
         };
       }
     }
@@ -534,8 +553,89 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }, 600);
   };
 
+  const appendDocumentsToPreview = async () => {
+    try {
+      const docs = await pick({ mode: 'open', allowMultiSelection: true });
+      const selectedDocs = Array.isArray(docs) ? docs : [docs];
+      const validDocs = selectedDocs.filter((doc) => !!doc?.uri);
+      if (!validDocs.length) {
+        return;
+      }
+
+      const tooLargeCount = validDocs.filter((doc) => {
+        const size = doc.size || doc.fileSize || 0;
+        return size > MAX_DOCUMENT_SIZE;
+      }).length;
+
+      if (tooLargeCount) {
+        Alert.alert(
+          'Document too large',
+          `${tooLargeCount} selected file${tooLargeCount > 1 ? 's' : ''} exceed the ${Math.round(
+            MAX_DOCUMENT_SIZE / (1024 * 1024),
+          )} MB limit and were excluded.`,
+        );
+      }
+
+      const getNameFromUri = (uri?: string) => {
+        if (!uri) return undefined;
+        const cleaned = uri.split('?')[0].split('#')[0];
+        const candidate = cleaned.split('/').pop() || '';
+        return candidate || undefined;
+      };
+
+      const isGenericName = (name?: string) => {
+        if (!name) return true;
+        const trimmed = String(name).trim();
+        return /^(media|attachment|document)(\.[a-z0-9]{1,5})?$/i.test(trimmed);
+      };
+
+      const documentItems = validDocs
+        .filter((doc) => {
+          const size = doc.size || doc.fileSize || 0;
+          return size <= MAX_DOCUMENT_SIZE;
+        })
+        .map((doc) => {
+          const uriName = getNameFromUri(doc.uri);
+          const name = !isGenericName(doc.name) ? doc.name : uriName || doc.name || 'Document';
+          return {
+            id: `${Date.now()}-doc-${Math.random()}`,
+            uri: doc.uri,
+            type: 'document' as const,
+            name,
+            mimeType: doc.mimeType || doc.type || 'application/octet-stream',
+            fileSize: doc.size || doc.fileSize || 0,
+            loading: true,
+          };
+        })
+        .filter((item) => !!item.uri);
+
+      if (!documentItems.length) {
+        return;
+      }
+
+      setPendingMedia((items) => [...items, ...documentItems]);
+      setMediaPreviewVisible(true);
+      setTimeout(() => {
+        setPendingMedia((items) => items.map((item) => ({ ...item, loading: false })));
+      }, 600);
+    } catch (error) {
+      if (
+        isErrorWithCode(error) &&
+        error.code === errorCodes.OPERATION_CANCELED
+      ) {
+        return;
+      }
+      Alert.alert('Document', 'Unable to open file picker.');
+    }
+  };
+
   const handleAddMoreMedia = async () => {
     if (isSendingMedia) return;
+
+    if (pendingMedia.every((item) => item.type === 'document')) {
+      await appendDocumentsToPreview();
+      return;
+    }
 
     const result = await launchImageLibrary({
       mediaType: 'mixed',
@@ -857,8 +957,30 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     closeMediaPreview();
   };
 
+  const isGenericDocumentName = (name?: string) => {
+    if (!name) return true;
+    const trimmed = String(name).trim();
+    return (
+      /^(media|attachment|document)$/i.test(trimmed) ||
+      /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(trimmed) ||
+      /^[0-9a-f]{16,}$/i.test(trimmed) ||
+      /^[0-9a-f-]{20,}$/i.test(trimmed)
+    );
+  };
+
+  const resolveDocumentName = (item: MediaItem, index: number) => {
+    const rawName = item.name || (item as any).filename || (item as any).originalFilename || '';
+    if (rawName && !isGenericDocumentName(rawName)) return rawName;
+
+    const uriPart = (item.uri || '').split('?')[0].split('#')[0].split('/').pop() || '';
+    if (uriPart && !isGenericDocumentName(uriPart)) return uriPart;
+
+    const ext = (item.mimeType || '').split('/').pop()?.toLowerCase() || item.type || 'doc';
+    return `Document-${index + 1}.${ext}`;
+  };
+
   const uploadPendingMediaItem = async (item: MediaItem, index: number) => {
-    const fileName = item.name || `${item.type}_${Date.now()}_${index}`;
+    const fileName = resolveDocumentName(item, index);
     const mimeType = item.mimeType || (item.type === 'video' ? 'video/mp4' : 'image/jpeg');
     const fileSize = item.fileSize || 0;
 
@@ -947,20 +1069,77 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   };
 
+  const openDocumentMessage = async (message: Message) => {
+    try {
+      const objectKey = message.metadata?.objectKey || message.mediaItems?.[0]?.objectKey;
+      const uri =
+        message.mediaUrl ||
+        message.mediaItems?.[0]?.uri ||
+        (objectKey ? await fetchDownloadUrl(objectKey) : undefined);
+
+      if (!uri) {
+        Alert.alert('Open Document', 'Unable to open document');
+        return;
+      }
+
+      const normalizedUri = encodeURI(uri.trim());
+      if (/^https?:\/\//i.test(normalizedUri)) {
+        await Linking.openURL(normalizedUri);
+        return;
+      }
+
+      const supported = await Linking.canOpenURL(normalizedUri);
+      if (supported) {
+        await Linking.openURL(normalizedUri);
+        return;
+      }
+
+      Alert.alert('Open Document', 'Cannot open this document URL');
+    } catch (e) {
+      console.warn('Open document failed', e);
+      Alert.alert('Open Document', 'Failed to open document');
+    }
+  };
+
   const handleSendMedia = async () => {
     if (!pendingMedia.length || isSendingMedia) return;
     if (!conversationId) {
-      const localMessage: Message = {
-        id: Math.random().toString(),
-        senderId: currentUserId,
-        senderName: user?.name || 'You',
-        content: mediaCaption.trim(),
-        type: pendingMedia.length > 1 ? 'mediaGroup' : pendingMedia[0].type,
-        timestamp: new Date(),
-        read: true,
-        mediaItems: pendingMedia.map((item) => ({ ...item, loading: false })),
-      };
-      addMessage(chat.id, localMessage);
+      const docs = pendingMedia.filter((item) => item.type === 'document');
+      if (docs.length && docs.length === pendingMedia.length) {
+        docs.forEach((item) => {
+          const resolvedName = resolveDocumentName(item, 0);
+          const localMessage: Message = {
+            id: Math.random().toString(),
+            senderId: currentUserId,
+            senderName: user?.name || 'You',
+            content: mediaCaption.trim(),
+            type: 'file',
+            timestamp: new Date(),
+            read: true,
+            mediaItems: [{ ...item, name: resolvedName, loading: false }],
+            metadata: {
+              objectKey: item.uri || '',
+              mimeType: item.mimeType || null,
+              fileSize: item.fileSize || null,
+              mediaType: 'document',
+              originalFilename: resolvedName,
+            },
+          };
+          addMessage(chat.id, localMessage);
+        });
+      } else {
+        const localMessage: Message = {
+          id: Math.random().toString(),
+          senderId: currentUserId,
+          senderName: user?.name || 'You',
+          content: mediaCaption.trim(),
+          type: pendingMedia.length > 1 ? 'mediaGroup' : pendingMedia[0].type,
+          timestamp: new Date(),
+          read: true,
+          mediaItems: pendingMedia.map((item) => ({ ...item, loading: false })),
+        };
+        addMessage(chat.id, localMessage);
+      }
       closeMediaPreview();
       return;
     }
@@ -972,14 +1151,45 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         uploadedItems.push(await uploadPendingMediaItem(pendingMedia[index], index));
       }
 
-      const message = await completeUpload({
-        chatId: conversationId,
-        content: mediaCaption.trim() || undefined,
-        items: uploadedItems,
-      });
+      const documentItems = uploadedItems.filter((item) => item.mediaType === 'document');
+      const otherItems = uploadedItems.filter((item) => item.mediaType !== 'document');
 
-      if (message) {
-        await handleMediaUploadComplete(message);
+      if (documentItems.length && otherItems.length === 0) {
+        for (const item of documentItems) {
+          const message = await completeUpload({
+            chatId: conversationId,
+            content: mediaCaption.trim() || undefined,
+            objectKey: item.objectKey,
+            mimeType: item.mimeType,
+            fileSize: item.fileSize,
+            mediaType: item.mediaType,
+            originalFilename: item.originalFilename || resolveDocumentName({ ...item, uri: item.objectKey } as any, item.order || 0),
+          });
+          if (message) await handleMediaUploadComplete(message);
+        }
+      } else {
+        if (otherItems.length) {
+          const message = await completeUpload({
+            chatId: conversationId,
+            content: mediaCaption.trim() || undefined,
+            items: uploadedItems,
+          });
+          if (message) await handleMediaUploadComplete(message);
+        } else {
+          // only document items but no other items
+          for (const item of documentItems) {
+            const message = await completeUpload({
+              chatId: conversationId,
+              content: mediaCaption.trim() || undefined,
+              objectKey: item.objectKey,
+              mimeType: item.mimeType,
+              fileSize: item.fileSize,
+              mediaType: item.mediaType,
+              originalFilename: item.originalFilename || resolveDocumentName({ ...item, uri: item.objectKey } as any, item.order || 0),
+            });
+            if (message) await handleMediaUploadComplete(message);
+          }
+        }
       }
 
       setMediaPreviewVisible(false);
@@ -1411,32 +1621,70 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const handleDocumentPress = async () => {
     try {
-      const [doc] = await pick({ mode: 'open', allowMultiSelection: false });
-      if (doc?.uri) {
-        // enforce size limit
-        const size = doc.size || doc.fileSize || 0;
-        if (size && size > MAX_DOCUMENT_SIZE) {
-          Alert.alert('Document too large', `Selected file exceeds the ${Math.round(MAX_DOCUMENT_SIZE / (1024 * 1024))} MB limit.`);
-          return;
-        }
-
-        const mediaItem: MediaItem = {
-          id: `${Date.now()}-doc-${Math.random()}`,
-          uri: doc.uri,
-          type: 'document',
-          name: doc.name || 'Document',
-          mimeType: doc.mimeType || doc.type || 'application/octet-stream',
-          fileSize: size,
-          loading: true,
-        };
-
-        setPendingMedia([mediaItem]);
-        setMediaCaption('');
-        setMediaPreviewVisible(true);
-        setTimeout(() => {
-          setPendingMedia((items) => items.map((item) => ({ ...item, loading: false })));
-        }, 600);
+      const docs = await pick({ mode: 'open', allowMultiSelection: true });
+      const selectedDocs = Array.isArray(docs) ? docs : [docs];
+      const validDocs = selectedDocs.filter((doc) => !!doc?.uri);
+      if (!validDocs.length) {
+        return;
       }
+
+      const tooLargeDocs = validDocs.filter((doc) => {
+        const size = doc.size || doc.fileSize || 0;
+        return size > MAX_DOCUMENT_SIZE;
+      });
+
+      if (tooLargeDocs.length) {
+        Alert.alert(
+          'Document too large',
+          `${tooLargeDocs.length} selected file${tooLargeDocs.length > 1 ? 's' : ''} exceed the ${Math.round(
+            MAX_DOCUMENT_SIZE / (1024 * 1024),
+          )} MB limit and were excluded.`,
+        );
+      }
+
+      const getNameFromUri = (uri?: string) => {
+        if (!uri) return undefined;
+        const cleaned = uri.split('?')[0].split('#')[0];
+        const candidate = cleaned.split('/').pop() || '';
+        return candidate || undefined;
+      };
+      const isGenericName = (name?: string) => {
+        if (!name) return true;
+        const trimmed = String(name).trim();
+        return /^(media|attachment|document)(\.[a-z0-9]{1,5})?$/i.test(trimmed);
+      };
+      const mediaItems = validDocs
+        .filter((doc) => {
+          const size = doc.size || doc.fileSize || 0;
+          return size <= MAX_DOCUMENT_SIZE;
+        })
+        .map((doc) => {
+          const uriName = getNameFromUri(doc.uri);
+          const name = !isGenericName(doc.name)
+            ? doc.name
+            : uriName || doc.name || 'Document';
+          return {
+            id: `${Date.now()}-doc-${Math.random()}`,
+            uri: doc.uri,
+            type: 'document' as const,
+            name,
+            mimeType: doc.mimeType || doc.type || 'application/octet-stream',
+            fileSize: doc.size || doc.fileSize || 0,
+            loading: true,
+          };
+        })
+        .filter((item) => !!item.uri);
+
+      if (!mediaItems.length) {
+        return;
+      }
+
+      setPendingMedia(mediaItems);
+      setMediaCaption('');
+      setMediaPreviewVisible(true);
+      setTimeout(() => {
+        setPendingMedia((items) => items.map((item) => ({ ...item, loading: false })));
+      }, 600);
     } catch (error) {
       if (
         isErrorWithCode(error) &&
@@ -2068,6 +2316,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             }
           })()
         }}
+        onDocumentPress={() => openDocumentMessage(renderItem)}
         onForwardPress={() => openForwardForMessage(renderItem)}
         isSelected={selectedMessages.some((m) => String(m.id) === String(renderItem.id))}
         reaction={renderItem.reaction}
@@ -2805,11 +3054,19 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
               <View key={item.id} style={styles.previewTile}>
                 {item.type === 'image' ? (
                   <Image source={{ uri: item.uri }} style={styles.previewImage} resizeMode="cover" />
-                ) : (
-                  <View style={[styles.previewVideo, { backgroundColor: theme.inputBackground }]}>
+                ) : item.type === 'video' ? (
+                  <View style={[styles.previewVideo, { backgroundColor: theme.inputBackground }]}> 
                     <Icon name="play-circle" size={44} color={theme.primary} />
-                    <Text style={[styles.previewVideoText, { color: theme.textSecondary }]}>
-                      Video
+                    <Text style={[styles.previewVideoText, { color: theme.textSecondary }]}>Video</Text>
+                  </View>
+                ) : (
+                  <View style={[styles.previewDocument, { backgroundColor: theme.inputBackground }]}> 
+                    <Icon name="document-text" size={36} color={theme.primary} />
+                    <Text style={[styles.previewDocumentText, { color: theme.text }]} numberOfLines={2}>
+                      {item.name}
+                    </Text>
+                    <Text style={[styles.previewDocumentSubText, { color: theme.textSecondary }]} numberOfLines={1}>
+                      {item.fileSize ? `${(item.fileSize / (1024 * 1024)).toFixed(1)} MB` : 'Document'}
                     </Text>
                   </View>
                 )}
@@ -2828,13 +3085,13 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                   <Icon name="close" size={16} color="#FFFFFF" />
                 </TouchableOpacity>
 
-                <View style={[styles.selectionBadge, { backgroundColor: theme.primary }]}>
+                <View style={[styles.selectionBadge, { backgroundColor: theme.primary }]}> 
                   <Text style={styles.selectionBadgeText}>{index + 1}</Text>
                 </View>
               </View>
             ))}
 
-            {/* Add tile after the last image */}
+            {/* Add tile after the last media */}
             <TouchableOpacity
               activeOpacity={0.8}
               onPress={handleAddMoreMedia}
@@ -2851,9 +3108,13 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             <View style={styles.captionThumbWrap}>
               {pendingMedia[0]?.type === 'image' ? (
                 <Image source={{ uri: pendingMedia[0].uri }} style={styles.captionThumb} />
-              ) : (
+              ) : pendingMedia[0]?.type === 'video' ? (
                 <View style={[styles.captionThumb, styles.captionVideoThumb]}>
                   <Icon name="play" size={20} color="#FFFFFF" />
+                </View>
+              ) : (
+                <View style={[styles.captionThumb, styles.captionDocumentThumb, { backgroundColor: theme.inputBackground }]}> 
+                  <Icon name="document-text" size={24} color={theme.primary} />
                 </View>
               )}
               <View style={styles.captionAttachBadge}>
@@ -3495,6 +3756,23 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     fontWeight: '700',
   },
+  previewDocument: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: SPACING.md,
+  },
+  previewDocumentText: {
+    marginTop: SPACING.sm,
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  previewDocumentSubText: {
+    marginTop: SPACING.xs,
+    fontSize: FONT_SIZES.xs,
+    textAlign: 'center',
+  },
   loadingOverlay: {
     position: 'absolute',
     top: 0,
@@ -3555,6 +3833,10 @@ const styles = StyleSheet.create({
   },
   captionVideoThumb: {
     backgroundColor: '#263238',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  captionDocumentThumb: {
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -33,6 +33,7 @@ interface ChatBubbleProps {
   call?: Message['call'];
   location?: Message['location'];
   onMediaPress?: (index?: number) => void;
+  onDocumentPress?: () => void;
   onForwardPress?: () => void;
   isSelected?: boolean;
   reaction?: string;
@@ -58,7 +59,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   isOwn,
   style,
   theme,
-  read,
+  read: _read,
   onLongPress,
   onPress,
   mediaUrl,
@@ -68,6 +69,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   call,
   location,
   onMediaPress,
+  onDocumentPress,
   onForwardPress: _onForwardPress,
   isSelected = false,
   reaction,
@@ -134,14 +136,14 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             try {
               const uri = await fetchDownloadUrl(item.objectKey);
               if (!cancelled) setReplyThumbUri(uri || null);
-            } catch (e) {
+            } catch {
               if (!cancelled) setReplyThumbUri(null);
             }
             return;
           }
         }
         if (!cancelled) setReplyThumbUri(null);
-      } catch (e) {
+      } catch {
         if (!cancelled) setReplyThumbUri(null);
       }
     })();
@@ -158,7 +160,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         try {
           const uri = await fetchDownloadUrl(item.objectKey);
           return [item.objectKey, uri] as const;
-        } catch (e) {
+        } catch {
           return [item.objectKey, ''] as const;
         }
       }),
@@ -210,15 +212,62 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   const callIconColor = isMissedCall || isNoAnswerCall ? theme.error : theme.primary;
 
   // helpers
-  const filenameFrom = (val?: string) => {
-    if (!val) return '';
-    try {
-      return val.split('/').pop() || val;
-    } catch {
-      return val;
-    }
+
+  const isGenericDocumentLabel = (val?: string) => {
+    if (!val) return true;
+    const trimmed = val.trim();
+    return (
+      /^(media|attachment|document)(\.[a-z0-9]{1,5})?$/i.test(trimmed) ||
+      /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(trimmed) ||
+      /^[0-9a-f]{16,}$/i.test(trimmed) ||
+      /^[0-9a-f-]{20,}$/i.test(trimmed)
+    );
   };
 
+  const mediaItemName = Array.isArray(mediaItems) && mediaItems.length ? mediaItems[0].name : undefined;
+  const getNameFromUri = (uri?: string) => {
+    if (!uri) return undefined;
+    const cleaned = uri.split('?')[0].split('#')[0];
+    const candidate = cleaned.split('/').pop() || '';
+    return candidate || undefined;
+  };
+  const uriName = Array.isArray(mediaItems) && mediaItems.length ? getNameFromUri(mediaItems[0].uri) : undefined;
+  const fileName =
+    metadata?.originalFilename ||
+    (message as any)?.originalFilename ||
+    (!isGenericDocumentLabel(mediaItemName) ? mediaItemName : undefined) ||
+    (!isGenericDocumentLabel(uriName) ? uriName : undefined) ||
+    (typeof message === 'string' && /\.[a-z0-9]{2,5}$/i.test(message.trim()) && !isGenericDocumentLabel(message) ? message.trim() : undefined) ||
+    `Document.${(metadata?.mimeType || mediaItems?.[0]?.mimeType || 'application/pdf').split('/').pop()?.toLowerCase() || 'pdf'}`;
+
+  const formatSize = (size?: number | null) => {
+    if (!size || size <= 0) return null;
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${Math.round(size / 1024)} kB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const fileSizeLabel = metadata?.fileSize != null
+    ? formatSize(metadata.fileSize)
+    : Array.isArray(mediaItems) && mediaItems.length && mediaItems[0].fileSize != null
+      ? formatSize(mediaItems[0].fileSize)
+      : null;
+
+  const pageCountValue =
+    typeof metadata?.pageCount === "number"
+      ? metadata.pageCount
+      : Array.isArray(mediaItems) && mediaItems.length && typeof (mediaItems[0] as any)?.pageCount === "number"
+        ? (mediaItems[0] as any).pageCount
+        : null;
+  const pageCountLabel =
+    typeof pageCountValue === "number" && pageCountValue > 0
+      ? `${pageCountValue} page${pageCountValue === 1 ? '' : 's'}`
+      : null;
+
+  const fileExtension = fileName.split('.').pop()?.toUpperCase() || 'DOC';
+  const fileTypeLabel = `${fileExtension}`;
+  const fileDetails = [pageCountLabel, fileSizeLabel, fileTypeLabel].filter(Boolean).join(' • ');
+  const isDocumentMessage = type === 'file' || type === 'document';
   const isIncomingGroupMessage = isGroupChat && !isOwn;
   const showAvatarWithName = isIncomingGroupMessage && showSenderInfo;
 
@@ -259,9 +308,10 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         ) : null}
       <TouchableOpacity
         onLongPress={onLongPress}
-        onPress={onPress}
+        onPress={isDocumentMessage ? (onDocumentPress || onPress) : onPress}
         style={[
           styles.bubble,
+          isDocumentMessage && styles.documentBubble,
           isIncomingGroupMessage && styles.groupBubble,
           isMediaMessage && styles.mediaBubble,
           { 
@@ -341,11 +391,11 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
                   numberOfLines={2}
                 >
                   {replyTo.type === 'image' || replyTo.type === 'video'
-                    ? `📎 ${replyTo.type === 'image' ? 'Photo' : 'Video'}`
+                    ? `${replyTo.type === 'image' ? 'Photo' : 'Video'}`
                     : replyTo.type === 'location'
-                      ? '📍 Location'
+                      ? 'Location'
                       : replyTo.type === 'file'
-                        ? '📄 Document'
+                        ? 'Document'
                         : replyTo.content}
                 </Text>
                 {replyTo.mediaItems && replyTo.mediaItems.length > 0 ? (
@@ -542,22 +592,23 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         ) : null}
 
         {/* File / Document */}
-        { (type === 'file' || type === 'document') && (mediaUrl || resolvedObjectUrl || message) ? (
-          <TouchableOpacity 
-            activeOpacity={0.85} 
-            style={[styles.fileContainer, { backgroundColor: isOwn ? theme.messageGreen : theme.surface }]} 
-            onPress={() => console.info('Open file', mediaUrl || resolvedObjectUrl || message)}
-            onLongPress={onLongPress}
+        {isDocumentMessage && (mediaUrl || resolvedObjectUrl || message || fileName) ? (
+          <View
+            style={[
+              styles.documentCard,
+              { backgroundColor: isOwn ? 'rgba(6, 43, 24, 0.96)' : theme.surface, borderColor: isOwn ? 'rgba(255,255,255,0.06)' : theme.border },
+            ]}
           >
-            <View style={styles.fileLeft}>
-              <Icon name="document" size={26} color={theme.primary} />
-            </View>
-            <View style={styles.fileMeta}>
-              <Text style={[styles.fileName, { color: theme.text }]} numberOfLines={2}>{filenameFrom(message || mediaUrl || resolvedObjectUrl || undefined)}</Text>
-              <Text style={[styles.fileSize, { color: theme.textSecondary }]}>Document</Text>
-            </View>
-            <Icon name="download" size={18} color={theme.textSecondary} />
-          </TouchableOpacity>
+            <Text style={[styles.documentTitle, { color: isOwn ? '#FFFFFF' : theme.text }]} numberOfLines={1}>
+              {fileName}
+            </Text>
+            <Text
+              style={[styles.documentDetails, { color: isOwn ? 'rgba(255, 255, 255, 0.72)' : theme.textSecondary }]}
+              numberOfLines={1}
+            >
+              {fileDetails || 'Document'}
+            </Text>
+          </View>
         ) : null}
 
         {/* Call summary */}
@@ -738,6 +789,11 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.sm,
     borderRadius: BORDER_RADIUS.lg,
     overflow: 'visible',
+  },
+  documentBubble: {
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    maxWidth: '68%',
   },
   groupBubble: {
     maxWidth: '76%',
@@ -928,11 +984,27 @@ const styles = StyleSheet.create({
   locationTextBlock: { flex: 1, marginLeft: SPACING.sm },
   locationTitle: { fontSize: FONT_SIZES.base, fontWeight: '700' },
   locationSubtitle: { fontSize: FONT_SIZES.sm, marginTop: 2 },
-  fileContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, borderRadius: BORDER_RADIUS.md, minWidth: 160, maxWidth: '85%' },
-  fileLeft: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginRight: 8 },
-  fileMeta: { flex: 1, marginRight: 8 },
-  fileName: { fontSize: FONT_SIZES.sm, fontWeight: '600' },
-  fileSize: { fontSize: FONT_SIZES.xs, marginTop: 4 },
+  documentCard: {
+    width: '100%',
+    minWidth: 0,
+    maxWidth: '100%',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  documentTitle: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  documentDetails: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 3,
+    fontWeight: '500',
+  },
   reactionBadge: {
     position: 'absolute',
     bottom: -22,

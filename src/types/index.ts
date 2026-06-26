@@ -34,6 +34,7 @@ export interface Message {
     fileSize?: number | null;
     mediaType?: string | null;
     originalFilename?: string | null;
+    pageCount?: number | null;
   };
   reaction?: string;
   reactions?: { userId: string; reaction: string }[];
@@ -72,7 +73,7 @@ export interface MediaItem {
   objectKey?: string;
   mimeType?: string | null;
   fileSize?: number | null;
-  type: 'image' | 'video';
+  type: 'image' | 'video' | 'document';
   name: string;
   loading?: boolean;
 }

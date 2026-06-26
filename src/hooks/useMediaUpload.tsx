@@ -50,13 +50,14 @@ export default function useMediaUpload() {
       }
 
       // Step 3: ONLY after successful S3 upload, call complete-upload to create message in DB
-      console.log('[useMediaUpload] Calling complete-upload with:', { chatId, objectKey: key, mimeType: file.type, fileSize: file.size, mediaType });
+      console.log('[useMediaUpload] Calling complete-upload with:', { chatId, objectKey: key, mimeType: file.type, fileSize: file.size, mediaType, originalFilename: file.name });
       const message = await completeUpload({
         chatId,
         objectKey: key,
         mimeType: file.type,
         fileSize: file.size || 0,
         mediaType,
+        originalFilename: file.name,
       });
 
       console.log('[useMediaUpload] Complete-upload response:', {

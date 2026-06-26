@@ -5,6 +5,8 @@ export interface MediaMetadata {
   mimeType?: string | null;
   fileSize?: number | null;
   mediaType?: MediaType | null;
+  originalFilename?: string | null;
+  pageCount?: number | null;
 }
 
 export interface MessageRecord {
