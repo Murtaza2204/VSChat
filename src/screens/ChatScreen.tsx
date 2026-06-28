@@ -20,19 +20,29 @@ import {
   Linking,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
-import { ToastAndroid } from 'react-native';
+import { NativeModules, ToastAndroid, TurboModuleRegistry } from 'react-native';
+import RNFetchBlob from 'react-native-blob-util';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Asset, launchCamera, launchImageLibrary } from 'react-native-image-picker';
-let RNFetchBlob: any = null;
-try {
-  // require at runtime so app doesn't crash if native module isn't linked yet
-  // (useful during development while rebuilding native binary).
-  // eslint-disable-next-line global-require
-  RNFetchBlob = require('react-native-blob-util');
-} catch (e) {
-  RNFetchBlob = null;
-}
 import { errorCodes, isErrorWithCode, pick } from '@react-native-documents/picker';
+
+const diagnoseRNFetchBlob = () => {
+  try {
+    console.log('[ChatScreen] RNFetchBlob available:', !!RNFetchBlob);
+    console.log('[ChatScreen] RNFetchBlob keys:', RNFetchBlob ? Object.keys(RNFetchBlob).sort() : null);
+    console.log('[ChatScreen] RNFetchBlob.fs keys:', RNFetchBlob?.fs ? Object.keys(RNFetchBlob.fs).sort() : null);
+    console.log('[ChatScreen] RNFetchBlob.android keys:', RNFetchBlob?.android ? Object.keys(RNFetchBlob.android).sort() : null);
+    console.log('[ChatScreen] RNFetchBlob.MediaCollection keys:', RNFetchBlob?.MediaCollection ? Object.keys(RNFetchBlob.MediaCollection).sort() : null);
+    console.log('[ChatScreen] NativeModules.ReactNativeBlobUtil:', NativeModules?.ReactNativeBlobUtil);
+    console.log('[ChatScreen] TurboModuleRegistry ReactNativeBlobUtil:', TurboModuleRegistry.get('ReactNativeBlobUtil'));
+  } catch (error) {
+    console.warn('[ChatScreen] diagnoseRNFetchBlob failed', error);
+  }
+};
+
+if (!__DEV__) {
+  diagnoseRNFetchBlob();
+}
 import Geolocation from 'react-native-geolocation-service';
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
@@ -47,6 +57,7 @@ import api from '../config/api';
 import { connectSocket } from '../utils/socket';
 import { completeUpload, getUploadUrl } from '../services/mediaUploadService';
 import { fetchDownloadUrl } from '../services/mediaService';
+import { saveMediaToPublicStorage } from '../services/mediaDownloadService';
 import useMediaUpload from '../hooks/useMediaUpload';
 import useMedia from '../hooks/useMedia';
 import FullScreenImageViewer from '../components/FullScreenImageViewer';
@@ -159,6 +170,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectionMenuVisible, setSelectionMenuVisible] = useState(false);
   const [locationMenuVisible, setLocationMenuVisible] = useState(false);
+  const [downloadStatus, setDownloadStatus] = useState<{ text: string; progress?: number } | null>(null);
   const [liveDurationVisible, setLiveDurationVisible] = useState(false);
   const [mediaPreviewVisible, setMediaPreviewVisible] = useState(false);
   const [pendingMedia, setPendingMedia] = useState<MediaItem[]>([]);
@@ -992,7 +1004,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
 
     if (!RNFetchBlob || typeof RNFetchBlob.fetch !== 'function' || typeof RNFetchBlob.wrap !== 'function') {
-      console.warn('[ChatScreen] RNFetchBlob not available or missing functions, using JS upload hook');
+      console.warn('[ChatScreen] RNFetchBlob not available or missing functions, using JS upload hook', RNFetchBlob ? Object.keys(RNFetchBlob).sort() : null);
+      diagnoseRNFetchBlob();
       const uploadResult = await uploadUsingHook({
         chatId: conversationId,
         file: { uri: item.uri || '', name: fileName, type: mimeType, size: fileSize },
@@ -1839,6 +1852,75 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       console.error('handleLiveLocationDurationPress error:', error);
       Alert.alert('Location Error', 'An error occurred while starting live location.');
       clearLiveLocationWatch();
+    }
+  };
+
+  const showToast = (message: string) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    } else {
+      Alert.alert(message);
+    }
+  };
+
+  const isDownloadableMessage = (message?: Message | null) => {
+    if (!message) return false;
+    const hasMediaItems = Array.isArray(message.mediaItems) && message.mediaItems.length > 0;
+    const hasObjectKey = !!(message.metadata?.objectKey || message.mediaUrl || message.mediaItems?.[0]?.objectKey);
+    const isMediaType = ['image', 'video', 'file', 'document'].includes(message.type);
+    return hasMediaItems || isMediaType || hasObjectKey;
+  };
+
+  const handleDownloadSelectedMedia = async () => {
+    const single = selectedMessages.length === 1 ? selectedMessages[0] : actionMessage;
+    if (!single || !isDownloadableMessage(single)) {
+      showToast('This message does not contain downloadable media.');
+      setSelectionMenuVisible(false);
+      return;
+    }
+
+    const mediaItem = Array.isArray(single.mediaItems) && single.mediaItems.length > 0 ? single.mediaItems[0] : undefined;
+    const objectKey = mediaItem?.objectKey || single.metadata?.objectKey;
+    const mimeType = mediaItem?.mimeType || single.metadata?.mimeType;
+    const type = mediaItem?.type || single.type;
+    const name = mediaItem?.name || single.metadata?.originalFilename || single.content || undefined;
+    const shouldShowProgress = (mediaItem?.fileSize || single.metadata?.fileSize || 0) > 2 * 1024 * 1024;
+    let sourceUri = mediaItem?.uri || single.mediaUrl || undefined;
+
+    if (!sourceUri && objectKey) {
+      try {
+        sourceUri = await fetchDownloadUrl(objectKey);
+      } catch (error) {
+        console.warn('[ChatScreen] failed to resolve media download URL', error);
+      }
+    }
+
+    setSelectionMenuVisible(false);
+    setSelectedMessages([]);
+    setActionMessage(null);
+    setDownloadStatus({ text: 'Preparing download…' });
+
+    try {
+      const result = await saveMediaToPublicStorage({
+        sourceUri,
+        objectKey,
+        mimeType,
+        type,
+        name,
+        onProgress: (progress) => {
+          if (shouldShowProgress) {
+            setDownloadStatus({ text: `Downloading ${progress}%`, progress });
+          }
+        },
+      });
+      setDownloadStatus({ text: result.message || (result.success ? 'Saved to device storage.' : 'Download failed.'), progress: result.success ? 100 : undefined });
+      showToast(result.message || (result.success ? 'Saved to device storage.' : 'Download failed.'));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Download failed.';
+      setDownloadStatus({ text: message });
+      showToast(message);
+    } finally {
+      setTimeout(() => setDownloadStatus(null), 2600);
     }
   };
 
@@ -2710,6 +2792,18 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
               </TouchableOpacity>
             ) : null}
 
+            {selectedMessages.length === 1 && isDownloadableMessage(selectedMessages[0]) ? (
+              <TouchableOpacity
+                style={styles.menuItem}
+                activeOpacity={0.75}
+                onPress={() => {
+                  void handleDownloadSelectedMedia();
+                }}
+              >
+                <Text style={[styles.menuText, { color: theme.text }]}>Download</Text>
+              </TouchableOpacity>
+            ) : null}
+
             {/* Cancel Selection */}
             <TouchableOpacity
               style={styles.menuItem}
@@ -2866,6 +2960,17 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           </Pressable>
         </Pressable>
       </Modal>
+
+      {downloadStatus ? (
+        <View style={[styles.downloadStatusBanner, { backgroundColor: theme.surface }]}> 
+          <Text style={[styles.downloadStatusText, { color: theme.text }]}>{downloadStatus.text}</Text>
+          {typeof downloadStatus.progress === 'number' ? (
+            <View style={styles.downloadProgressBarWrap}>
+              <View style={[styles.downloadProgressBar, { width: `${Math.max(4, Math.min(downloadStatus.progress, 100))}%` }, { backgroundColor: theme.primary }]} />
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       <FlatList
         ref={flatListRef}
@@ -3772,6 +3877,36 @@ const styles = StyleSheet.create({
     marginTop: SPACING.xs,
     fontSize: FONT_SIZES.xs,
     textAlign: 'center',
+  },
+  downloadStatusBanner: {
+    position: 'absolute',
+    top: 92,
+    left: SPACING.md,
+    right: SPACING.md,
+    zIndex: 20,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: BORDER_RADIUS.md,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  downloadStatusText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '600',
+  },
+  downloadProgressBarWrap: {
+    marginTop: SPACING.xs,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(0,0,0,0.16)',
+    overflow: 'hidden',
+  },
+  downloadProgressBar: {
+    height: 6,
+    borderRadius: 3,
   },
   loadingOverlay: {
     position: 'absolute',
