@@ -19,7 +19,12 @@ export default function ImageMessage({ message, visible }: { message: MessageRec
         </View>
       )}
       {url && !loading && !error && (
-        <Image source={{ uri: url }} style={styles.image} resizeMode="cover" />
+        <Image source={{ uri: url }} style={styles.image} resizeMode="cover" onError={(e) => console.error('[ImageMessage] Image load error:', e.nativeEvent.error)} />
+      )}
+      {!loading && !error && !url && (
+        <View style={styles.error}>
+          <Text style={styles.errorText}>Loading image...</Text>
+        </View>
       )}
     </View>
   );

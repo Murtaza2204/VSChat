@@ -14,12 +14,20 @@ export default function VideoMessage({ message, visible }: { message: MessageRec
     <View style={styles.container}>
       {loading && <ActivityIndicator />}
       {error && (
-        <View style={styles.error}><Text>Failed to load video</Text><TouchableOpacity onPress={retry}><Text>Retry</Text></TouchableOpacity></View>
+        <View style={styles.error}>
+          <Text>Failed to load video</Text>
+          <TouchableOpacity onPress={retry}><Text>Retry</Text></TouchableOpacity>
+        </View>
       )}
       {url && !loading && !error && (
         <View style={styles.preview}>
           <Text>Video ready</Text>
           <TouchableOpacity onPress={() => setPlaying(!playing)} style={styles.playBtn}><Text>{playing ? 'Pause' : 'Play'}</Text></TouchableOpacity>
+        </View>
+      )}
+      {!loading && !error && !url && (
+        <View style={styles.error}>
+          <Text>Loading video...</Text>
         </View>
       )}
     </View>

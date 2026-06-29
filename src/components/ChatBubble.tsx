@@ -151,7 +151,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   }, [replyTo, replyToIndex, replyToMediaItemId, replyToMediaItemObjectKey]);
 
   useEffect(() => {
-    const itemsNeedingUrls = (mediaItems || []).filter((item: any) => item?.objectKey && !item.uri && !resolvedItemUrls[item.objectKey]);
+    const itemsNeedingUrls = (mediaItems || []).filter((item: any) => item?.objectKey && !resolvedItemUrls[item.objectKey]);
     if (!itemsNeedingUrls.length) return undefined;
 
     let cancelled2 = false;
@@ -184,8 +184,8 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     (mediaItems && mediaItems.length > 0
       ? mediaItems.map((item: any) => ({
           ...item,
-          uri: item.uri || (item.objectKey ? resolvedItemUrls[item.objectKey] : undefined),
-        })).filter((item: any) => !!item.uri)
+          uri: item.objectKey ? resolvedItemUrls[item.objectKey] : item.uri,
+        })).filter((item: any) => !!(item.uri || item.objectKey))  // Include items with objectKey even if uri not yet resolved
       : undefined) ||
     ((mediaUrl || resolvedObjectUrl) && (type === 'image' || type === 'video')
       ? [
@@ -460,20 +460,20 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
         ) : null}
 
         {/* Media */}
-        {isMediaMessage ? (
+        {isMediaMessage && resolvedMediaItems.filter((item: any) => item.uri).length > 0 ? (
           <View style={[styles.mediaStack, { width: mediaWidth }]}> 
             {/* 1 image: single large */}
-            {resolvedMediaItems.length === 1 && (
+            {resolvedMediaItems.length === 1 && resolvedMediaItems[0].uri && (
               <TouchableOpacity activeOpacity={0.95} onPress={() => onMediaPress?.(0)} onLongPress={onLongPress}>
                 <View style={[styles.mediaTile, styles.singleMediaTile]}>
                   {resolvedMediaItems[0].type === 'video' ? (
                     <VideoThumbnailComponent
-                      source={{ uri: resolvedMediaItems[0].uri || '' }}
+                      source={{ uri: resolvedMediaItems[0].uri }}
                       style={styles.image}
                       resizeMode="cover"
                     />
                   ) : (
-                    <Image source={{ uri: resolvedMediaItems[0].uri || '' }} style={styles.image} resizeMode="cover" />
+                    <Image source={{ uri: resolvedMediaItems[0].uri }} style={styles.image} resizeMode="cover" onError={(e) => console.error('[ChatBubble] Image load error:', e.nativeEvent.error)} />
                   )}
                   {resolvedMediaItems[0].type === 'video' && (
                     <View style={[styles.playButtonOverlay, styles.singlePlayButton]}>
@@ -485,19 +485,19 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             )}
 
             {/* 2 images: two side-by-side */}
-            {resolvedMediaItems.length === 2 && (
+            {resolvedMediaItems.length === 2 && resolvedMediaItems.every((item: any) => item.uri) && (
               <View style={styles.twoMediaRow}>
                 {resolvedMediaItems.map((item, idx) => (
                   <TouchableOpacity key={item.id} activeOpacity={0.95} onPress={() => onMediaPress?.(idx)} onLongPress={onLongPress} style={styles.twoMediaPressable}>
                     <View style={[styles.mediaTile, styles.twoMediaTile]}>
                       {item.type === 'video' ? (
                         <VideoThumbnailComponent
-                          source={{ uri: item.uri || '' }}
+                          source={{ uri: item.uri }}
                           style={styles.image}
                           resizeMode="cover"
                         />
                       ) : (
-                        <Image source={{ uri: item.uri || '' }} style={styles.image} resizeMode="cover" />
+                        <Image source={{ uri: item.uri }} style={styles.image} resizeMode="cover" onError={(e) => console.error('[ChatBubble] Image load error:', e.nativeEvent.error)} />
                       )}
                       {item.type === 'video' && (
                         <View style={[styles.playButtonOverlay, styles.twoMediaPlayButton]}>
@@ -511,18 +511,18 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             )}
 
             {/* 3 images: one large image above two smaller images */}
-            {resolvedMediaItems.length === 3 && (
+            {resolvedMediaItems.length === 3 && resolvedMediaItems.every((item: any) => item.uri) && (
               <View>
                 <TouchableOpacity activeOpacity={0.95} onPress={() => onMediaPress?.(0)} onLongPress={onLongPress}>
                   <View style={[styles.mediaTile, styles.threeMediaHero]}>
                     {resolvedMediaItems[0].type === 'video' ? (
                       <VideoThumbnailComponent
-                        source={{ uri: resolvedMediaItems[0].uri || '' }}
+                        source={{ uri: resolvedMediaItems[0].uri }}
                         style={styles.image}
                         resizeMode="cover"
                       />
                     ) : (
-                      <Image source={{ uri: resolvedMediaItems[0].uri || '' }} style={styles.image} resizeMode="cover" />
+                      <Image source={{ uri: resolvedMediaItems[0].uri }} style={styles.image} resizeMode="cover" onError={(e) => console.error('[ChatBubble] Image load error:', e.nativeEvent.error)} />
                     )}
                     {resolvedMediaItems[0].type === 'video' && (
                       <View style={[styles.playButtonOverlay, styles.threeHeroPlayButton]}>
@@ -537,12 +537,12 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
                       <View style={[styles.mediaTile, styles.threeMediaBottomTile]}>
                         {item.type === 'video' ? (
                           <VideoThumbnailComponent
-                            source={{ uri: item.uri || '' }}
+                            source={{ uri: item.uri }}
                             style={styles.image}
                             resizeMode="cover"
                           />
                         ) : (
-                          <Image source={{ uri: item.uri || '' }} style={styles.image} resizeMode="cover" />
+                          <Image source={{ uri: item.uri }} style={styles.image} resizeMode="cover" onError={(e) => console.error('[ChatBubble] Image load error:', e.nativeEvent.error)} />
                         )}
                         {item.type === 'video' && (
                           <View style={[styles.playButtonOverlay, styles.threeBottomPlayButton]}>
@@ -557,18 +557,18 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             )}
 
             {/* 4+ images: 2x2 grid showing all (wrap) */}
-            {resolvedMediaItems.length >= 4 && (
+            {resolvedMediaItems.length >= 4 && resolvedMediaItems.slice(0, 4).every((item: any) => item.uri) && (
               <View style={styles.gridContainer}>
                 {resolvedMediaItems.slice(0, 4).map((item, idx) => (
                   <TouchableOpacity key={item.id} activeOpacity={0.95} onPress={() => onMediaPress?.(idx)} onLongPress={onLongPress} style={styles.gridTile}>
                     {item.type === 'video' ? (
                       <VideoThumbnailComponent
-                        source={{ uri: item.uri || '' }}
+                        source={{ uri: item.uri }}
                         style={styles.gridImage}
                         resizeMode="cover"
                       />
                     ) : (
-                      <Image source={{ uri: item.uri || '' }} style={styles.gridImage} resizeMode="cover" />
+                      <Image source={{ uri: item.uri }} style={styles.gridImage} resizeMode="cover" onError={(e) => console.error('[ChatBubble] Image load error:', e.nativeEvent.error)} />
                     )}
                     {item.type === 'video' && (
                       <View style={[styles.playButtonOverlay, styles.gridPlayButton]}>
