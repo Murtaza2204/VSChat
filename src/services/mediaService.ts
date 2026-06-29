@@ -17,14 +17,18 @@ async function verifyUrl(url: string): Promise<boolean> {
   }
 }
 
-export async function fetchDownloadUrl(objectKey: string, preferPublic = true): Promise<string> {
+export async function fetchDownloadUrl(objectKey: string, preferPublic = true, mediaType?: string): Promise<string> {
   try {
     // Step 1: Try public URL first (most reliable)
     if (preferPublic) {
       try {
         console.debug('[mediaService] Attempting to fetch public URL for:', objectKey);
+        const params: Record<string, string> = { key: objectKey, requestType: 'public' };
+        if (mediaType) {
+          params.mediaType = mediaType;
+        }
         const resp = await api.get('/media/download-url', { 
-          params: { key: objectKey, requestType: 'public' },
+          params,
           timeout: 5000 // 5 second timeout for public URL fetch
         });
         if (resp.data.downloadUrl) {
@@ -44,8 +48,12 @@ export async function fetchDownloadUrl(objectKey: string, preferPublic = true): 
 
     // Step 2: Fall back to presigned URL (24-hour expiration)
     console.debug('[mediaService] Fetching presigned URL for:', objectKey);
+    const params: Record<string, string> = { key: objectKey };
+    if (mediaType) {
+      params.mediaType = mediaType;
+    }
     const resp = await api.get('/media/download-url', { 
-      params: { key: objectKey },
+      params,
       timeout: 5000 // 5 second timeout
     });
     

@@ -1072,10 +1072,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const openDocumentMessage = async (message: Message) => {
     try {
       const objectKey = message.metadata?.objectKey || message.mediaItems?.[0]?.objectKey;
+      const mediaType = message.metadata?.mediaType || message.type || 'file';
       const uri =
         message.mediaUrl ||
         message.mediaItems?.[0]?.uri ||
-        (objectKey ? await fetchDownloadUrl(objectKey) : undefined);
+        (objectKey ? await fetchDownloadUrl(objectKey, true, mediaType) : undefined);
 
       if (!uri) {
         Alert.alert('Open Document', 'Unable to open document');

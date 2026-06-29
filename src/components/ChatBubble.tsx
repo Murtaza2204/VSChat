@@ -267,7 +267,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   const fileExtension = fileName.split('.').pop()?.toUpperCase() || 'DOC';
   const fileTypeLabel = `${fileExtension}`;
   const fileDetails = [pageCountLabel, fileSizeLabel, fileTypeLabel].filter(Boolean).join(' • ');
-  const isDocumentMessage = type === 'file' || type === 'document';
+  const isDocumentMessage = type === 'file';
   const isIncomingGroupMessage = isGroupChat && !isOwn;
   const showAvatarWithName = isIncomingGroupMessage && showSenderInfo;
 
