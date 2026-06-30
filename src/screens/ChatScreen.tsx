@@ -28,8 +28,11 @@ try {
   // require at runtime so app doesn't crash if native module isn't linked yet
   // (useful during development while rebuilding native binary).
   // eslint-disable-next-line global-require
-  RNFetchBlob = require('react-native-blob-util');
+  const blobUtilModule = require('react-native-blob-util');
+  // react-native-blob-util exports the RNFetchBlob object as default or direct export
+  RNFetchBlob = blobUtilModule.default || blobUtilModule;
 } catch (e) {
+  console.warn('[ChatScreen] Failed to load react-native-blob-util:', e);
   RNFetchBlob = null;
 }
 import { errorCodes, isErrorWithCode, pick } from '@react-native-documents/picker';
@@ -47,6 +50,7 @@ import api from '../config/api';
 import { connectSocket } from '../utils/socket';
 import { completeUpload, getUploadUrl } from '../services/mediaUploadService';
 import { fetchDownloadUrl } from '../services/mediaService';
+import { buildMediaDownloadFileName, buildMediaDownloadUrl, getMediaStorageDirectory, extractMediaObjectKey } from '../utils/mediaDownload';
 import useMediaUpload from '../hooks/useMediaUpload';
 import useMedia from '../hooks/useMedia';
 import FullScreenImageViewer from '../components/FullScreenImageViewer';
@@ -54,6 +58,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import signaling from '../services/signaling';
 import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
 import { markConversationNotificationsRead } from '../services/notifications';
+
+// Validate RNFetchBlob module has required methods
+const validateRNFetchBlob = (module: any): boolean => {
+  if (!module) return false;
+  const hasRequiredMethods = 
+    typeof module.config === 'function' &&
+    typeof module.fetch === 'function' &&
+    typeof module.wrap === 'function' &&
+    module.fs && typeof module.fs.stat === 'function' &&
+    typeof module.fs.exists === 'function';
+  return hasRequiredMethods;
+};
 
 const isValidAvatarUri = (value?: string | null) =>
   !!value &&
@@ -170,6 +186,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [viewerStartIndex, setViewerStartIndex] = useState(0);
   const viewerScrollRef = React.useRef<ScrollView | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  const pendingMediaDownloadKeysRef = useRef(new Set<string>());
+  const completedMediaDownloadKeysRef = useRef(new Set<string>());
   const [nowTick, setNowTick] = useState(Date.now());
   const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
   const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50 MB
@@ -202,6 +220,453 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     const filtered = resolved.filter((item) => !!item.uri);
     console.log('[resolveMediaUris] returning', filtered.length, 'items with uris');
     return filtered;
+  };
+
+  const autoDownloadReceivedMedia = async (message: Message) => {
+    if (!message?.id || !currentUserId) return;
+    const senderId = String(message.senderId || '');
+    if (senderId === String(currentUserId)) return;
+    console.log('[ChatScreen][auto-download] received media message', {
+      messageId: message.id,
+      senderId,
+      messageType: message.type,
+      mediaItemsCount: Array.isArray(message.mediaItems) ? message.mediaItems.length : 0,
+      metadataObjectKey: message.metadata?.objectKey,
+      mediaUrl: message.mediaUrl,
+      directDownloadUrl: (message as any).downloadUrl,
+    });
+
+    const mediaItems = Array.isArray(message.mediaItems) ? message.mediaItems : [];
+    const mediaCandidates = mediaItems.length
+      ? mediaItems
+      : [
+          {
+            id: message.metadata?.objectKey || message.id,
+            objectKey: message.metadata?.objectKey || (message as any).objectKey,
+            mimeType: message.metadata?.mimeType,
+            type: message.metadata?.mediaType || message.type || 'file',
+          },
+        ];
+
+    const mediaTypeSet = new Set(['image', 'video', 'audio', 'document', 'file', 'mediaGroup']);
+    const shouldDownload = mediaCandidates.some((candidate: any) => {
+      const type = candidate?.type || message.metadata?.mediaType || message.type || 'file';
+      return !!candidate?.objectKey && mediaTypeSet.has(String(type));
+    });
+
+    console.log('[ChatScreen][auto-download] download decision', {
+      messageId: message.id,
+      shouldDownload,
+      candidateCount: mediaCandidates.length,
+      mediaCandidates: mediaCandidates.map((candidate: any) => ({
+        id: candidate?.id,
+        objectKey: candidate?.objectKey,
+        type: candidate?.type,
+        uri: candidate?.uri,
+      })),
+    });
+
+    if (!shouldDownload) return;
+
+    const downloadBaseUrl = 'https://pub-9e006aecccb34fa0af4dc9a24327c25f.r2.dev';
+    
+    // Use hardcoded Android paths (standard, always available)
+    const dirs: any = Platform.OS === 'android'
+      ? {
+          PictureDir: '/storage/emulated/0/Pictures',
+          MovieDir: '/storage/emulated/0/Movies',
+          DownloadDir: '/storage/emulated/0/Download',
+          DocumentDir: '/storage/emulated/0/Documents',
+          MusicDir: '/storage/emulated/0/Music',
+        }
+      : {
+          PictureDir: '/var/mobile/Media/DCIM/100APPLE',
+          MovieDir: '/var/mobile/Media/DCIM',
+          DownloadDir: '/var/mobile/Downloads',
+          DocumentDir: '/var/mobile/Documents',
+          MusicDir: '/var/mobile/Music',
+        };
+
+    // Detailed diagnostics for RNFetchBlob availability
+    const isRNFetchBlobValid = validateRNFetchBlob(RNFetchBlob);
+    const blobMethods = RNFetchBlob ? Object.keys(RNFetchBlob).slice(0, 20) : [];
+    console.log('[ChatScreen][auto-download] RNFetchBlob status', {
+      rnFetchBlobAvailable: !!RNFetchBlob,
+      isValid: isRNFetchBlobValid,
+      hasConfig: !!RNFetchBlob?.config,
+      hasFetch: !!RNFetchBlob?.fetch,
+      hasWrap: !!RNFetchBlob?.wrap,
+      hasFs: !!RNFetchBlob?.fs,
+      hasFsStat: !!RNFetchBlob?.fs?.stat,
+      hasFsExists: !!RNFetchBlob?.fs?.exists,
+      platform: Platform.OS,
+      availableMethods: blobMethods,
+      dirs,
+    });
+
+    if (!isRNFetchBlobValid) {
+      console.warn('[ChatScreen][auto-download] RNFetchBlob not properly initialized or missing required methods', {
+        available: !!RNFetchBlob,
+        config: typeof RNFetchBlob?.config,
+        fetch: typeof RNFetchBlob?.fetch,
+        wrap: typeof RNFetchBlob?.wrap,
+        fs: typeof RNFetchBlob?.fs,
+        moduleKeys: RNFetchBlob ? Object.keys(RNFetchBlob) : [],
+        hint: 'Try: cd WhatsAppClone && npm run android (to rebuild native modules)',
+      });
+      return;
+    }
+
+    await Promise.all(
+      mediaCandidates.map(async (candidate: any) => {
+        const objectKey = candidate?.objectKey || (message as any).objectKey;
+        const mediaType = candidate?.type || message.metadata?.mediaType || message.type || 'file';
+        if (!objectKey) {
+          console.log('[ChatScreen][auto-download] no objectKey, skipping', { messageId: message.id });
+          return;
+        }
+
+        // objectKey is already in the correct format (e.g., "media/abc/def.jpg")
+        // No need to extract from URL - use it directly
+        const resolvedObjectKey = objectKey.startsWith('http') 
+          ? extractMediaObjectKey(objectKey, downloadBaseUrl)
+          : objectKey;
+          
+        console.log('[ChatScreen][auto-download] resolved objectKey', {
+          messageId: message.id,
+          original: objectKey,
+          resolved: resolvedObjectKey,
+        });
+
+        if (!resolvedObjectKey) {
+          console.warn('[ChatScreen][auto-download] failed to resolve objectKey', { messageId: message.id, objectKey });
+          return;
+        }
+
+        // Extract just the filename from the full objectKey path
+        // e.g., "media/6a2d001c4c0067e214f7bc46/2026/06/a10ebccf-b887-45ab-b52e-4563d0e9f6d4.jpg"
+        // becomes "a10ebccf-b887-45ab-b52e-4563d0e9f6d4.jpg"
+        const objectKeyFilename = resolvedObjectKey.split('/').pop() || resolvedObjectKey;
+        
+        // Remove extension from filename (if present) to avoid .jpg.jpg
+        // "a10ebccf-b887-45ab-b52e-4563d0e9f6d4.jpg" becomes "a10ebccf-b887-45ab-b52e-4563d0e9f6d4"
+        const filenameWithoutExt = objectKeyFilename.includes('.') 
+          ? objectKeyFilename.split('.').slice(0, -1).join('.')
+          : objectKeyFilename;
+
+        const fileName = buildMediaDownloadFileName({
+          mediaId: filenameWithoutExt,
+          messageId: String(message.id),
+          objectKey: objectKeyFilename,  // Pass just the filename part
+          mimeType: candidate?.mimeType || message.metadata?.mimeType,
+        });
+        const destinationDir = getMediaStorageDirectory(mediaType, dirs);
+        console.log('[ChatScreen][auto-download] destination check', {
+          messageId: message.id,
+          destinationDir,
+          mediaType,
+          objectKeyFilename,
+          fileName,
+          filenameWithoutExt,
+          dirs,
+        });
+
+        const destinationPath = `${destinationDir}/${fileName}`;
+        const downloadKey = `${String(message.id)}:${fileName}`;
+        console.log('[ChatScreen][auto-download] preparing download', {
+          messageId: message.id,
+          fileName,
+          destinationPath,
+          resolvedObjectKey,
+        });
+        if (pendingMediaDownloadKeysRef.current.has(downloadKey) || completedMediaDownloadKeysRef.current.has(downloadKey)) {
+          console.log('[ChatScreen][auto-download] skipping duplicate request', { messageId: message.id, fileName });
+          return;
+        }
+
+        let exists = false;
+        try {
+          if (RNFetchBlob.fs && typeof RNFetchBlob.fs.exists === 'function') {
+            exists = await RNFetchBlob.fs.exists(destinationPath);
+          }
+        } catch (e) {
+          console.warn('[ChatScreen][auto-download] media existence check failed', e);
+          exists = false;
+        }
+        if (exists) {
+          console.log('[ChatScreen][auto-download] file already exists, skipping', { messageId: message.id, destinationPath });
+          completedMediaDownloadKeysRef.current.add(downloadKey);
+          return;
+        }
+
+        pendingMediaDownloadKeysRef.current.add(downloadKey);
+
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          let downloadUrl = '';
+          try {
+            // Fetch download URL from backend instead of building manually
+            try {
+              // Pass mediaType to help backend choose the right public URL
+              downloadUrl = await fetchDownloadUrl(resolvedObjectKey, true, mediaType);
+            } catch (urlError) {
+              console.warn('[ChatScreen][auto-download] failed to fetch download URL, skipping', { messageId: message.id, resolvedObjectKey, mediaType, error: urlError });
+              return;
+            }
+            
+            if (!downloadUrl) {
+              console.warn('[ChatScreen][auto-download] no download URL available, skipping', { messageId: message.id, resolvedObjectKey });
+              return;
+            }
+            
+            console.log('[ChatScreen][auto-download] attempt', { 
+              attempt, 
+              messageId: message.id, 
+              downloadUrl: downloadUrl,  // Full URL for debugging
+              destinationPath 
+            });
+            
+            // Download with timeout, proper response handling, and headers
+            const configOptions: any = {
+              path: destinationPath,
+              // Ensure RNFetchBlob writes a cached file to disk when using a
+              // custom path. `fileCache: true` is more reliable for binary
+              // downloads on Android.
+              fileCache: true,
+            };
+            // Only enable `trusty` for non-HTTPS or obvious dev hosts to avoid
+            // triggering native trust-manager issues on Android for normal HTTPS
+            // public URLs. `trusty` allows self-signed certs and should not be
+            // used for public endpoints.
+            try {
+              const lower = String(downloadUrl || '').toLowerCase();
+              if (lower.startsWith('http://') || lower.includes('localhost') || lower.includes('127.0.0.1')) {
+                configOptions.trusty = true;
+              }
+              // If we can infer a file extension, let RNFetchBlob append it.
+              try {
+                const extMatch = (objectKeyFilename || '').match(/\.([a-z0-9]+)$/i);
+                if (extMatch && extMatch[1]) configOptions.appendExt = extMatch[1].toLowerCase();
+              } catch (e) {}
+            } catch (e) {
+              // ignore and proceed without `trusty`
+            }
+
+            const response = await RNFetchBlob.config(configOptions).fetch('GET', downloadUrl, {
+              // Add headers to avoid Cloudflare blocking
+              'User-Agent': 'Mozilla/5.0 (Android) WhatsAppClone/1.0',
+              'Accept': 'image/*,*/*;q=0.8',
+              'Accept-Encoding': 'gzip, deflate, br',
+              'Connection': 'keep-alive',
+              'Cache-Control': 'no-cache'
+            });
+            
+            // Verify HTTP response status
+            const responseStatus = response?.respInfo?.status || response?.status || 0;
+            const responseHeaders = response?.respInfo?.headers || {};
+            const contentType = responseHeaders['content-type'] || responseHeaders['Content-Type'] || 'unknown';
+            const contentLength = responseHeaders['content-length'] || responseHeaders['Content-Length'] || 'unknown';
+            
+            console.log('[ChatScreen][auto-download] response status', { 
+              messageId: message.id, 
+              status: responseStatus,
+              statusText: response?.respInfo?.statusText || 'unknown',
+              contentType,
+              contentLength,
+              allHeaders: responseHeaders
+            });
+            
+            if (responseStatus < 200 || responseStatus >= 300) {
+              console.error('[ChatScreen][auto-download] HTTP error status', { 
+                messageId: message.id, 
+                status: responseStatus,
+                contentType,
+                downloadUrl 
+              });
+              throw new Error(`HTTP error: ${responseStatus}`);
+            }
+            
+            // Verify response is actually an image
+            if (!contentType.includes('image') && !contentType.includes('octet-stream')) {
+              console.error('[ChatScreen][auto-download] response is not an image', { 
+                messageId: message.id, 
+                contentType,
+                downloadUrl,
+                suggestion: 'Server returned non-image content type'
+              });
+              throw new Error(`Response is not an image: ${contentType}`);
+            }
+            
+            let finalExists = false;
+            let fileSize = 0;
+            try {
+              if (RNFetchBlob.fs && typeof RNFetchBlob.fs.exists === 'function') {
+                finalExists = await RNFetchBlob.fs.exists(destinationPath);
+              } else {
+                // If fs.exists not available, assume success since fetch didn't throw
+                finalExists = true;
+              }
+              // Log RNFetchBlob response path if available for diagnostics
+              try {
+                const respPath = (response && (typeof response.path === 'function' ? response.path() : response.path)) || null;
+                console.log('[ChatScreen][auto-download] RNFetchBlob response path', { messageId: message.id, respPath });
+              } catch (e) {}
+              
+              // Check file size to ensure it's not empty/corrupted
+              if (finalExists && RNFetchBlob.fs && typeof RNFetchBlob.fs.stat === 'function') {
+                try {
+                  const stat = await RNFetchBlob.fs.stat(destinationPath);
+                  fileSize = stat.size || 0;
+                  console.log('[ChatScreen][auto-download] file stat', { messageId: message.id, fileSize, path: destinationPath });
+                  
+                  // If file is suspiciously small, read it to check if it's an error page
+                  if (fileSize < 1000 && fileSize > 0) {
+                    console.warn('[ChatScreen][auto-download] file is suspiciously small', { fileSize });
+                    // Try to read first bytes as base64 to detect binary image header
+                    try {
+                      if (RNFetchBlob.fs && typeof RNFetchBlob.fs.readFile === 'function') {
+                        const previewBase64 = await RNFetchBlob.fs.readFile(destinationPath, 'base64');
+                        const previewSnippet = previewBase64.substring(0, 32);
+                        console.warn('[ChatScreen][auto-download] file preview (base64 snippet):', previewSnippet);
+                        // JPEG base64 starts with '/9j/' often, PNG starts with 'iVBOR'
+                        const looksLikeJpeg = previewBase64.startsWith('/9j');
+                        const looksLikePng = previewBase64.startsWith('iVBOR');
+                        if (looksLikeJpeg || looksLikePng) {
+                          console.warn('[ChatScreen][auto-download] small file appears to contain image bytes (maybe truncated)', { looksLikeJpeg, looksLikePng });
+                        } else {
+                          // Could be an HTML error page or other text
+                          const previewText = Buffer.from(previewBase64, 'base64').toString('utf8').substring(0, 500);
+                          console.warn('[ChatScreen][auto-download] file preview text (first 500 chars):', previewText);
+                          if (previewText.includes('<!DOCTYPE') || previewText.includes('<html') || previewText.includes('error') || previewText.includes('403') || previewText.includes('404') || previewText.includes('cloudflare')) {
+                            throw new Error('Downloaded file appears to be error page, not image');
+                          }
+                        }
+                      }
+                    } catch (readErr) {
+                      console.warn('[ChatScreen][auto-download] could not read file preview:', readErr);
+                    }
+                    throw new Error(`Downloaded file is too small: ${fileSize} bytes`);
+                  }
+                  
+                  if (fileSize === 0) {
+                    console.warn('[ChatScreen][auto-download] downloaded file is empty', { messageId: message.id, destinationPath });
+                    throw new Error('Downloaded file is empty');
+                  }
+                } catch (statErr) {
+                  console.warn('[ChatScreen][auto-download] failed to stat file', statErr);
+                }
+              }
+            } catch (e) {
+              console.warn('[ChatScreen][auto-download] post-download check failed', e);
+              finalExists = true; // assume success
+            }
+            
+            console.log('[ChatScreen][auto-download] result', { attempt, messageId: message.id, finalExists, fileSize, destinationPath });
+            if (finalExists && fileSize > 0) {
+              completedMediaDownloadKeysRef.current.add(downloadKey);
+              console.log('[ChatScreen][auto-download] download successful', { messageId: message.id, fileName, fileSize, destinationPath });
+              return;
+            }
+            throw new Error(`Downloaded file check failed: exists=${finalExists}, size=${fileSize}`);
+
+          } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            // For transient failures before the final attempt, log as info
+            if (attempt < 3) {
+              console.log('[ChatScreen][auto-download] download error on attempt', {
+                attempt,
+                messageId: message.id,
+                errorMsg,
+                errorType: error?.constructor?.name,
+                retrying: true,
+              });
+            } else {
+              // Final attempt: try fallback first before emitting a warning
+              console.log('[ChatScreen][auto-download] download error on final attempt, trying fallback', {
+                attempt,
+                messageId: message.id,
+                errorMsg,
+                errorType: error?.constructor?.name,
+              });
+
+              // Fallback: try to fetch the file as base64 in-memory and write it
+              // using RNFetchBlob.fs.writeFile. This uses a different native
+              // path and can succeed when the config path download was
+              // interrupted or truncated.
+              let fallbackSucceeded = false;
+              try {
+                console.log('[ChatScreen][auto-download] attempting fallback download via RNFetchBlob.fetch (base64) for', { messageId: message.id, downloadUrl });
+                const fallbackResp: any = await RNFetchBlob.fetch('GET', downloadUrl, {
+                  'User-Agent': 'Mozilla/5.0 (Android) WhatsAppClone/1.0',
+                  'Accept': 'image/*,*/*;q=0.8',
+                  'Accept-Encoding': 'identity',
+                  'Connection': 'keep-alive',
+                });
+                const fallbackStatus = fallbackResp?.respInfo?.status || fallbackResp?.status || 0;
+                console.log('[ChatScreen][auto-download] fallback response status', { messageId: message.id, fallbackStatus });
+                if (fallbackStatus >= 200 && fallbackStatus < 300) {
+                  // Get base64 string and write to destination
+                  const base64Data = fallbackResp.base64();
+                  console.log('[ChatScreen][auto-download] fallback base64 length', { messageId: message.id, len: base64Data?.length });
+                  // Remove any existing partial file before writing
+                  try {
+                    if (await RNFetchBlob.fs.exists(destinationPath)) {
+                      await RNFetchBlob.fs.unlink(destinationPath);
+                    }
+                  } catch (unlinkErr) {
+                    console.warn('[ChatScreen][auto-download] could not unlink existing file before fallback write', unlinkErr);
+                  }
+                  try {
+                    await RNFetchBlob.fs.writeFile(destinationPath, base64Data, 'base64');
+                  } catch (writeErr) {
+                    console.warn('[ChatScreen][auto-download] fallback writeFile error', writeErr);
+                    throw writeErr;
+                  }
+                  // verify written file
+                  let fbExists = false;
+                  let fbSize = 0;
+                  try {
+                    fbExists = await RNFetchBlob.fs.exists(destinationPath);
+                    if (fbExists) {
+                      const statFb = await RNFetchBlob.fs.stat(destinationPath);
+                      fbSize = statFb.size || 0;
+                    }
+                  } catch (fbStatErr) {
+                    console.warn('[ChatScreen][auto-download] fallback stat failed', fbStatErr);
+                  }
+                  console.log('[ChatScreen][auto-download] fallback write result', { messageId: message.id, fbExists, fbSize });
+                  if (fbExists && fbSize > 0) {
+                    completedMediaDownloadKeysRef.current.add(downloadKey);
+                    console.log('[ChatScreen][auto-download] fallback download successful', { messageId: message.id, destinationPath, fbSize });
+                    fallbackSucceeded = true;
+                  }
+                }
+              } catch (fbError) {
+                console.warn('[ChatScreen][auto-download] fallback download failed', fbError);
+              }
+
+              if (!fallbackSucceeded) {
+                console.warn('[ChatScreen][auto-download] media download failed after retries', {
+                  messageId: message.id,
+                  objectKey,
+                  resolvedObjectKey,
+                  destinationPath,
+                  finalError: errorMsg,
+                  suggestion: 'Check network connection or try again. If issue persists, file may not be accessible.',
+                });
+              }
+
+              return;
+            }
+            // Exponential backoff: 1s, 2s, 4s
+            const delayMs = (Math.pow(2, attempt - 1)) * 1000;
+            console.log('[ChatScreen][auto-download] retrying in', delayMs, 'ms');
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+        }
+      }),
+    );
+
+    pendingMediaDownloadKeysRef.current.clear();
   };
 
   const liveLocationDurations = [
@@ -793,13 +1258,15 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             return merged;
           });
         }
-        // new incoming message: add to loaded messages and update chat store last message
-        try {
-          const target = useChatStore.getState().chats.find((c) => String(c.conversationId) === String(conversationId) || String(c.id) === String(chat?.id));
-          if (target) useChatStore.getState().addMessage(target.id, incoming as any);
-        } catch (e) {}
+        // new incoming message: add to loaded messages (don't update chat store here - do it outside setter)
         return [...prev, incoming];
       });
+      // trigger side effects after state update (outside the setter to avoid React warning)
+      try {
+        const target = useChatStore.getState().chats.find((c) => String(c.conversationId) === String(conversationId) || String(c.id) === String(chat?.id));
+        if (target) useChatStore.getState().addMessage(target.id, incoming as any);
+      } catch (e) {}
+      void autoDownloadReceivedMedia(incoming);
     };
 
     const start = async () => {
@@ -991,8 +1458,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       throw new Error('Server returned invalid upload URL response');
     }
 
-    if (!RNFetchBlob || typeof RNFetchBlob.fetch !== 'function' || typeof RNFetchBlob.wrap !== 'function') {
-      console.warn('[ChatScreen] RNFetchBlob not available or missing functions, using JS upload hook');
+    if (!validateRNFetchBlob(RNFetchBlob)) {
+      console.warn('[ChatScreen] RNFetchBlob not available or missing required functions, using fallback upload');
       const uploadResult = await uploadUsingHook({
         chatId: conversationId,
         file: { uri: item.uri || '', name: fileName, type: mimeType, size: fileSize },
@@ -1718,7 +2185,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       } catch (e) {}
 
       const msgs = await messagesApi.getMessages(conversationId);
-      setLoadedMessages((msgs || []).map(normalizeServerMessage));
+      const normalizedMessages = (msgs || []).map(normalizeServerMessage);
+      setLoadedMessages(normalizedMessages);
+      normalizedMessages.forEach((message) => {
+        void autoDownloadReceivedMedia(message);
+      });
       } catch (e) {
         console.warn('Failed to load messages', (e as any)?.message || String(e));
       }

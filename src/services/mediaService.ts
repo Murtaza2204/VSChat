@@ -7,22 +7,13 @@ import api from '../config/api';
  * @param objectKey The S3/R2 object key
  * @param preferPublic Whether to prefer public URL (default true)
  */
-async function verifyUrl(url: string): Promise<boolean> {
-  try {
-    const resp = await fetch(url, { method: 'HEAD' });
-    if (resp.ok) return true;
-    return false;
-  } catch {
-    return false;
-  }
-}
 
 export async function fetchDownloadUrl(objectKey: string, preferPublic = true, mediaType?: string): Promise<string> {
   try {
     // Step 1: Try public URL first (most reliable)
     if (preferPublic) {
       try {
-        console.debug('[mediaService] Attempting to fetch public URL for:', objectKey);
+        console.info('[mediaService] Attempting to fetch public URL for:', objectKey);
         const params: Record<string, string> = { key: objectKey, requestType: 'public' };
         if (mediaType) {
           params.mediaType = mediaType;
@@ -33,21 +24,18 @@ export async function fetchDownloadUrl(objectKey: string, preferPublic = true, m
         });
         if (resp.data.downloadUrl) {
           const publicUrl = resp.data.downloadUrl;
-          console.debug('[mediaService] Successfully fetched public URL', publicUrl);
-          const valid = await verifyUrl(publicUrl);
-          if (valid) {
-            return publicUrl;
-          }
-          console.warn('[mediaService] Public URL verification failed, falling back to presigned:', publicUrl);
+          console.info('[mediaService] Successfully fetched public URL for key:', objectKey);
+          // Trust the backend to return valid URLs - no need to verify
+          return publicUrl;
         }
-      } catch (publicErr) {
-        console.warn('[mediaService] Public URL fetch failed, trying presigned:', publicErr.message);
+      } catch (publicErr: any) {
+        console.warn('[mediaService] Public URL fetch failed, trying presigned:', publicErr?.message);
         // Fall through to presigned URL
       }
     }
 
     // Step 2: Fall back to presigned URL (24-hour expiration)
-    console.debug('[mediaService] Fetching presigned URL for:', objectKey);
+    console.info('[mediaService] Fetching presigned URL for:', objectKey);
     const params: Record<string, string> = { key: objectKey };
     if (mediaType) {
       params.mediaType = mediaType;
@@ -61,10 +49,10 @@ export async function fetchDownloadUrl(objectKey: string, preferPublic = true, m
       throw new Error('No downloadUrl in response');
     }
     
-    console.debug('[mediaService] Successfully fetched presigned URL');
+    console.info('[mediaService] Successfully fetched presigned URL for key:', objectKey);
     return resp.data.downloadUrl;
   } catch (e: any) {
-    console.error('[mediaService] fetchDownloadUrl error for', objectKey, ':', e);
+    console.error('[mediaService] fetchDownloadUrl error for', objectKey, ':', e?.message);
     throw e;
   }
 }
