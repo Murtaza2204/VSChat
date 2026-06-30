@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Image,
   TouchableOpacity,
@@ -29,6 +29,12 @@ const Avatar: React.FC<AvatarProps> = ({
   online,
   onPress,
 }) => {
+  const [hasImageError, setHasImageError] = useState(false);
+
+  useEffect(() => {
+    setHasImageError(false);
+  }, [source]);
+
   const getSizeStyle = () => {
     switch (size) {
       case 'small':
@@ -58,10 +64,12 @@ const Avatar: React.FC<AvatarProps> = ({
   const sizeStyle = getSizeStyle();
   const isImageSource =
     !!source &&
+    !hasImageError &&
     (source.startsWith('file://') ||
       source.startsWith('content://') ||
       source.startsWith('http://') ||
       source.startsWith('https://'));
+  const fallbackContent = typeof source === 'string' && source.length > 0 ? source : undefined;
   const Wrapper = onPress ? TouchableOpacity : View;
 
   return (
@@ -81,10 +89,15 @@ const Avatar: React.FC<AvatarProps> = ({
             source={{ uri: source }}
             style={sizeStyle}
             resizeMode="cover"
-            onError={(e) => console.log('Avatar IMAGE ERROR', { source, err: e.nativeEvent })}
+            onError={(e) => {
+              setHasImageError(true);
+              console.log('Avatar IMAGE ERROR', { source, err: e.nativeEvent });
+            }}
           />
-        ) : source ? (
-          <Text style={{ fontSize: getFontSize() }}>{source}</Text>
+        ) : hasImageError ? (
+          <Icon name="person" size={Math.round(getFontSize() * 0.92)} color={theme.textSecondary} />
+        ) : fallbackContent ? (
+          <Text style={{ fontSize: getFontSize() }}>{fallbackContent}</Text>
         ) : (
           <Icon name="person" size={Math.round(getFontSize() * 0.92)} color={theme.textSecondary} />
         )}

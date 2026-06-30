@@ -91,6 +91,7 @@ export interface Chat {
   groupId?: string;
   title: string;
   avatar?: string;
+  groupProfilePicture?: string | null;
   lastMessage?: string;
   lastMessageTime?: Date;
   unreadCount: number;

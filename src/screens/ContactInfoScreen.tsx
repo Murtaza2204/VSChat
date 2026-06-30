@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import { launchImageLibrary } from 'react-native-image-picker';
 import {
   FlatList,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
+  ActivityIndicator,
   TouchableOpacity,
   View,
   Image,
@@ -19,6 +21,7 @@ import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
 import Avatar from '../components/Avatar';
+import GroupDescriptionModal from '../components/GroupDescriptionModal';
 import api from '../config/api';
 import messagesUtil from '../utils/messages';
 import groupsApi from '../utils/groups';
@@ -45,6 +48,13 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   const [membersProfiles, setMembersProfiles] = useState<any[] | null>(null);
   const [mediaCount, setMediaCount] = useState<number | null>(null);
   const [ownerId, setOwnerId] = useState<string | null>(chat.ownerId || null);
+  const [groupDescription, setGroupDescription] = useState<string>(chat.description || '');
+  const [showDescriptionModal, setShowDescriptionModal] = useState<boolean>(false);
+  const [isDescriptionSaving, setIsDescriptionSaving] = useState<boolean>(false);
+  const [isAvatarUploading, setIsAvatarUploading] = useState<boolean>(false);
+  const [avatarState, setAvatarState] = useState<string | null>(
+    (chat as any).groupProfilePicture || chat.avatar || null,
+  );
   // member count should reflect actual participants array / resolved profiles
   const groupMemberCount = (membersProfiles ? membersProfiles.length : groupMembers.length);
   const { user } = useAuthStore();
@@ -74,7 +84,9 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   }
 
   const avatarSource =
+    avatarState ||
     chat.avatar ||
+    (chat.isGroup ? '👥' : undefined) ||
     (routeParticipant as any)?.profilePictureUrl ||
     routeParticipant?.avatar ||
     (otherParticipant as any)?.profilePictureUrl ||
@@ -171,6 +183,12 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
 
   // fetch authoritative conversation and participant profiles for groups
   useEffect(() => {
+    if ((chat as any).groupProfilePicture || (chat as any).avatar) {
+      setAvatarState((chat as any).groupProfilePicture || (chat as any).avatar || null);
+    }
+  }, [chat]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       if (!chat || !chat.isGroup) return;
@@ -183,7 +201,11 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
         const match = convos.find((c) => String(c._id) === String(convId) || String(c.id) === String(convId));
         const participants = (match && match.participants) || chat.participants || [];
         const foundOwner = (match && (match.ownerId || match.createdBy || match.owner)) || chat.ownerId || null;
+        const foundDescription = (match && match.description) || chat.description || '';
+        const foundGroupPhoto = (match && (match.groupProfilePicture || match.avatar)) || (chat as any).groupProfilePicture || (chat as any).avatar || null;
         if (!cancelled && foundOwner) setOwnerId(String(foundOwner));
+        if (!cancelled) setGroupDescription(foundDescription);
+        if (!cancelled && foundGroupPhoto) setAvatarState(foundGroupPhoto);
         if (cancelled) return;
         if (participants && participants.length) {
           // lookup user profiles for participants
@@ -201,6 +223,50 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
       cancelled = true;
     };
   }, [chat, user]);
+
+  const handlePickGroupPhoto = async () => {
+    try {
+      const result = await launchImageLibrary({ mediaType: 'photo', quality: 0.85 as any, selectionLimit: 1 });
+      const asset = result.assets?.[0];
+      if (!asset?.uri) return;
+      setIsAvatarUploading(true);
+      const convId = (chat as any).conversationId || chat.id;
+      const uploaded = await groupsApi.uploadGroupProfilePicture(convId, asset.uri);
+      const nextAvatar = uploaded?.groupProfilePicture || null;
+      setAvatarState(nextAvatar);
+      useChatStore.getState().updateGroupAvatar(convId, nextAvatar);
+      showSuccessMessage('Group profile picture updated');
+    } catch (error: any) {
+      console.error('Error updating group profile picture:', error);
+      Alert.alert('Error', error.message || 'Unable to update group profile picture');
+    } finally {
+      setIsAvatarUploading(false);
+    }
+  };
+
+  const handleSaveGroupDescription = async (newDescription: string) => {
+    try {
+      setIsDescriptionSaving(true);
+      const convId = (chat as any).conversationId || chat.id;
+      
+      // Save to backend
+      await groupsApi.updateGroup(convId, {
+        description: newDescription,
+        addMembers: [],
+        removeMembers: [],
+      });
+
+      // Update local state
+      setGroupDescription(newDescription);
+      setShowDescriptionModal(false);
+      showSuccessMessage('Group description updated');
+    } catch (error: any) {
+      console.error('Error saving group description:', error);
+      throw error;
+    } finally {
+      setIsDescriptionSaving(false);
+    }
+  };
 
   const quickActions = [
     { label: 'Audio', icon: 'call-outline' },
@@ -289,7 +355,14 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
         contentContainerStyle={styles.scrollContent}
       >
         <View style={styles.profileSection}>
-          <Avatar source={avatarSource} size="extra-large" theme={theme} />
+          <TouchableOpacity onPress={chat.isGroup ? handlePickGroupPhoto : undefined} activeOpacity={0.8}>
+            <Avatar source={avatarSource} size="extra-large" theme={theme} />
+            {chat.isGroup && (
+              <View style={[styles.avatarEditBadge, { backgroundColor: theme.primary }]}> 
+                {isAvatarUploading ? <ActivityIndicator size="small" color="#fff" /> : <Icon name="pencil" size={16} color="#fff" />} 
+              </View>
+            )}
+          </TouchableOpacity>
           {displayName ? (
             <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
               {displayName}
@@ -301,9 +374,21 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
             </Text>
           ) : null}
           {chat.isGroup ? (
-            <Text style={[styles.about, { color: theme.text }]} numberOfLines={2}>
-              {chat.description || ''}
-            </Text>
+            <TouchableOpacity
+              style={styles.descriptionContainer}
+              activeOpacity={0.75}
+              onPress={() => setShowDescriptionModal(true)}
+            >
+              {groupDescription ? (
+                <Text style={[styles.description, { color: theme.text }]} numberOfLines={2}>
+                  {groupDescription}
+                </Text>
+              ) : (
+                <Text style={[styles.descriptionPlaceholder, { color: theme.primary }]}>
+                  Add group description
+                </Text>
+              )}
+            </TouchableOpacity>
           ) : about ? (
             <Text style={[styles.about, { color: theme.text }]} numberOfLines={3}>
               {about}
@@ -517,6 +602,14 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
             ))}
         </View>
       </ScrollView>
+
+      <GroupDescriptionModal
+        visible={showDescriptionModal}
+        currentDescription={groupDescription}
+        onClose={() => setShowDescriptionModal(false)}
+        onSave={handleSaveGroupDescription}
+        isLoading={isDescriptionSaving}
+      />
     </SafeAreaView>
   );
 };
@@ -546,6 +639,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.xl,
     paddingBottom: SPACING.xl,
   },
+  avatarEditBadge: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
   name: {
     fontSize: FONT_SIZES.giant,
     fontWeight: '700',
@@ -562,6 +667,26 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
     marginTop: SPACING.lg,
+  },
+  descriptionContainer: {
+    marginTop: SPACING.lg,
+    marginHorizontal: SPACING.lg,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
+  description: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '500',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  descriptionPlaceholder: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   quickActionGrid: {
     flexDirection: 'row',

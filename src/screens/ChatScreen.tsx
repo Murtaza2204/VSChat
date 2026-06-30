@@ -92,8 +92,13 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const { user } = useAuthStore();
   const currentUserId = user?.id;
   const { chats, addMessage, updateMessage, deleteMessage } = useChatStore();
+  const storeChat = useMemo(() => {
+    const fallbackId = routeConversationId || routeChat?.conversationId || routeChat?.id || participant?.id;
+    return chats.find((item) => String(item.conversationId || item.id) === String(fallbackId)) || null;
+  }, [chats, routeConversationId, routeChat, participant]);
   const chat = useMemo(
     () =>
+      storeChat ||
       routeChat ||
       (participant
         ? {
@@ -104,7 +109,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             isGroup: false,
           }
         : null),
-    [participant, routeChat],
+    [participant, routeChat, storeChat],
   );
   const conversationId =
     routeConversationId || routeChat?.conversationId || chat?.conversationId;
@@ -3004,7 +3009,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         style={styles.forwardTargetRow}
       >
         <Avatar
-          source={targetChat.avatar}
+          source={(targetChat as any).groupProfilePicture || targetChat.avatar || (targetChat.isGroup ? '👥' : undefined)}
           size="medium"
           theme={theme}
           style={styles.forwardAvatar}
@@ -3106,7 +3111,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                 })
               }
             >
-              <Avatar source={chat.avatar || (chat.title ? chat.title.charAt(0) : '')} size="medium" theme={theme} />
+              <Avatar source={(chat as any).groupProfilePicture || chat.avatar || (isGroupConversation ? '👥' : (chat.title ? chat.title.charAt(0) : ''))} size="medium" theme={theme} />
               <View style={styles.headerTextBlock}>
                 <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
                   {chat.title}

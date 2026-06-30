@@ -1,7 +1,7 @@
 import api from '../config/api';
 
-export const createGroup = async (title, participants, ownerId) => {
-  const body = { title, participants, ownerId };
+export const createGroup = async (title, participants, ownerId, description?, groupProfilePicture?) => {
+  const body = { title, participants, ownerId, description, groupProfilePicture };
   const res = await api.post('/groups', body);
   return res.data.group;
 };
@@ -11,8 +11,8 @@ export const listGroups = async (userId) => {
   return res.data.groups;
 };
 
-export const updateGroup = async (groupId, { title, addMembers, removeMembers }) => {
-  const res = await api.patch(`/groups/${groupId}`, { title, addMembers, removeMembers });
+export const updateGroup = async (groupId, { title, description, addMembers, removeMembers, groupProfilePicture }) => {
+  const res = await api.patch(`/groups/${groupId}`, { title, description, addMembers, removeMembers, groupProfilePicture });
   return res.data.group;
 };
 
@@ -26,4 +26,14 @@ export const getGroup = async (groupId) => {
   return res.data.group;
 };
 
-export default { createGroup, listGroups, getGroup, updateGroup, leaveGroup };
+export const uploadGroupProfilePicture = async (groupId, imageUri) => {
+  const form = new FormData();
+  // @ts-ignore
+  form.append('image', { uri: imageUri, name: 'group.jpg', type: 'image/jpeg' });
+  const res = await api.post(`/groups/${groupId}/profile-picture`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
+};
+
+export default { createGroup, listGroups, getGroup, updateGroup, leaveGroup, uploadGroupProfilePicture };

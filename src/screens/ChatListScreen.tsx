@@ -109,7 +109,7 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             return {
             id: String(c._id),
             title: c.title || 'Group',
-            avatar: '👥',
+            avatar: c.groupProfilePicture || c.avatar || '👥',
               lastMessage: lastMessageText,
             lastMessageTime: c.lastMessageAt ? new Date(c.lastMessageAt) : new Date(c.createdAt),
             isGroup: true,

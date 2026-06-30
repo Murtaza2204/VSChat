@@ -19,6 +19,7 @@ interface ChatStore {
   forwardMessage: (targetChatId: string, message: Message) => void;
   deleteChatForMe: (chatId: string) => void;
   createGroup: (title: string, participants: Chat[]) => Chat;
+  updateGroupAvatar: (groupChatId: string, avatar: string | null) => void;
   addGroupMember: (groupChatId: string, member: Chat) => void;
   setSearchQuery: (query: string) => void;
   getSearchedChats: () => Chat[];
@@ -355,6 +356,28 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     set({ chats: [newGroup, ...get().chats] });
     return newGroup;
+  },
+
+  updateGroupAvatar: (groupChatId, avatar) => {
+    const { chats, currentChat } = get();
+    const updatedChats = chats.map((chat) => {
+      if (String(chat.id) !== String(groupChatId) && String(chat.conversationId || '') !== String(groupChatId)) {
+        return chat;
+      }
+      return {
+        ...chat,
+        avatar: avatar || chat.avatar,
+        groupProfilePicture: avatar ?? chat.groupProfilePicture ?? null,
+      };
+    });
+    set({
+      chats: updatedChats,
+      currentChat: currentChat?.id === groupChatId ? {
+        ...currentChat,
+        avatar: avatar || currentChat.avatar,
+        groupProfilePicture: avatar ?? currentChat.groupProfilePicture ?? null,
+      } : currentChat,
+    });
   },
 
   addGroupMember: (groupChatId, member) => {
