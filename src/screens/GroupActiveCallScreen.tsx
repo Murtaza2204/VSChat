@@ -17,6 +17,7 @@ import { ensureAudioVideoPermissions } from '../services/permissions';
 import {
   muteLocalVideo,
   muteLocalAudio,
+  switchCamera,
   setSpeakerphone,
 } from '../services/agoraService';
 import { BORDER_RADIUS, FONT_SIZES, SHADOWS, SPACING } from '../constants/colors';
@@ -24,6 +25,7 @@ import { useThemeStore } from '../stores/themeStore';
 import { useAuthStore } from '../stores/authStore';
 import signaling from '../services/signaling';
 import { clearCallNotification } from '../services/notifications';
+import { RtcSurfaceView } from 'react-native-agora';
 
 type GroupParticipant = {
   userId: string;
@@ -331,6 +333,197 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const statusText = sessionActive
     ? formatDuration(elapsedSeconds)
     : 'Waiting for members';
+  const showOutgoingLayout = isCaller && !sessionActive;
+  const outgoingStatus = sessionActive ? formatDuration(elapsedSeconds) : 'Ringing...';
+  const outgoingAvatarSize = Math.min(width * 0.54, 220);
+  const outgoingInitials = getInitials(groupName);
+
+  if (showOutgoingLayout && callType === 'video') {
+    return (
+      <SafeAreaView style={styles.outgoingSafeArea}>
+        <View style={styles.outgoingContainer}>
+          <View style={styles.outgoingDebugBox} pointerEvents="none">
+            <Text style={styles.outgoingDebugText}>engine:{'ok'}</Text>
+            <Text style={styles.outgoingDebugText}>joined:{'no'}</Text>
+            <Text style={styles.outgoingDebugText}>remote:{'-'} </Text>
+          </View>
+
+          <View style={styles.outgoingVideoStage}>
+            {RtcSurfaceView ? (
+              <RtcSurfaceView canvas={{ uid: 0 }} style={StyleSheet.absoluteFill} />
+            ) : (
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.inputBackground }]} />
+            )}
+
+            <View style={styles.outgoingVideoHeader}>
+              <OutgoingCircleIcon icon="contract-outline" theme={theme} onPress={() => navigation.goBack()} />
+              <View style={styles.outgoingVideoTitleBlock}>
+                {isValidAvatarUri(groupAvatar) ? (
+                  <Image source={{ uri: groupAvatar }} style={styles.outgoingVideoHeaderAvatar} />
+                ) : null}
+                <Text style={styles.outgoingVideoName} numberOfLines={1}>
+                  {groupName}
+                </Text>
+                <Text style={styles.outgoingVideoStatus}>{outgoingStatus}</Text>
+              </View>
+              <OutgoingCircleIcon icon="person-add" theme={theme} />
+            </View>
+
+            <View style={styles.outgoingVideoSideActions}>
+              <OutgoingCircleIcon icon="person-add" theme={theme} />
+              {!sessionActive && (
+                <OutgoingCircleIcon icon="camera-reverse" theme={theme} onPress={() => switchCamera()} />
+              )}
+              <OutgoingCircleIcon icon="color-wand" theme={theme} />
+            </View>
+
+            <OutgoingVideoControlTray theme={theme}>
+              <OutgoingTrayButton icon="ellipsis-horizontal" theme={theme} />
+              <OutgoingTrayButton
+                icon={isVideoOn ? 'videocam' : 'videocam-off'}
+                active={isVideoOn}
+                muted={!isVideoOn}
+                theme={theme}
+                onPress={async () => {
+                  const next = !isVideoOn;
+                  setIsVideoOn(next);
+                  try { await muteLocalVideo(!next); } catch {}
+                }}
+              />
+              <OutgoingTrayButton
+                icon={isSpeakerOn ? 'volume-high' : 'volume-medium'}
+                active={isSpeakerOn}
+                theme={theme}
+                onPress={async () => {
+                  const next = !isSpeakerOn;
+                  try { await setSpeakerphone(next); setIsSpeakerOn(next); } catch { setIsSpeakerOn(next); }
+                }}
+              />
+              <OutgoingTrayButton
+                icon={isMuted ? 'mic-off' : 'mic-off-outline'}
+                active={isMuted}
+                theme={theme}
+                onPress={async () => {
+                  const next = !isMuted;
+                  try { await muteLocalAudio(next); setIsMuted(next); } catch { setIsMuted(next); }
+                }}
+              />
+              <OutgoingTrayButton icon="call" danger theme={theme} onPress={handleEndCall} />
+            </OutgoingVideoControlTray>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (showOutgoingLayout) {
+    return (
+      <SafeAreaView style={[styles.outgoingSafeArea, { backgroundColor: theme.background }]}>
+        <View style={styles.outgoingContainer}>
+          <View style={styles.outgoingDebugBox} pointerEvents="none">
+            <Text style={styles.outgoingDebugText}>engine:{'ok'}</Text>
+            <Text style={styles.outgoingDebugText}>joined:{'no'}</Text>
+            <Text style={styles.outgoingDebugText}>remote:{'-'}</Text>
+            <Text style={styles.outgoingDebugText}>muted:{isMuted ? 'yes' : 'no'}</Text>
+            <Text style={styles.outgoingDebugText}>speaker:{isSpeakerOn ? 'on' : 'off'}</Text>
+          </View>
+
+          <View style={styles.outgoingHeader}>
+            <OutgoingHeaderButton icon="contract-outline" theme={theme} onPress={() => navigation.goBack()} />
+
+            <View style={styles.outgoingTitleBlock}>
+              <Text style={[styles.outgoingCallerName, { color: theme.text }]} numberOfLines={1}>
+                {groupName}
+              </Text>
+              <Text style={[styles.outgoingStatusText, { color: theme.textSecondary }]}>
+                {outgoingStatus}
+              </Text>
+            </View>
+
+            <OutgoingHeaderButton icon="person-add" theme={theme} />
+          </View>
+
+          <View style={styles.outgoingAvatarSection}>
+            <View
+              style={[
+                styles.outgoingAvatar,
+                {
+                  width: outgoingAvatarSize,
+                  height: outgoingAvatarSize,
+                  borderRadius: outgoingAvatarSize / 2,
+                  backgroundColor: theme.messageBlue,
+                },
+              ]}
+            >
+              {isValidAvatarUri(groupAvatar) ? (
+                <Image
+                  source={{ uri: groupAvatar }}
+                  style={{ width: outgoingAvatarSize, height: outgoingAvatarSize, borderRadius: outgoingAvatarSize / 2 }}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Text
+                  style={[
+                    styles.outgoingAvatarInitial,
+                    { color: theme.primary, fontSize: outgoingAvatarSize * 0.46 },
+                  ]}
+                >
+                  {outgoingInitials || '?'}
+                </Text>
+              )}
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.outgoingControlPanel,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+              },
+              SHADOWS.md,
+            ]}
+          >
+            <OutgoingCallControl
+              icon={isSpeakerOn ? 'volume-high' : 'volume-medium'}
+              label="Speaker"
+              active={isSpeakerOn}
+              theme={theme}
+              onPress={async () => {
+                const next = !isSpeakerOn;
+                try { await setSpeakerphone(next); setIsSpeakerOn(next); } catch { setIsSpeakerOn(next); }
+              }}
+            />
+            <OutgoingCallControl
+              icon={isVideoOn ? 'videocam' : 'videocam-off'}
+              label="Video"
+              active={isVideoOn}
+              muted={!isVideoOn}
+              theme={theme}
+              onPress={async () => {
+                const next = !isVideoOn;
+                setIsVideoOn(next);
+                try { await muteLocalVideo(!next); } catch {}
+              }}
+            />
+            <OutgoingCallControl
+              icon={isMuted ? 'mic-off' : 'mic-off-outline'}
+              label="Mute"
+              active={isMuted}
+              theme={theme}
+              onPress={async () => {
+                const next = !isMuted;
+                try { await muteLocalAudio(next); setIsMuted(next); } catch { setIsMuted(next); }
+              }}
+            />
+            <OutgoingCallControl icon="ellipsis-horizontal" label="More" theme={theme} />
+            <OutgoingCallControl icon="phone-portrait-outline" label="Share" muted theme={theme} />
+            <OutgoingCallControl icon="call" label="End" danger theme={theme} onPress={handleEndCall} />
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
@@ -587,9 +780,313 @@ const isValidAvatarUri = (value?: string | null) =>
     value.startsWith('http://') ||
     value.startsWith('https://'));
 
+const OutgoingHeaderButton = ({
+  icon,
+  theme,
+  onPress,
+}: {
+  icon: string;
+  theme: any;
+  onPress?: () => void;
+}) => (
+  <TouchableOpacity
+    activeOpacity={0.78}
+    onPress={onPress}
+    style={[styles.outgoingHeaderButton, { backgroundColor: theme.surface }]}
+  >
+    <Icon name={icon} size={24} color={theme.text} />
+  </TouchableOpacity>
+);
+
+const OutgoingCircleIcon = ({
+  icon,
+  theme,
+  onPress,
+}: {
+  icon: string;
+  theme: any;
+  onPress?: () => void;
+}) => (
+  <TouchableOpacity
+    activeOpacity={0.78}
+    onPress={onPress}
+    style={[styles.outgoingCircleIcon, { backgroundColor: theme.surface }]}
+  >
+    <Icon name={icon} size={24} color={theme.text} />
+  </TouchableOpacity>
+);
+
+const OutgoingTrayButton = ({
+  icon,
+  active,
+  danger,
+  muted,
+  theme,
+  onPress,
+}: {
+  icon: string;
+  active?: boolean;
+  danger?: boolean;
+  muted?: boolean;
+  theme: any;
+  onPress?: () => void;
+}) => (
+  <TouchableOpacity
+    activeOpacity={0.78}
+    onPress={onPress}
+    style={[
+      styles.outgoingTrayButton,
+      {
+        backgroundColor: danger
+          ? theme.error
+          : active
+            ? theme.background
+            : theme.inputBackground,
+      },
+    ]}
+  >
+    <Icon
+      name={icon}
+      size={danger ? 23 : 21}
+      color={danger ? theme.background : active ? theme.text : muted ? theme.textSecondary : theme.text}
+    />
+  </TouchableOpacity>
+);
+
+const OutgoingVideoControlTray = ({
+  theme,
+  children,
+}: {
+  theme: any;
+  children: React.ReactNode;
+}) => (
+  <View
+    style={[
+      styles.outgoingVideoTray,
+      {
+        backgroundColor: theme.surface,
+        borderColor: theme.border,
+      },
+      SHADOWS.md,
+    ]}
+  >
+    {children}
+  </View>
+);
+
+const OutgoingCallControl = ({
+  icon,
+  label,
+  active,
+  danger,
+  muted,
+  theme,
+  onPress,
+}: {
+  icon: string;
+  label: string;
+  active?: boolean;
+  danger?: boolean;
+  muted?: boolean;
+  theme: any;
+  onPress?: () => void;
+}) => (
+  <TouchableOpacity
+    activeOpacity={0.78}
+    onPress={onPress}
+    style={styles.outgoingCallControl}
+  >
+    <View
+      style={[
+        styles.outgoingCallControlIcon,
+        {
+          backgroundColor: danger
+            ? theme.error
+            : active
+              ? theme.background
+              : theme.inputBackground,
+        },
+      ]}
+    >
+      <Icon
+        name={icon}
+        size={danger ? 23 : 21}
+        color={danger ? theme.background : active ? theme.text : muted ? theme.textSecondary : theme.text}
+      />
+    </View>
+    <Text style={[styles.outgoingCallControlLabel, { color: theme.textSecondary }]} numberOfLines={1}>
+      {label}
+    </Text>
+  </TouchableOpacity>
+);
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
+  },
+  outgoingSafeArea: {
+    flex: 1,
+  },
+  outgoingContainer: {
+    flex: 1,
+  },
+  outgoingDebugBox: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 20,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  outgoingDebugText: {
+    color: '#fff',
+    fontSize: 10,
+    fontFamily: 'monospace',
+  },
+  outgoingVideoStage: {
+    flex: 1,
+  },
+  outgoingVideoHeader: {
+    position: 'absolute',
+    top: SPACING.lg,
+    left: SPACING.lg,
+    right: SPACING.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 10,
+  },
+  outgoingHeaderButton: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outgoingCircleIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outgoingVideoTitleBlock: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    minWidth: 0,
+  },
+  outgoingVideoHeaderAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginBottom: SPACING.xs,
+  },
+  outgoingVideoName: {
+    fontSize: FONT_SIZES.xxl,
+    fontWeight: '700',
+    textAlign: 'center',
+    color: '#fff',
+  },
+  outgoingVideoStatus: {
+    fontSize: FONT_SIZES.lg,
+    marginTop: SPACING.xs,
+    textAlign: 'center',
+    color: 'rgba(255,255,255,0.85)',
+  },
+  outgoingVideoSideActions: {
+    position: 'absolute',
+    right: SPACING.lg,
+    top: 90,
+    zIndex: 10,
+    gap: SPACING.md,
+  },
+  outgoingVideoTray: {
+    position: 'absolute',
+    left: SPACING.lg,
+    right: SPACING.lg,
+    bottom: SPACING.xl,
+    minHeight: 80,
+    borderRadius: BORDER_RADIUS.full,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+  },
+  outgoingTrayButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outgoingHeader: {
+    minHeight: 104,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.md,
+  },
+  outgoingTitleBlock: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    minWidth: 0,
+  },
+  outgoingCallerName: {
+    fontSize: FONT_SIZES.xxl,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  outgoingStatusText: {
+    fontSize: FONT_SIZES.lg,
+    marginTop: SPACING.xs,
+    textAlign: 'center',
+  },
+  outgoingAvatarSection: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.lg,
+  },
+  outgoingAvatar: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outgoingAvatarInitial: {
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  outgoingControlPanel: {
+    minHeight: 88,
+    borderRadius: BORDER_RADIUS.full,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    marginHorizontal: SPACING.lg,
+    marginBottom: SPACING.xl,
+  },
+  outgoingCallControl: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outgoingCallControlIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outgoingCallControlLabel: {
+    marginTop: 6,
+    fontSize: 11,
+    textAlign: 'center',
   },
   container: {
     flex: 1,

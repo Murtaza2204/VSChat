@@ -37,29 +37,34 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
     return route.params?.fromUser || {};
   }, [route.params]);
   const callerId = route.params?.callerId || callerFromPayload?.id || route.params?.fromUserId || route.params?.from;
+  const isGroupCall = String(route.params?.isGroupCall) === 'true';
   const resolvedCallerName = React.useMemo(() => {
     const payloadName = callerFromPayload?.name || callerFromPayload?.displayName || null;
-    const routeName = route.params?.callerName || route.params?.groupName || null;
+    const groupName = route.params?.groupName || route.params?.title || null;
+    const routeName = route.params?.callerName || groupName || null;
     const callerMatchesCurrentUser =
       !!currentUser?.id &&
       !!callerId &&
       String(callerId) === String(currentUser.id);
 
+    if (isGroupCall && groupName) return groupName;
     if (!callerMatchesCurrentUser && payloadName) return payloadName;
     if (routeName) return routeName;
     return payloadName || 'Unknown';
-  }, [callerFromPayload, callerId, currentUser?.id, route.params?.callerName, route.params?.groupName]);
+  }, [callerFromPayload, callerId, currentUser?.id, isGroupCall, route.params?.callerName, route.params?.groupName, route.params?.title]);
   const resolvedCallerAvatar = React.useMemo(() => {
     const payloadAvatar = callerFromPayload?.avatar || callerFromPayload?.profilePictureUrl || null;
-    const routeAvatar = route.params?.callerAvatar || route.params?.groupAvatar || null;
+    const groupAvatar = route.params?.groupAvatar || route.params?.avatar || null;
+    const routeAvatar = route.params?.callerAvatar || groupAvatar || null;
     const callerMatchesCurrentUser =
       !!currentUser?.id &&
       !!callerId &&
       String(callerId) === String(currentUser.id);
 
+    if (isGroupCall && groupAvatar) return groupAvatar;
     if (!callerMatchesCurrentUser && payloadAvatar) return payloadAvatar;
     return routeAvatar || payloadAvatar || null;
-  }, [callerFromPayload, callerId, currentUser?.id, route.params?.callerAvatar, route.params?.groupAvatar]);
+  }, [callerFromPayload, callerId, currentUser?.id, isGroupCall, route.params?.callerAvatar, route.params?.groupAvatar, route.params?.avatar]);
   const callerName = resolvedCallerName;
   const callerAvatar = resolvedCallerAvatar;
   const callerPhone = route.params?.callerPhone || '+91 97631 51372';
@@ -189,9 +194,9 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
     const appId = route.params?.appId;
     const channel = route.params?.channel;
     const token = route.params?.token;
-    const isGroupCall = String(route.params?.isGroupCall) === 'true';
+    const isGroupCallFlag = String(route.params?.isGroupCall) === 'true';
 
-    navigation.navigate(isGroupCall ? 'GroupActiveCall' : 'ActiveCall', {
+    navigation.navigate(isGroupCallFlag ? 'GroupActiveCall' : 'ActiveCall', {
       callType: callTypeParam,
       callerName,
       callerAvatar,
@@ -202,7 +207,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
       callId: route.params?.callId,
       callerId,
       isReceiver: true,
-      isGroupCall,
+      isGroupCall: isGroupCallFlag,
       groupName: route.params?.groupName || callerName,
       groupAvatar: route.params?.groupAvatar || callerAvatar,
       groupParticipants: route.params?.groupParticipants,
