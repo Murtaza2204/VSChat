@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,12 +10,18 @@ import {
   Alert,
   Share,
   TextInput,
+  SafeAreaView,
+  ScrollView,
+  Platform,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
+import ViewShot from 'react-native-view-shot';
+import RNShare from 'react-native-share';
 import api from '../config/api';
 import { useAuthStore } from '../stores/authStore';
 import { useThemeStore } from '../stores/themeStore';
 import { buildInviteLink } from '../utils/inviteLink';
+import Header from '../components/Header';
 
 const MyQRScreen = ({ navigation }) => {
   const { theme } = useThemeStore();
@@ -23,6 +29,9 @@ const MyQRScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [qr, setQr] = useState(null);
   const [deepLink, setDeepLink] = useState(null);
+  const qrCodeRef = useRef(null);
+  const viewShotRef = useRef(null);
+  const [sharing, setSharing] = useState(false);
 
   const fetchQr = async () => {
     setLoading(true);
@@ -49,19 +58,65 @@ const MyQRScreen = ({ navigation }) => {
     setDeepLink(buildInviteLink(publicId));
   }, [qr, user]);
 
+  const handleShareQRCode = async () => {
+    try {
+      setSharing(true);
+      
+      if (!viewShotRef.current) {
+        Alert.alert('Error', 'QR code not ready');
+        setSharing(false);
+        return;
+      }
+
+      // Capture the QR code as an image
+      const imageUri = await viewShotRef.current.capture();
+      
+      // Share using react-native-share which handles images better
+      await RNShare.open({
+        url: Platform.OS === 'ios' ? imageUri : `file://${imageUri}`,
+        type: 'image/png',
+        message: 'Scan this QR code to start a chat with me!',
+        title: 'My QR Code',
+      });
+      
+      setSharing(false);
+    } catch (e) {
+      if (e.message !== 'User did not share') {
+        console.warn('qr share error', e && e.message);
+        Alert.alert('Error', 'Could not share QR code');
+      }
+      setSharing(false);
+    }
+  };
+
   if (loading) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <Header
+          title="My QR"
+          showBackButton={true}
+          onBackPress={() => navigation.goBack()}
+          theme={theme}
+        />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.primary} />
+        </View>
+      </SafeAreaView>
     );
   }
 
   const payload = deepLink || (qr && qr.qrUri ? qr.qrUri : null);
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}> 
-      <View style={styles.content}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <Header
+        title="My QR"
+        showBackButton={true}
+        onBackPress={() => navigation.goBack()}
+        theme={theme}
+      />
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.content}>
         {qr && qr.profilePictureUrl ? (
           <Image source={{ uri: qr.profilePictureUrl }} style={styles.avatar} />
         ) : (
@@ -73,9 +128,30 @@ const MyQRScreen = ({ navigation }) => {
 
         {payload ? (
           <>
-            <View style={[styles.qrBox, { borderColor: theme.border, backgroundColor: '#FFFFFF' }]}> 
-              <QRCode value={payload} size={220} backgroundColor="#FFFFFF" color="#111827" />
-            </View>
+            <ViewShot 
+              ref={viewShotRef}
+              options={{ format: 'png', quality: 0.9 }}
+              style={[styles.qrBox, { borderColor: theme.border, backgroundColor: '#FFFFFF' }]}
+            > 
+              <QRCode 
+                getRef={(c) => { qrCodeRef.current = c; }}
+                value={payload} 
+                size={220} 
+                backgroundColor="#FFFFFF" 
+                color="#111827" 
+              />
+            </ViewShot>
+
+            <TouchableOpacity
+              style={[styles.shareQRButton, { backgroundColor: theme.primary }]}
+              onPress={handleShareQRCode}
+              disabled={sharing}
+            >
+              <Text style={{ color: theme.background, fontWeight: '600' }}>
+                {sharing ? 'Preparing...' : 'Share QR Code'}
+              </Text>
+            </TouchableOpacity>
+
             <View style={[styles.deepLinkBox, { borderColor: theme.border }]}> 
               <TextInput value={payload} selectTextOnFocus editable={false} style={[styles.deepLinkText, { color: theme.text }]} />
               <TouchableOpacity
@@ -95,18 +171,22 @@ const MyQRScreen = ({ navigation }) => {
         ) : (
           <Text style={{ color: theme.textSecondary }}>Invite link not available</Text>
         )}
-      </View>
-    </View>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
+  scrollContent: { flexGrow: 1, paddingHorizontal: 20, paddingVertical: 16 },
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  content: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   avatar: { width: 88, height: 88, borderRadius: 44, marginBottom: 12 },
   name: { fontSize: 18, fontWeight: '700', marginBottom: 12 },
   qrBox: { padding: 16, borderRadius: 16, borderWidth: 1, marginTop: 12 },
   notice: { textAlign: 'center', paddingHorizontal: 20, marginBottom: 8 },
+  shareQRButton: { marginTop: 12, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 8, alignItems: 'center', width: '100%' },
   deepLinkBox: { width: '100%', marginTop: 12, borderWidth: 1, borderRadius: 8, padding: 8, flexDirection: 'row', alignItems: 'center' },
   deepLinkText: { flex: 1, paddingVertical: 8, paddingHorizontal: 8 },
   shareButton: { marginLeft: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6 },

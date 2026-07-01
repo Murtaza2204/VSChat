@@ -9,12 +9,15 @@ import {
   ActivityIndicator,
   TextInput,
   Platform,
+  SafeAreaView,
+  ScrollView,
 } from 'react-native';
 import { Camera } from 'react-native-camera-kit';
 import { check, request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import api from '../config/api';
 import { useThemeStore } from '../stores/themeStore';
 import { extractPublicUserId } from '../utils/inviteLink';
+import Header from '../components/Header';
 
 const ScanQRScreen = ({ navigation }) => {
   const { theme } = useThemeStore();
@@ -110,35 +113,55 @@ const ScanQRScreen = ({ navigation }) => {
 
   if (busy) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}> 
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <Header
+          title="Scan QR"
+          showBackButton={true}
+          onBackPress={() => navigation.goBack()}
+          theme={theme}
+        />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.primary} />
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}> 
-      <View style={styles.header}><Text style={{ color: theme.text, fontSize: 18 }}>Scan QR</Text></View>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <Header
+        title="Scan QR"
+        showBackButton={true}
+        onBackPress={() => navigation.goBack()}
+        theme={theme}
+      />
 
-      {permissionStatus === 'granted' ? (
-        <View style={styles.scannerWrap}>
-          <Camera
-            scanBarcode
-            onReadCode={handleDecoded}
-            showFrame
-            laserColor={theme.primary}
-            frameColor={theme.primary}
-            cameraType="back"
-            torchMode="off"
-            style={styles.scanner}
-          />
-          {scannerError ? <Text style={[styles.errorText, { color: theme.textSecondary }]}>{scannerError}</Text> : null}
-        </View>
-      ) : (
-        <View style={styles.fallback}>
-          <Text style={{ color: theme.textSecondary }}>
-            {scannerError || 'Open the camera to scan an invite QR code, or paste the invite link below:'}
-          </Text>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {permissionStatus === 'granted' ? (
+          <View style={styles.scannerWrap}>
+            <Camera
+              scanBarcode
+              onReadCode={handleDecoded}
+              showFrame
+              lazyComponent={true}
+              laserColor={theme.primary}
+              frameColor={theme.primary}
+              cameraType="back"
+              torchMode="off"
+              style={styles.scanner}
+            />
+            {scannerError ? <Text style={[styles.errorText, { color: theme.textSecondary }]}>{scannerError}</Text> : null}
+          </View>
+        ) : (
+          <View style={styles.fallback}>
+            <Text style={{ color: theme.textSecondary }}>
+              {scannerError || 'Camera permission required. Paste the invite link below:'}
+            </Text>
+          </View>
+        )}
+
+        <View style={styles.manualInputSection}>
+          <Text style={[styles.sectionLabel, { color: theme.text }]}>Or paste invite link:</Text>
           <TextInput
             style={[styles.input, { color: theme.text, borderColor: theme.border }]}
             value={manualInput}
@@ -153,22 +176,24 @@ const ScanQRScreen = ({ navigation }) => {
             <Text style={[styles.helperText, { color: theme.textSecondary }]}>Camera permission is required to scan QR codes.</Text>
           ) : null}
         </View>
-      )}
-    </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { padding: 16 },
-  fallback: { padding: 20 },
-  scannerWrap: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  scannerWrap: { height: 300, marginBottom: 20 },
   scanner: { flex: 1 },
-  scannerOverlay: { flex: 0 },
-  input: { borderWidth: 1, borderRadius: 8, padding: 12, marginTop: 12 },
+  fallback: { paddingHorizontal: 20, paddingVertical: 16, backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: 8, marginHorizontal: 20, marginTop: 16 },
+  manualInputSection: { paddingHorizontal: 20, paddingVertical: 16 },
+  sectionLabel: { fontSize: 14, fontWeight: '600', marginBottom: 12 },
+  input: { borderWidth: 1, borderRadius: 8, padding: 12, marginBottom: 12 },
   button: { marginTop: 12, padding: 12, borderRadius: 8, alignItems: 'center' },
-  helperText: { marginTop: 8 },
-  errorText: { marginTop: 12, paddingHorizontal: 20 },
+  helperText: { marginTop: 8, fontSize: 12 },
+  errorText: { marginTop: 12, paddingHorizontal: 20, fontSize: 12 },
 });
 
 export default ScanQRScreen;
