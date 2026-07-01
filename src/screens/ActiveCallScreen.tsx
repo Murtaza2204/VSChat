@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   View,
   useWindowDimensions,
+  Image,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { RtcSurfaceView } from 'react-native-agora';
@@ -26,6 +27,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const { width } = useWindowDimensions();
   const callType = route.params?.callType || 'audio';
   const callerName = route.params?.callerName || 'Ammi';
+  const callerAvatar = route.params?.callerAvatar || route.params?.groupAvatar || null;
   const appIdParam = route.params?.appId;
   const channelParam = route.params?.channel;
   const tokenParam = route.params?.token;
@@ -318,6 +320,9 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               onPress={() => navigation.goBack()}
             />
             <View style={styles.videoTitleBlock}>
+              {callerAvatar ? (
+                <Image source={{ uri: callerAvatar }} style={styles.videoHeaderAvatar} />
+              ) : null}
               <Text style={styles.videoName} numberOfLines={1}>
                 {callerName}
               </Text>
@@ -414,14 +419,21 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               },
             ]}
           >
-            <Text
-              style={[
-                styles.avatarInitial,
-                { color: theme.primary, fontSize: avatarSize * 0.46 },
-              ]}
-            >
-              {initials || '?'}
-            </Text>
+            {callerAvatar ? (
+              <Image
+                source={{ uri: callerAvatar }}
+                style={{ width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }}
+              />
+            ) : (
+              <Text
+                style={[
+                  styles.avatarInitial,
+                  { color: theme.primary, fontSize: avatarSize * 0.46 },
+                ]}
+              >
+                {initials || '?'}
+              </Text>
+            )}
           </View>
         </View>
 
@@ -776,6 +788,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
     alignItems: 'center',
     paddingHorizontal: SPACING.md,
+  },
+  videoHeaderAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginBottom: SPACING.xs,
   },
   videoName: {
     color: '#FFFFFF',

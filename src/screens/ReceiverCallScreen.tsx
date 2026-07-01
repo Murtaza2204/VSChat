@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   View,
   useWindowDimensions,
+  Image,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { BORDER_RADIUS, FONT_SIZES, SHADOWS, SPACING } from '../constants/colors';
@@ -35,7 +36,8 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
     return route.params?.fromUser || {};
   }, [route.params]);
   const callerId = route.params?.callerId || callerFromPayload?.id || route.params?.fromUserId || route.params?.from;
-  const callerName = route.params?.callerName || callerFromPayload?.name || callerFromPayload?.displayName || 'Unknown';
+  const callerName = route.params?.callerName || route.params?.groupName || callerFromPayload?.name || callerFromPayload?.displayName || 'Unknown';
+  const callerAvatar = route.params?.callerAvatar || route.params?.groupAvatar || callerFromPayload?.avatar || callerFromPayload?.profilePictureUrl || null;
   const callerPhone = route.params?.callerPhone || '+91 97631 51372';
   const callType = route.params?.callType || 'audio';
   const chatId = route.params?.chatId;
@@ -167,7 +169,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
     navigation.navigate('ActiveCall', {
       callType: callTypeParam,
       callerName,
-      callerAvatar: route.params?.callerAvatar,
+      callerAvatar,
       chatId,
       appId,
       channel,
@@ -175,6 +177,9 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
       callId: route.params?.callId,
       callerId,
       isReceiver: true,
+      isGroupCall: !!route.params?.isGroupCall || !!route.params?.groupName,
+      groupName: route.params?.groupName || callerName,
+      groupAvatar: route.params?.groupAvatar || callerAvatar,
     });
   };
 
@@ -216,11 +221,15 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
                   {callerPhone}
                 </Text>
               </View>
-              <View style={[styles.videoAvatar, { backgroundColor: theme.messageBlue }]}>
-                <Text style={[styles.videoAvatarText, { color: theme.primary }]}>
-                  {initials || '?'}
-                </Text>
-              </View>
+              {callerAvatar ? (
+                <Image source={{ uri: callerAvatar }} style={styles.videoAvatarImage} />
+              ) : (
+                <View style={[styles.videoAvatar, { backgroundColor: theme.messageBlue }]}>
+                  <Text style={[styles.videoAvatarText, { color: theme.primary }]}>
+                    {initials || '?'}
+                  </Text>
+                </View>
+              )}
               <TouchableOpacity
                 activeOpacity={0.8}
                 onPress={() => setIsVideoOn(false)}
@@ -333,14 +342,26 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
               },
             ]}
           >
-            <Text
-              style={[
-                styles.avatarInitial,
-                { color: theme.primary, fontSize: avatarSize * 0.46 },
-              ]}
-            >
-              {initials || '?'}
-            </Text>
+            {callerAvatar ? (
+              <Image
+                source={{ uri: callerAvatar }}
+                style={{
+                  width: avatarSize,
+                  height: avatarSize,
+                  borderRadius: avatarSize / 2,
+                }}
+                resizeMode="cover"
+              />
+            ) : (
+              <Text
+                style={[
+                  styles.avatarInitial,
+                  { color: theme.primary, fontSize: avatarSize * 0.46 },
+                ]}
+              >
+                {initials || '?'}
+              </Text>
+            )}
           </View>
         </View>
 

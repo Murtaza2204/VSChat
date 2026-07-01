@@ -1380,32 +1380,52 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   }, [conversationId, currentUserId, viewerMessage]);
 
   const handleStartCall = (callType: 'audio' | 'video') => {
-    // send invite to recipient then navigate caller to ActiveCall
+    // send invite to recipient(s) then navigate caller to ActiveCall
     const callId = `call-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const conversationKey = conversationId || chat?.conversationId || chat?.id;
+    const groupRecipientIds = isGroupConversation
+      ? (chat?.participants || [])
+          .map(getParticipantId)
+          .filter(Boolean)
+          .filter((participantId) => String(participantId) !== String(currentUserId))
+          .map(String)
+      : [];
+    const targetRecipientIds = groupRecipientIds.length
+      ? groupRecipientIds
+      : [derivedReceiverId || chat?.userId || chat?.id].filter(Boolean);
     try {
-      const calleeId = derivedReceiverId || chat.userId || chat.id;
       const perCallChannel = `call-${callId}`;
-      signaling.inviteCall(calleeId, callType, {
+      signaling.inviteCall(targetRecipientIds, callType, {
         channel: perCallChannel,
         // Do not send hardcoded token; let server generate and attach token/appId
         callId,
+        isGroupCall: isGroupConversation,
+        groupId: conversationKey,
+        groupName: chat?.title || 'Group',
+        groupAvatar: (chat as any)?.groupProfilePicture || chat?.avatar,
+        chatId: conversationKey,
+        groupMemberIds: groupRecipientIds,
       });
-      console.log('[ChatScreen] Sent call invite:', { calleeId, callType, callId });
+      console.log('[ChatScreen] Sent call invite:', { targetRecipientIds, callType, callId, isGroupCall: isGroupConversation });
     } catch (e) {
       console.warn('[ChatScreen] inviteCall failed', e);
     }
 
     navigation.navigate('ActiveCall', {
       callType,
-      callerName: chat.title,
-      callerAvatar: chat.avatar,
-      chatId: chat.id,
-      calleeId: derivedReceiverId || chat.id,
+      callerName: isGroupConversation ? (chat?.title || 'Group') : chat.title,
+      callerAvatar: isGroupConversation ? ((chat as any)?.groupProfilePicture || chat?.avatar) : chat.avatar,
+      chatId: conversationKey,
+      calleeId: isGroupConversation ? undefined : (derivedReceiverId || chat.id),
       appId: AGORA_APP_ID,
       channel: `call-${callId}`,
       token: undefined,
       callId,
       isCaller: true,
+      isGroupCall: isGroupConversation,
+      groupId: conversationKey,
+      groupName: chat?.title || 'Group',
+      groupAvatar: (chat as any)?.groupProfilePicture || chat?.avatar,
       returnRoute: {
         name: 'Chat',
         params: route.params,

@@ -89,20 +89,24 @@ export const initSignaling = async (onIncomingCall: (payload: any) => void) => {
   return socket;
 };
 
-export const inviteCall = (toUserId: string, callType = 'audio', extra: any = {}) => {
+export const inviteCall = (toUserIdOrUserIds: string | string[], callType = 'audio', extra: any = {}) => {
   if (!socket || !socket.connected) {
     console.warn('[Signaling] Socket not connected, cannot send invite');
     return;
   }
   const state = useAuthStore.getState();
   const user = state.user;
+  const recipientIds = Array.isArray(toUserIdOrUserIds)
+    ? toUserIdOrUserIds.filter(Boolean).map(String)
+    : [String(toUserIdOrUserIds)].filter(Boolean);
   const invite = {
-    toUserId,
+    toUserId: recipientIds[0] || undefined,
+    toUserIds: recipientIds,
     fromUser: user,
     callType,
     ...extra,
   };
-  console.log('[Signaling] Sending call:invite to:', toUserId, 'type:', callType);
+  console.log('[Signaling] Sending call:invite to:', recipientIds, 'type:', callType);
   socket.emit('call:invite', invite);
 };
 
