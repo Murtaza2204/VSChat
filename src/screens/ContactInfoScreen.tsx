@@ -148,7 +148,10 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
         if (match && match.participantProfile && !cancelled) {
           const raw = match.participantProfile.phoneNumber || match.participantProfile.phone || '';
           setPhone(formatPhone(raw));
-          if (match.participantProfile.bio) setAbout(match.participantProfile.bio);
+          if (match.participantProfile.bio) {
+            console.log('ContactInfoScreen: Fetched bio from participant profile:', match.participantProfile.bio);
+            setAbout(match.participantProfile.bio);
+          }
         }
       } catch (e) {
         // ignore
