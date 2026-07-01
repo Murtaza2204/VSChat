@@ -26,8 +26,17 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const { addMessage } = useChatStore();
   const { width } = useWindowDimensions();
   const callType = route.params?.callType || 'audio';
+  const isCallerRoute = !!route.params?.isCaller;
   const callerName = route.params?.callerName || 'Ammi';
   const callerAvatar = route.params?.callerAvatar || route.params?.groupAvatar || null;
+  const peerName = route.params?.peerName || route.params?.calleeName || null;
+  const peerAvatar = route.params?.peerAvatar || route.params?.calleeAvatar || null;
+  const displayName = isCallerRoute
+    ? peerName || callerName
+    : callerName;
+  const displayAvatar = isCallerRoute
+    ? peerAvatar || callerAvatar
+    : callerAvatar;
   const appIdParam = route.params?.appId;
   const channelParam = route.params?.channel;
   const tokenParam = route.params?.token;
@@ -78,8 +87,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   }, [resetAfterCall, route.params?.callId]);
 
   React.useEffect(() => {
-    const isCaller = !!route.params?.isCaller;
-    if (!isCaller) return;
+    if (!isCallerRoute) return;
 
     try {
       const signaling = require('../services/signaling');
@@ -95,7 +103,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
         }
       });
     } catch (e) {}
-  }, [leaveAndDismissCall, route.params?.callId, route.params?.isCaller]);
+  }, [leaveAndDismissCall, route.params?.callId, isCallerRoute]);
 
   React.useEffect(() => {
     const timer = setInterval(() => {
@@ -222,7 +230,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   }, [leaveAndDismissCall, route.params?.callId]);
 
-  const initials = getInitials(callerName);
+  const initials = getInitials(displayName);
   const accepted = callType === 'video' && callAccepted;
   const avatarSize = Math.min(width * 0.54, 220);
   const callStatus = callAccepted ? formatDuration(elapsedSeconds) : 'Ringing...';
@@ -320,11 +328,11 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               onPress={() => navigation.goBack()}
             />
             <View style={styles.videoTitleBlock}>
-              {callerAvatar ? (
-                <Image source={{ uri: callerAvatar }} style={styles.videoHeaderAvatar} />
+              {displayAvatar ? (
+                <Image source={{ uri: displayAvatar }} style={styles.videoHeaderAvatar} />
               ) : null}
               <Text style={styles.videoName} numberOfLines={1}>
-                {callerName}
+                {displayName}
               </Text>
               <Text style={styles.videoStatus}>{accepted ? formatDuration(elapsedSeconds) : 'Ringing...'}</Text>
             </View>
@@ -397,7 +405,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
           <View style={styles.titleBlock}>
             <Text style={[styles.callerName, { color: theme.text }]} numberOfLines={1}>
-              {callerName}
+              {displayName}
             </Text>
             <Text style={[styles.statusText, { color: theme.textSecondary }]}>
               {callStatus}
@@ -419,9 +427,9 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               },
             ]}
           >
-            {callerAvatar ? (
+            {displayAvatar ? (
               <Image
-                source={{ uri: callerAvatar }}
+                source={{ uri: displayAvatar }}
                 style={{ width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }}
               />
             ) : (

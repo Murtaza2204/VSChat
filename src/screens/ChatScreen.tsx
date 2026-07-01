@@ -1383,6 +1383,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     // send invite to recipient(s) then navigate caller to ActiveCall
     const callId = `call-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const conversationKey = conversationId || chat?.conversationId || chat?.id;
+    const directCallPeer = !isGroupConversation
+      ? (participant || chat?.participants?.find((p) => String(getParticipantId(p)) !== String(currentUserId)) || null)
+      : null;
+    const directCallPeerName = directCallPeer?.name || directCallPeer?.displayName || chat?.title || 'Unknown';
+    const directCallPeerAvatar = directCallPeer?.avatar || directCallPeer?.profilePictureUrl || chat?.avatar || null;
     const groupRecipientIds = isGroupConversation
       ? (chat?.participants || [])
           .map(getParticipantId)
@@ -1429,6 +1434,10 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       callType,
       callerName: isGroupConversation ? (chat?.title || 'Group') : chat.title,
       callerAvatar: isGroupConversation ? ((chat as any)?.groupProfilePicture || chat?.avatar) : chat.avatar,
+      peerName: isGroupConversation ? undefined : directCallPeerName,
+      peerAvatar: isGroupConversation ? undefined : directCallPeerAvatar,
+      calleeName: isGroupConversation ? undefined : directCallPeerName,
+      calleeAvatar: isGroupConversation ? undefined : directCallPeerAvatar,
       chatId: conversationKey,
       calleeId: isGroupConversation ? undefined : (derivedReceiverId || chat.id),
       appId: AGORA_APP_ID,

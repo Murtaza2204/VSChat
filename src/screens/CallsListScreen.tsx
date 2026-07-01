@@ -120,6 +120,10 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           navigation.navigate('ActiveCall', {
             callerName: item.userName,
             callerAvatar: item.userAvatar,
+            peerName: item.userName,
+            peerAvatar: item.userAvatar,
+            calleeName: item.userName,
+            calleeAvatar: item.userAvatar,
             callType: type,
             appId: AGORA_APP_ID,
             channel,

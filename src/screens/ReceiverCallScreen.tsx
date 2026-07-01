@@ -26,6 +26,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
 }) => {
   const { theme } = useThemeStore();
   const { addMessage } = useChatStore();
+  const currentUser = useAuthStore((state) => state.user);
   const { width } = useWindowDimensions();
   const callerFromPayload = React.useMemo(() => {
     try {
@@ -36,8 +37,31 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
     return route.params?.fromUser || {};
   }, [route.params]);
   const callerId = route.params?.callerId || callerFromPayload?.id || route.params?.fromUserId || route.params?.from;
-  const callerName = route.params?.callerName || route.params?.groupName || callerFromPayload?.name || callerFromPayload?.displayName || 'Unknown';
-  const callerAvatar = route.params?.callerAvatar || route.params?.groupAvatar || callerFromPayload?.avatar || callerFromPayload?.profilePictureUrl || null;
+  const resolvedCallerName = React.useMemo(() => {
+    const payloadName = callerFromPayload?.name || callerFromPayload?.displayName || null;
+    const routeName = route.params?.callerName || route.params?.groupName || null;
+    const callerMatchesCurrentUser =
+      !!currentUser?.id &&
+      !!callerId &&
+      String(callerId) === String(currentUser.id);
+
+    if (!callerMatchesCurrentUser && payloadName) return payloadName;
+    if (routeName) return routeName;
+    return payloadName || 'Unknown';
+  }, [callerFromPayload, callerId, currentUser?.id, route.params?.callerName, route.params?.groupName]);
+  const resolvedCallerAvatar = React.useMemo(() => {
+    const payloadAvatar = callerFromPayload?.avatar || callerFromPayload?.profilePictureUrl || null;
+    const routeAvatar = route.params?.callerAvatar || route.params?.groupAvatar || null;
+    const callerMatchesCurrentUser =
+      !!currentUser?.id &&
+      !!callerId &&
+      String(callerId) === String(currentUser.id);
+
+    if (!callerMatchesCurrentUser && payloadAvatar) return payloadAvatar;
+    return routeAvatar || payloadAvatar || null;
+  }, [callerFromPayload, callerId, currentUser?.id, route.params?.callerAvatar, route.params?.groupAvatar]);
+  const callerName = resolvedCallerName;
+  const callerAvatar = resolvedCallerAvatar;
   const callerPhone = route.params?.callerPhone || '+91 97631 51372';
   const callType = route.params?.callType || 'audio';
   const chatId = route.params?.chatId;
@@ -129,10 +153,10 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const handleReject = () => {
     clearCallNotification(route.params?.callId).catch(() => {});
     try {
-      const currentUser = useAuthStore.getState().user;
+      const authUser = useAuthStore.getState().user;
       const callId = route.params?.callId;
-      if (callerId && currentUser?.id) {
-        signaling.respondToCall(callerId, currentUser.id, 'decline', callId);
+      if (callerId && authUser?.id) {
+        signaling.respondToCall(callerId, authUser.id, 'decline', callId);
         console.log('[ReceiverCallScreen] Sent decline response to:', callerId);
       }
     } catch (e) {
@@ -150,10 +174,10 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
       // ensure local audio is unmuted and speaker is on before joining
       try { setSpeakerphone(true); } catch (e) {}
       try { await muteLocalAudio(false); } catch (e) {}
-      const currentUser = useAuthStore.getState().user;
+      const authUser = useAuthStore.getState().user;
       const callId = route.params?.callId;
-      if (callerId && currentUser?.id) {
-        signaling.respondToCall(callerId, currentUser.id, 'accept', callId);
+      if (callerId && authUser?.id) {
+        signaling.respondToCall(callerId, authUser.id, 'accept', callId);
         console.log('[ReceiverCallScreen] Sent accept response to:', callerId);
       }
     } catch (e) {
@@ -188,11 +212,11 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const handleEnd = () => {
     clearCallNotification(route.params?.callId).catch(() => {});
     try {
-      const currentUser = useAuthStore.getState().user;
+      const authUser = useAuthStore.getState().user;
       const callId = route.params?.callId;
       const socket = signaling.getSocket();
-      if (socket && socket.connected && callId && currentUser?.id) {
-        socket.emit('call:ended', { callId, userId: currentUser.id, reason: 'hangup' });
+      if (socket && socket.connected && callId && authUser?.id) {
+        socket.emit('call:ended', { callId, userId: authUser.id, reason: 'hangup' });
       }
     } catch (e) {}
     logIncomingCall('completed', Math.max(1, elapsedSeconds));

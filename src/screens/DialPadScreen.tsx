@@ -64,7 +64,11 @@ const DialPadScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
     navigation.navigate('ActiveCall', {
       callerName: dialedNumber,
-      callerAvatar: '#',
+      callerAvatar: null,
+      peerName: dialedNumber,
+      peerAvatar: null,
+      calleeName: dialedNumber,
+      calleeAvatar: null,
       callType: 'audio',
     });
   };
