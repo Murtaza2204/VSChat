@@ -165,7 +165,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
     const appId = route.params?.appId;
     const channel = route.params?.channel;
     const token = route.params?.token;
-    const isGroupCall = !!route.params?.isGroupCall || !!route.params?.groupName;
+    const isGroupCall = String(route.params?.isGroupCall) === 'true';
 
     navigation.navigate(isGroupCall ? 'GroupActiveCall' : 'ActiveCall', {
       callType: callTypeParam,

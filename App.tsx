@@ -43,7 +43,7 @@ function App(): React.JSX.Element {
           } catch (e) {
             caller = {};
           }
-          const isGroupCall = String(data?.isGroupCall) === 'true' || !!data?.groupName || !!data?.groupId;
+          const isGroupCall = String(data?.isGroupCall) === 'true';
           setTimeout(() => {
             try {
               navigate('Main', {

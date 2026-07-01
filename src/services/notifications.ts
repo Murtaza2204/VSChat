@@ -84,7 +84,7 @@ const emitCallResponseFromNotification = async (data: any, response: 'accept' | 
 
 const navigateToActiveCall = (data: any) => {
   const caller = getCallerFromData(data);
-  const isGroupCall = String(data?.isGroupCall) === 'true' || !!data?.groupName || !!data?.groupId;
+  const isGroupCall = String(data?.isGroupCall) === 'true';
   const groupParticipants = getGroupParticipantsFromData(data);
   navigate('Main', {
     screen: 'Calls',

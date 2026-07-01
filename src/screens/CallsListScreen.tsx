@@ -42,7 +42,7 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
         // normalize calls to app Call shape
         const calls = rawCalls.map((rc) => {
-          const isGroupCall = !!rc.isGroupCall || !!rc.groupId || !!(rc.metadata && (rc.metadata.groupId || rc.metadata.groupName));
+          const isGroupCall = rc.isGroupCall === true || String((rc.metadata && rc.metadata.isGroupCall) || '') === 'true';
           const callerId = rc.callerId || rc.caller || (rc.metadata && rc.metadata.callerId) || null;
           const calleeId = rc.calleeId || rc.callee || (rc.metadata && rc.metadata.calleeId) || null;
           const isCaller = String(callerId) === String(user.id) || String(callerId) === String(user.id || '');
