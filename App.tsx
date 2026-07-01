@@ -43,12 +43,13 @@ function App(): React.JSX.Element {
           } catch (e) {
             caller = {};
           }
+          const isGroupCall = String(data?.isGroupCall) === 'true' || !!data?.groupName || !!data?.groupId;
           setTimeout(() => {
             try {
               navigate('Main', {
                 screen: 'Calls',
                 params: {
-                  screen: 'ActiveCall',
+                  screen: isGroupCall ? 'GroupActiveCall' : 'ActiveCall',
                   params: {
                     callType: data.callType || 'audio',
                     callerName: caller.name || caller.displayName || data.callerName || 'Unknown',
@@ -59,6 +60,11 @@ function App(): React.JSX.Element {
                     token: data.token,
                     callId: data.callId,
                     isReceiver: true,
+                    isGroupCall,
+                    groupId: data.groupId,
+                    groupName: data.groupName || caller.name || data.callerName,
+                    groupAvatar: data.groupAvatar || caller.avatar || data.callerAvatar,
+                    groupParticipants: data.groupParticipants,
                   },
                 },
               });

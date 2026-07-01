@@ -7,6 +7,7 @@ let socket: any = null;
 let onCallResponseListener: ((payload: any) => void) | null = null;
 let onIncomingCallListener: ((payload: any) => void) | null = null;
 let onCallCreatedListener: ((payload: any) => void) | null = null;
+let onCallSessionStateListener: ((payload: any) => void) | null = null;
 const callEndedListeners = new Set<(payload: any) => void>();
 let _lastCallCreatedById: Record<string, any> = {};
 
@@ -77,6 +78,11 @@ export const initSignaling = async (onIncomingCall: (payload: any) => void) => {
       if (payload && payload.callId) _lastCallCreatedById[String(payload.callId)] = payload;
     } catch (e) {}
     onCallCreatedListener && onCallCreatedListener(payload);
+  });
+
+  socket.on('call:session:state', (payload: any) => {
+    console.log('[Signaling] Received call:session:state:', payload);
+    onCallSessionStateListener && onCallSessionStateListener(payload);
   });
 
   socket.on('call:ended', (payload: any) => {
@@ -151,6 +157,11 @@ export const onCallCreated = (listener: (payload: any) => void) => {
   console.log('[Signaling] Registered call created listener');
 };
 
+export const onCallSessionState = (listener: (payload: any) => void) => {
+  onCallSessionStateListener = listener;
+  console.log('[Signaling] Registered call session state listener');
+};
+
 export const onCallEnded = (listener: (payload: any) => void) => {
   callEndedListeners.add(listener);
   console.log('[Signaling] Registered call ended listener');
@@ -166,4 +177,9 @@ export const getLastCallCreated = (callId?: string) => {
 
 export const getSocket = () => socket;
 
-export default { initSignaling, inviteCall, respondToCall, endCall, onCallResponse, getSocket, onCallCreated, getLastCallCreated, onCallEnded };
+export const requestCallSessionState = (callId?: string) => {
+  if (!socket || !socket.connected || !callId) return;
+  socket.emit('call:session:get', { callId });
+};
+
+export default { initSignaling, inviteCall, respondToCall, endCall, onCallResponse, getSocket, onCallCreated, getLastCallCreated, onCallEnded, onCallSessionState, requestCallSessionState };

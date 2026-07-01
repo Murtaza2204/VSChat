@@ -165,8 +165,9 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
     const appId = route.params?.appId;
     const channel = route.params?.channel;
     const token = route.params?.token;
+    const isGroupCall = !!route.params?.isGroupCall || !!route.params?.groupName;
 
-    navigation.navigate('ActiveCall', {
+    navigation.navigate(isGroupCall ? 'GroupActiveCall' : 'ActiveCall', {
       callType: callTypeParam,
       callerName,
       callerAvatar,
@@ -177,9 +178,10 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
       callId: route.params?.callId,
       callerId,
       isReceiver: true,
-      isGroupCall: !!route.params?.isGroupCall || !!route.params?.groupName,
+      isGroupCall,
       groupName: route.params?.groupName || callerName,
       groupAvatar: route.params?.groupAvatar || callerAvatar,
+      groupParticipants: route.params?.groupParticipants,
     });
   };
 

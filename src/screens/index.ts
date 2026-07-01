@@ -14,6 +14,7 @@ export { default as DialPadScreen } from './DialPadScreen';
 export { default as IncomingCallScreen } from './IncomingCallScreen';
 export { default as ReceiverCallScreen } from './ReceiverCallScreen';
 export { default as ActiveCallScreen } from './ActiveCallScreen';
+export { default as GroupActiveCallScreen } from './GroupActiveCallScreen';
 export { default as ProfileScreen } from './ProfileScreen';
 export { default as EditProfileScreen } from './EditProfileScreen';
 export { default as SettingsScreen } from './SettingsScreen';

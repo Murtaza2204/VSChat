@@ -1393,6 +1393,19 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     const targetRecipientIds = groupRecipientIds.length
       ? groupRecipientIds
       : [derivedReceiverId || chat?.userId || chat?.id].filter(Boolean);
+    const groupParticipantProfiles = isGroupConversation
+      ? (chat?.participants || [])
+          .map((participant) => {
+            const participantId = getParticipantId(participant);
+            if (!participantId) return null;
+            return {
+              userId: String(participantId),
+              name: participant.name || participant.displayName || participant.title || 'Unknown',
+              avatar: participant.avatar || participant.profilePictureUrl || null,
+            };
+          })
+          .filter(Boolean)
+      : [];
     try {
       const perCallChannel = `call-${callId}`;
       signaling.inviteCall(targetRecipientIds, callType, {
@@ -1405,13 +1418,14 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         groupAvatar: (chat as any)?.groupProfilePicture || chat?.avatar,
         chatId: conversationKey,
         groupMemberIds: groupRecipientIds,
+        groupParticipants: groupParticipantProfiles,
       });
       console.log('[ChatScreen] Sent call invite:', { targetRecipientIds, callType, callId, isGroupCall: isGroupConversation });
     } catch (e) {
       console.warn('[ChatScreen] inviteCall failed', e);
     }
 
-    navigation.navigate('ActiveCall', {
+    navigation.navigate(isGroupConversation ? 'GroupActiveCall' : 'ActiveCall', {
       callType,
       callerName: isGroupConversation ? (chat?.title || 'Group') : chat.title,
       callerAvatar: isGroupConversation ? ((chat as any)?.groupProfilePicture || chat?.avatar) : chat.avatar,
@@ -1426,6 +1440,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       groupId: conversationKey,
       groupName: chat?.title || 'Group',
       groupAvatar: (chat as any)?.groupProfilePicture || chat?.avatar,
+      groupParticipants: groupParticipantProfiles,
       returnRoute: {
         name: 'Chat',
         params: route.params,

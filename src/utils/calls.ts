@@ -7,6 +7,10 @@ export interface RawCall {
   calleeId?: string;
   callType?: string;
   callStatus?: string;
+  isGroupCall?: boolean;
+  groupId?: string;
+  groupName?: string;
+  groupAvatar?: string;
   createdAt?: string;
   startedAt?: string;
   endedAt?: string;

@@ -43,6 +43,17 @@ const getCallerFromData = (data: any) => {
   };
 };
 
+const getGroupParticipantsFromData = (data: any) => {
+  try {
+    if (Array.isArray(data?.groupParticipants)) return data.groupParticipants;
+    if (typeof data?.groupParticipants === 'string' && data.groupParticipants) {
+      const parsed = JSON.parse(String(data.groupParticipants));
+      return Array.isArray(parsed) ? parsed : [];
+    }
+  } catch (e) {}
+  return [];
+};
+
 const emitCallResponseFromNotification = async (data: any, response: 'accept' | 'decline') => {
   const caller = getCallerFromData(data);
   const currentUser = await getStoredUser();
@@ -73,10 +84,12 @@ const emitCallResponseFromNotification = async (data: any, response: 'accept' | 
 
 const navigateToActiveCall = (data: any) => {
   const caller = getCallerFromData(data);
+  const isGroupCall = String(data?.isGroupCall) === 'true' || !!data?.groupName || !!data?.groupId;
+  const groupParticipants = getGroupParticipantsFromData(data);
   navigate('Main', {
     screen: 'Calls',
     params: {
-      screen: 'ActiveCall',
+      screen: isGroupCall ? 'GroupActiveCall' : 'ActiveCall',
       params: {
         callType: data.callType || 'audio',
         callerName: caller.name,
@@ -87,6 +100,11 @@ const navigateToActiveCall = (data: any) => {
         token: data.token,
         callId: data.callId,
         isReceiver: true,
+        isGroupCall,
+        groupId: data.groupId,
+        groupName: data.groupName || caller.name,
+        groupAvatar: data.groupAvatar || caller.avatar,
+        groupParticipants,
       },
     },
   });
@@ -118,11 +136,11 @@ const replyFromNotification = async (data: any, input: any) => {
 };
 
 const handleNotificationAction = async (actionId: string, data: any, input?: any, openUi = true) => {
-  if (actionId === 'accept') {
-    await cancelNotificationForPayload(data);
-    await emitCallResponseFromNotification(data, 'accept');
-    if (openUi) navigateToActiveCall(data);
-    else await AsyncStorage.setItem('pendingAcceptedCall', JSON.stringify(data));
+    if (actionId === 'accept') {
+      await cancelNotificationForPayload(data);
+      await emitCallResponseFromNotification(data, 'accept');
+      if (openUi) navigateToActiveCall(data);
+      else await AsyncStorage.setItem('pendingAcceptedCall', JSON.stringify(data));
   } else if (actionId === 'decline') {
     await cancelNotificationForPayload(data);
     await emitCallResponseFromNotification(data, 'decline');

@@ -42,6 +42,7 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
         // normalize calls to app Call shape
         const calls = rawCalls.map((rc) => {
+          const isGroupCall = !!rc.isGroupCall || !!rc.groupId || !!(rc.metadata && (rc.metadata.groupId || rc.metadata.groupName));
           const callerId = rc.callerId || rc.caller || (rc.metadata && rc.metadata.callerId) || null;
           const calleeId = rc.calleeId || rc.callee || (rc.metadata && rc.metadata.calleeId) || null;
           const isCaller = String(callerId) === String(user.id) || String(callerId) === String(user.id || '');
@@ -52,7 +53,9 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           try {
             if (rc.metadata) {
               const md = typeof rc.metadata === 'string' ? JSON.parse(rc.metadata) : rc.metadata;
-              name = md?.callerName || md?.name || md?.displayName || md?.fromUser?.displayName || md?.fromUser?.name || null;
+              name = (isGroupCall
+                ? md?.groupName || rc.groupName || 'Group call'
+                : md?.callerName || md?.name || md?.displayName || md?.fromUser?.displayName || md?.fromUser?.name || null);
             }
           } catch (e) {
             name = null;
@@ -60,9 +63,9 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
           return {
             id: String(rc._id || rc.callId || Math.random()),
-            userId: otherId || (rc.calleeId || rc.callerId) || '',
+            userId: isGroupCall ? (rc.groupId || (rc.metadata && rc.metadata.groupId) || rc.callId || '') : (otherId || (rc.calleeId || rc.callerId) || ''),
             userName: name || String(otherId || 'Unknown'),
-            userAvatar: undefined,
+            userAvatar: isGroupCall ? (rc.groupAvatar || (rc.metadata && rc.metadata.groupAvatar) || undefined) : undefined,
             type: (rc.callType === 'video' || rc.callType === 'videocall') ? 'video' : 'audio',
             direction: isCaller ? 'outgoing' : 'incoming',
             duration: rc.durationSeconds || 0,
