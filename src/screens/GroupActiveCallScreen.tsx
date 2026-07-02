@@ -47,7 +47,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
 }) => {
   const { theme } = useThemeStore();
   const currentUser = useAuthStore.getState().user;
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
 
   const callType = route.params?.callType || 'audio';
   const callId = route.params?.callId;
@@ -272,7 +272,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
         }
 
         signaling.requestCallSessionState(callId);
-      } catch {
+      } catch (e) {
         console.error('[GroupActiveCall] Agora setup error:', e);
       }
     };
@@ -321,15 +321,99 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     await leaveAndDismissCall();
   };
 
-  const visibleCount = participants.length || 1;
-  const columns = visibleCount === 1 ? 1 : visibleCount === 2 ? 2 : visibleCount <= 4 ? 2 : 3;
+  const visibleParticipants = React.useMemo(() => {
+    if (participants.length) return participants;
+    return [
+      {
+        userId: currentUser?.id || 'me',
+        name: 'You',
+        avatar: currentUser?.avatar || null,
+        status: 'joined',
+      },
+    ];
+  }, [currentUser?.avatar, currentUser?.id, participants]);
+  const visibleCount = visibleParticipants.length;
   const gridWidth = width - SPACING.lg * 2;
   const gap = SPACING.md;
-  const tileWidth = columns === 1
-    ? Math.min(gridWidth, 340)
-    : Math.floor((gridWidth - gap * (columns - 1)) / columns);
-  const tileHeight = columns === 1 ? Math.max(250, Math.floor(tileWidth * 0.95)) : Math.max(210, Math.floor(tileWidth * 1.18));
-  const scrollableGrid = visibleCount >= 10;
+  const gridRows = React.useMemo(() => {
+    const rows: GroupParticipant[][] = [];
+    const participantsForGrid = visibleParticipants.slice();
+
+    if (visibleCount === 1) {
+      rows.push(participantsForGrid.slice(0, 1));
+      return rows;
+    }
+
+    if (visibleCount === 2) {
+      rows.push(participantsForGrid.slice(0, 1));
+      rows.push(participantsForGrid.slice(1, 2));
+      return rows;
+    }
+
+    if (visibleCount === 3) {
+      rows.push(participantsForGrid.slice(0, 2));
+      rows.push(participantsForGrid.slice(2, 3));
+      return rows;
+    }
+
+    if (visibleCount === 4) {
+      rows.push(participantsForGrid.slice(0, 2));
+      rows.push(participantsForGrid.slice(2, 4));
+      return rows;
+    }
+
+    if (visibleCount === 5) {
+      rows.push(participantsForGrid.slice(0, 2));
+      rows.push(participantsForGrid.slice(2, 4));
+      rows.push(participantsForGrid.slice(4, 5));
+      return rows;
+    }
+
+    if (visibleCount === 6) {
+      rows.push(participantsForGrid.slice(0, 2));
+      rows.push(participantsForGrid.slice(2, 4));
+      rows.push(participantsForGrid.slice(4, 6));
+      return rows;
+    }
+
+    for (let index = 0; index < participantsForGrid.length; index += 2) {
+      rows.push(participantsForGrid.slice(index, index + 2));
+    }
+
+    return rows;
+  }, [visibleParticipants, visibleCount]);
+  const tileWidth = visibleCount <= 2 ? gridWidth : Math.floor((gridWidth - gap) / 2);
+  const rowCount = Math.max(1, gridRows.length);
+  const reservedVerticalSpace = 104 + SPACING.lg + 80 + SPACING.lg + SPACING.xl + (SPACING.md * 2);
+  const availableGridHeight = Math.max(220, height - reservedVerticalSpace);
+  const tileHeightFromHeight = Math.floor((availableGridHeight - (gap * (rowCount - 1))) / rowCount);
+  const tileHeightFromWidth = Math.floor(tileWidth * (visibleCount === 1 ? 1.18 : 1.08));
+  const tileHeight = visibleCount === 1
+    ? Math.max(availableGridHeight, tileHeightFromWidth)
+    : Math.max(148, Math.min(tileHeightFromWidth, tileHeightFromHeight));
+  const scrollableGrid = visibleCount > 6;
+  const renderGridRow = React.useCallback((row: GroupParticipant[], rowIndex: number) => {
+    const rowStyle = {
+      marginBottom: rowIndex < gridRows.length - 1 ? gap : 0,
+      justifyContent: row.length === 1 ? 'center' : 'space-between',
+    } as const;
+
+    return (
+      <View key={`grid-row-${rowIndex}`} style={[styles.gridRow, rowStyle]}>
+        {row.map((participant) => (
+          <ParticipantTile
+            key={participant.userId}
+            participant={participant}
+            currentUserId={currentUser?.id}
+            theme={theme}
+            width={tileWidth}
+            height={tileHeight}
+            spotlight={visibleCount === 1}
+          />
+        ))}
+      </View>
+    );
+  }, [currentUser?.id, gap, gridRows.length, theme, tileHeight, tileWidth]);
   const statusText = sessionActive
     ? formatDuration(elapsedSeconds)
     : 'Waiting for members';
@@ -561,50 +645,12 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           {scrollableGrid ? (
             <ScrollView contentContainerStyle={styles.gridScrollContent} showsVerticalScrollIndicator={false}>
               <View style={[styles.gridWrap, { width: gridWidth }]}>
-                {participants.length ? participants.map((participant) => (
-                  <ParticipantTile
-                    key={participant.userId}
-                    participant={participant}
-                    currentUserId={currentUser?.id}
-                    theme={theme}
-                    width={tileWidth}
-                    height={tileHeight}
-                    gap={gap}
-                  />
-                )) : (
-                  <ParticipantTile
-                    participant={{ userId: currentUser?.id || 'me', name: 'You', avatar: currentUser?.avatar || null, status: 'joined' }}
-                    currentUserId={currentUser?.id}
-                    theme={theme}
-                    width={tileWidth}
-                    height={tileHeight}
-                    gap={gap}
-                  />
-                )}
+                {gridRows.map(renderGridRow)}
               </View>
             </ScrollView>
           ) : (
             <View style={[styles.gridWrap, { width: gridWidth }]}>
-              {participants.length ? participants.map((participant) => (
-                <ParticipantTile
-                  key={participant.userId}
-                  participant={participant}
-                  currentUserId={currentUser?.id}
-                  theme={theme}
-                  width={tileWidth}
-                  height={tileHeight}
-                  gap={gap}
-                />
-              )) : (
-                <ParticipantTile
-                  participant={{ userId: currentUser?.id || 'me', name: 'You', avatar: currentUser?.avatar || null, status: 'joined' }}
-                  currentUserId={currentUser?.id}
-                  theme={theme}
-                  width={tileWidth}
-                  height={tileHeight}
-                  gap={gap}
-                />
-              )}
+              {gridRows.map(renderGridRow)}
             </View>
           )}
         </View>
@@ -664,19 +710,21 @@ const ParticipantTile = ({
   theme,
   width,
   height,
-  gap,
+  spotlight = false,
 }: {
   participant: GroupParticipant;
   currentUserId?: string;
   theme: any;
   width: number;
   height: number;
-  gap: number;
+  spotlight?: boolean;
 }) => {
   const isSelf = String(participant.userId) === String(currentUserId);
   const displayName = isSelf ? 'You' : participant.name || 'Unknown';
   const initials = getInitials(displayName);
-  const avatarSize = Math.max(60, Math.min(width * 0.28, 92));
+  const avatarSize = spotlight
+    ? Math.max(120, Math.min(width, height) * 0.34)
+    : Math.max(60, Math.min(width * 0.28, 92));
 
   return (
     <View
@@ -685,16 +733,25 @@ const ParticipantTile = ({
         {
           width,
           height,
-          marginRight: gap,
-          marginBottom: gap,
           backgroundColor: theme.surface,
           borderColor: isSelf ? theme.primary : theme.border,
+          justifyContent: spotlight ? 'center' : 'space-between',
         },
+        spotlight && styles.tileSpotlight,
       ]}
     >
-      <View style={[styles.tileAvatarWrap, { backgroundColor: theme.inputBackground }]}>
+      <View
+        style={[
+          styles.tileAvatarWrap,
+          { backgroundColor: theme.inputBackground },
+          spotlight && styles.tileAvatarWrapSpotlight,
+        ]}
+      >
         {isValidAvatarUri(participant.avatar) ? (
-          <Image source={{ uri: participant.avatar }} style={{ width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }} />
+          <Image
+            source={{ uri: participant.avatar || undefined }}
+            style={{ width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }}
+          />
         ) : (
           <View
             style={[
@@ -713,7 +770,14 @@ const ParticipantTile = ({
           </View>
         )}
       </View>
-      <Text style={[styles.tileName, { color: theme.text }]} numberOfLines={1}>
+      <Text
+        style={[
+          styles.tileName,
+          { color: theme.text },
+          spotlight && styles.tileNameSpotlight,
+        ]}
+        numberOfLines={1}
+      >
         {displayName}
       </Text>
     </View>
@@ -1138,10 +1202,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   gridWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     alignSelf: 'center',
-    justifyContent: 'center',
+    flexDirection: 'column',
+  },
+  gridRow: {
+    width: '100%',
+    flexDirection: 'row',
   },
   tile: {
     borderWidth: 1,
@@ -1150,6 +1216,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  tileSpotlight: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.xl,
+  },
   tileAvatarWrap: {
     flex: 1,
     alignSelf: 'stretch',
@@ -1157,6 +1227,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: SPACING.md,
+  },
+  tileAvatarWrapSpotlight: {
+    flex: 0,
+    width: '100%',
+    marginBottom: SPACING.xl,
   },
   initialBubble: {
     alignItems: 'center',
@@ -1170,6 +1245,9 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.xl,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  tileNameSpotlight: {
+    fontSize: FONT_SIZES.xxl,
   },
   tray: {
     minHeight: 80,
