@@ -987,14 +987,13 @@ const ParticipantTile = ({
     >
       <View
         style={[
-          styles.tileAvatarWrap,
-          { backgroundColor: theme.inputBackground },
-          shouldShowVideo && styles.tileAvatarWrapVideo,
-          spotlight && styles.tileAvatarWrapSpotlight,
+          styles.tileMedia,
+          shouldShowVideo ? styles.tileMediaVideo : styles.tileMediaFallback,
+          { backgroundColor: shouldShowVideo ? theme.background : theme.inputBackground },
         ]}
       >
         {shouldShowVideo ? (
-          <View style={styles.tileVideoFrame}>
+          <>
             {RtcSurfaceView ? (
               <RtcSurfaceView
                 key={`participant-video-${participant.userId}-${streamUid}`}
@@ -1005,27 +1004,37 @@ const ParticipantTile = ({
             ) : (
               <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.inputBackground }]} />
             )}
-            {isSelf ? (
-              <View pointerEvents="box-none" style={styles.tileVideoOverlay}>
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={onFlipCamera}
-                  style={[
-                    styles.tileFlipButton,
-                    {
-                      backgroundColor: cameraFacing === 'rear' ? theme.primary : theme.surface,
-                    },
-                  ]}
-                >
-                  <Icon
-                    name="camera-reverse"
-                    size={16}
-                    color={cameraFacing === 'rear' ? theme.background : theme.text}
-                  />
-                </TouchableOpacity>
+            <View pointerEvents="box-none" style={styles.tileOverlay}>
+              <View style={styles.tileOverlayTop}>
+                {isSelf ? (
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={onFlipCamera}
+                    style={[
+                      styles.tileFlipButton,
+                      {
+                        backgroundColor: cameraFacing === 'rear' ? theme.primary : theme.surface,
+                      },
+                    ]}
+                  >
+                    <Icon
+                      name="camera-reverse"
+                      size={16}
+                      color={cameraFacing === 'rear' ? theme.background : theme.text}
+                    />
+                  </TouchableOpacity>
+                ) : null}
               </View>
-            ) : null}
-          </View>
+              <View style={styles.tileOverlayBottom}>
+                <Text
+                  style={[styles.tileNameOverlay, { color: theme.background }]}
+                  numberOfLines={1}
+                >
+                  {displayName}
+                </Text>
+              </View>
+            </View>
+          </>
         ) : (
           <>
             {isValidAvatarUri(participant.avatar) ? (
@@ -1053,16 +1062,6 @@ const ParticipantTile = ({
           </>
         )}
       </View>
-      <Text
-        style={[
-          styles.tileName,
-          { color: theme.text },
-          spotlight && styles.tileNameSpotlight,
-        ]}
-        numberOfLines={1}
-      >
-        {displayName}
-      </Text>
     </View>
   );
 };
@@ -1502,9 +1501,8 @@ const styles = StyleSheet.create({
   tile: {
     borderWidth: 1,
     borderRadius: BORDER_RADIUS.xl,
-    padding: SPACING.md,
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    overflow: 'hidden',
+    backgroundColor: '#000',
   },
   tileSpotlightLayout: {
     justifyContent: 'center',
@@ -1513,36 +1511,46 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.xl,
   },
-  tileAvatarWrap: {
+  tileMedia: {
     flex: 1,
-    alignSelf: 'stretch',
-    borderRadius: BORDER_RADIUS.lg,
+    width: '100%',
+    overflow: 'hidden',
+    borderRadius: BORDER_RADIUS.xl,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: SPACING.md,
   },
-  tileAvatarWrapVideo: {
-    overflow: 'hidden',
-    padding: 0,
-    alignItems: 'stretch',
-    justifyContent: 'center',
+  tileMediaVideo: {
+    backgroundColor: '#000',
   },
-  tileAvatarWrapSpotlight: {
-    flex: 0,
-    width: '100%',
-    marginBottom: SPACING.xl,
+  tileMediaFallback: {
+    padding: SPACING.md,
   },
-  tileVideoFrame: {
-    flex: 1,
-    alignSelf: 'stretch',
-    borderRadius: BORDER_RADIUS.lg,
-    overflow: 'hidden',
-  },
-  tileVideoOverlay: {
+  tileOverlay: {
     ...StyleSheet.absoluteFill,
-    alignItems: 'flex-end',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     padding: SPACING.sm,
+  },
+  tileOverlayTop: {
+    alignItems: 'flex-end',
+  },
+  tileOverlayBottom: {
+    alignItems: 'flex-start',
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    borderRadius: BORDER_RADIUS.full,
+  },
+  tileOverlayBottomFallback: {
+    marginTop: SPACING.md,
+  },
+  tileNameOverlay: {
+    fontSize: FONT_SIZES.lg,
+    fontWeight: '700',
+  },
+  tileNameFallback: {
+    fontSize: FONT_SIZES.xl,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   tileFlipButton: {
     width: 34,
@@ -1558,14 +1566,6 @@ const styles = StyleSheet.create({
   initialText: {
     fontSize: FONT_SIZES.xxxl,
     fontWeight: '700',
-  },
-  tileName: {
-    fontSize: FONT_SIZES.xl,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  tileNameSpotlight: {
-    fontSize: FONT_SIZES.xxl,
   },
   tray: {
     minHeight: 80,
