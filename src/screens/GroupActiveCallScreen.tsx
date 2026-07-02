@@ -72,6 +72,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const [localRtcUid, setLocalRtcUid] = React.useState<number | null>(null);
   const [sessionActive, setSessionActive] = React.useState(false);
   const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
+  const [gridLayout, setGridLayout] = React.useState({ width: 0, height: 0 });
   const startedAtRef = React.useRef<number | null>(null);
   const videoActionIdRef = React.useRef(0);
   const videoActionChainRef = React.useRef<Promise<void>>(Promise.resolve());
@@ -430,7 +431,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
       mounted = false;
       try { if (callCreatedHandler) signaling.onCallCreated(() => {}); } catch {}
     };
-  }, [appIdParam, callId, callType, channelParam, isCaller, tokenParam, syncFromSessionState]);
+  }, [appIdParam, callId, callType, cameraFacing, channelParam, currentUser?.id, isCaller, localRtcUid, runVideoAction, tokenParam, syncFromSessionState]);
 
   React.useEffect(() => {
     signaling.onCallSessionState((payload: any) => {
@@ -508,7 +509,6 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     ];
   }, [currentUser?.avatar, currentUser?.id, participants]);
   const visibleCount = visibleParticipants.length;
-  const gridWidth = width - SPACING.lg * 2;
   const gap = SPACING.md;
   const gridRows = React.useMemo(() => {
     const rows: GroupParticipant[][] = [];
@@ -557,24 +557,28 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
     return rows;
   }, [visibleParticipants, visibleCount]);
-  const tileWidth = visibleCount <= 2 ? gridWidth : Math.floor((gridWidth - gap) / 2);
+  const fallbackGridWidth = Math.max(0, width - SPACING.lg * 2);
+  const fallbackGridHeight = Math.max(
+    220,
+    height - (104 + SPACING.lg + 80 + SPACING.lg + SPACING.xl + (SPACING.md * 2)),
+  );
+  const measuredGridWidth = gridLayout.width > 0 ? gridLayout.width : fallbackGridWidth;
+  const measuredGridHeight = gridLayout.height > 0 ? gridLayout.height : fallbackGridHeight;
   const rowCount = Math.max(1, gridRows.length);
-  const reservedVerticalSpace = 104 + SPACING.lg + 80 + SPACING.lg + SPACING.xl + (SPACING.md * 2);
-  const availableGridHeight = Math.max(220, height - reservedVerticalSpace);
-  const tileHeightFromHeight = Math.floor((availableGridHeight - (gap * (rowCount - 1))) / rowCount);
-  const tileHeightFromWidth = Math.floor(tileWidth * (visibleCount === 1 ? 1.18 : 1.08));
-  const tileHeight = visibleCount === 1
-    ? Math.max(availableGridHeight, tileHeightFromWidth)
-    : Math.max(148, Math.min(tileHeightFromWidth, tileHeightFromHeight));
+  const columnCount = visibleCount <= 2 ? 1 : 2;
+  const tileWidth = columnCount === 1
+    ? measuredGridWidth
+    : Math.max(1, Math.floor((measuredGridWidth - gap) / 2));
+  const tileHeight = Math.max(1, Math.floor((measuredGridHeight - (gap * (rowCount - 1))) / rowCount));
   const scrollableGrid = visibleCount > 6;
   const renderGridRow = React.useCallback((row: GroupParticipant[], rowIndex: number) => {
-    const rowStyle = {
-      marginBottom: rowIndex < gridRows.length - 1 ? gap : 0,
-      justifyContent: row.length === 1 ? 'center' : 'space-between',
-    } as const;
+    const rowStyle = row.length === 1 ? styles.gridRowStart : styles.gridRowSpread;
 
     return (
-      <View key={`grid-row-${rowIndex}`} style={[styles.gridRow, rowStyle]}>
+      <View
+        key={`grid-row-${rowIndex}`}
+        style={[styles.gridRow, rowStyle]}
+      >
         {row.map((participant) => (
           <ParticipantTile
             key={participant.userId}
@@ -592,7 +596,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
         ))}
       </View>
     );
-  }, [callType, currentUser?.id, gap, handleFlipCamera, hasCameraAccess, isVideoOn, localVideoReady, gridRows.length, theme, tileHeight, tileWidth, visibleCount]);
+  }, [cameraFacing, callType, currentUser?.id, handleFlipCamera, hasCameraAccess, isVideoOn, localVideoReady, theme, tileHeight, tileWidth, visibleCount]);
   const statusText = sessionActive
     ? formatDuration(elapsedSeconds)
     : 'Waiting for members';
@@ -820,15 +824,25 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           </TouchableOpacity>
         </View>
 
-        <View style={styles.gridShell}>
+        <View
+          style={styles.gridShell}
+          onLayout={(event) => {
+            const { width: nextWidth, height: nextHeight } = event.nativeEvent.layout;
+            setGridLayout((current) => (
+              current.width === nextWidth && current.height === nextHeight
+                ? current
+                : { width: nextWidth, height: nextHeight }
+            ));
+          }}
+        >
           {scrollableGrid ? (
             <ScrollView contentContainerStyle={styles.gridScrollContent} showsVerticalScrollIndicator={false}>
-              <View style={[styles.gridWrap, { width: gridWidth }]}>
+              <View style={[styles.gridWrap, { width: measuredGridWidth }]}>
                 {gridRows.map(renderGridRow)}
               </View>
             </ScrollView>
           ) : (
-            <View style={[styles.gridWrap, { width: gridWidth }]}>
+            <View style={[styles.gridWrap, { width: measuredGridWidth }]}>
               {gridRows.map(renderGridRow)}
             </View>
           )}
@@ -966,8 +980,8 @@ const ParticipantTile = ({
           height,
           backgroundColor: theme.surface,
           borderColor: isSelf ? theme.primary : theme.border,
-          justifyContent: spotlight ? 'center' : 'space-between',
         },
+        spotlight && styles.tileSpotlightLayout,
         spotlight && styles.tileSpotlight,
       ]}
     >
@@ -1473,10 +1487,17 @@ const styles = StyleSheet.create({
   gridWrap: {
     alignSelf: 'center',
     flexDirection: 'column',
+    rowGap: SPACING.md,
   },
   gridRow: {
     width: '100%',
     flexDirection: 'row',
+  },
+  gridRowStart: {
+    justifyContent: 'flex-start',
+  },
+  gridRowSpread: {
+    justifyContent: 'space-between',
   },
   tile: {
     borderWidth: 1,
@@ -1484,6 +1505,9 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  tileSpotlightLayout: {
+    justifyContent: 'center',
   },
   tileSpotlight: {
     paddingHorizontal: SPACING.lg,
