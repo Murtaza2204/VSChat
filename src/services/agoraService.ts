@@ -35,6 +35,8 @@ const callEngine = async (method: string, ...args: any[]) => {
   return engine[method](...args);
 };
 
+const isSuccessCode = (result: any) => result === undefined || result === 0;
+
 const routeAudioToSpeaker = async (on = true) => {
   await callEngine('setDefaultAudioRouteToSpeakerphone', on);
   await callEngine('setEnableSpeakerphone', on);
@@ -223,16 +225,40 @@ export const setRemoteUidListener = (cb: (uid: number | null) => void) => {
   remoteUidListener = cb;
 };
 
-export const switchCamera = async () => {
+export const switchCamera = async (): Promise<boolean> => {
   try {
-    await callEngine('switchCamera');
-  } catch (e) {}
+    if (!engine) return false;
+    await callEngine('enableLocalVideo', true);
+    const result = await callEngine('switchCamera');
+    await callEngine('updateChannelMediaOptions', mediaOptions);
+    return isSuccessCode(result);
+  } catch (e) {
+    return false;
+  }
 };
 
-export const muteLocalAudio = async (mute: boolean) => {
+export const setFrontCamera = async (): Promise<boolean> => {
+  try {
+    if (!engine) return false;
+    const result = await callEngine('setCameraCapturerConfiguration', { cameraDirection: 1 });
+    return isSuccessCode(result);
+  } catch (e) {
+    try {
+      const fallback = await callEngine('setCameraCapturerConfiguration', { facingMode: 'front' });
+      return isSuccessCode(fallback);
+    } catch {
+      return false;
+    }
+  }
+};
+
+export const muteLocalAudio = async (mute: boolean): Promise<boolean> => {
   try {
     await callEngine('muteLocalAudioStream', mute);
-  } catch (e) {}
+    return true;
+  } catch (e) {
+    return false;
+  }
 };
 
 export const setSpeakerphone = async (on: boolean) => {
@@ -243,17 +269,30 @@ export const setSpeakerphone = async (on: boolean) => {
   }
 };
 
-export const muteLocalVideo = async (mute: boolean) => {
+export const muteLocalVideo = async (mute: boolean): Promise<boolean> => {
   try {
-    if (!mute) {
-      await callEngine('enableLocalVideo', true);
+    if (mute) {
+      const disableResult = await callEngine('enableLocalVideo', false);
+      const muteResult = await callEngine('muteLocalVideoStream', true);
+      const updateResult = await callEngine('updateChannelMediaOptions', {
+        ...mediaOptions,
+        publishCameraTrack: false,
+      });
+      await callEngine('stopPreview');
+      return isSuccessCode(disableResult) && isSuccessCode(muteResult) && isSuccessCode(updateResult);
     }
-    await callEngine('muteLocalVideoStream', mute);
-    await callEngine('updateChannelMediaOptions', {
+
+    const enableResult = await callEngine('enableLocalVideo', true);
+    const unmuteResult = await callEngine('muteLocalVideoStream', false);
+    const updateResult = await callEngine('updateChannelMediaOptions', {
       ...mediaOptions,
-      publishCameraTrack: !mute,
+      publishCameraTrack: true,
     });
-  } catch (e) {}
+    await callEngine('startPreview');
+    return isSuccessCode(enableResult) && isSuccessCode(unmuteResult) && isSuccessCode(updateResult);
+  } catch (e) {
+    return false;
+  }
 };
 
 export default {
@@ -262,6 +301,7 @@ export default {
   leaveChannel,
   setRemoteUidListener,
   switchCamera,
+  setFrontCamera,
   muteLocalAudio,
   muteLocalVideo,
   setSpeakerphone,

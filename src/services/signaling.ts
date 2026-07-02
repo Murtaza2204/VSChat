@@ -182,4 +182,29 @@ export const requestCallSessionState = (callId?: string) => {
   socket.emit('call:session:get', { callId });
 };
 
-export default { initSignaling, inviteCall, respondToCall, endCall, onCallResponse, getSocket, onCallCreated, getLastCallCreated, onCallEnded, onCallSessionState, requestCallSessionState };
+export const updateCallParticipantState = (payload: {
+  callId?: string;
+  userId?: string;
+  rtcUid?: number | null;
+  videoEnabled?: boolean;
+  cameraFacing?: 'front' | 'rear';
+  joinedAt?: string | Date;
+}) => {
+  if (!socket || !socket.connected || !payload?.callId || !payload?.userId) return;
+  socket.emit('call:participant:state', payload);
+};
+
+export default {
+  initSignaling,
+  inviteCall,
+  respondToCall,
+  endCall,
+  onCallResponse,
+  getSocket,
+  onCallCreated,
+  getLastCallCreated,
+  onCallEnded,
+  onCallSessionState,
+  requestCallSessionState,
+  updateCallParticipantState,
+};

@@ -18,6 +18,7 @@ import {
   muteLocalVideo,
   muteLocalAudio,
   switchCamera,
+  setFrontCamera,
   setSpeakerphone,
 } from '../services/agoraService';
 import { BORDER_RADIUS, FONT_SIZES, SHADOWS, SPACING } from '../constants/colors';
@@ -35,6 +36,9 @@ type GroupParticipant = {
   joinedAt?: string | Date | null;
   leftAt?: string | Date | null;
   durationSeconds?: number | null;
+  rtcUid?: number | null;
+  videoEnabled?: boolean | null;
+  cameraFacing?: 'front' | 'rear' | null;
 };
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -62,9 +66,16 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const [isMuted, setIsMuted] = React.useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = React.useState(false);
   const [isVideoOn, setIsVideoOn] = React.useState(callType === 'video');
+  const [hasCameraAccess, setHasCameraAccess] = React.useState(callType !== 'video');
+  const [cameraFacing, setCameraFacing] = React.useState<'front' | 'rear'>('front');
+  const [localVideoReady, setLocalVideoReady] = React.useState(false);
+  const [localRtcUid, setLocalRtcUid] = React.useState<number | null>(null);
   const [sessionActive, setSessionActive] = React.useState(false);
   const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
   const startedAtRef = React.useRef<number | null>(null);
+  const videoActionIdRef = React.useRef(0);
+  const videoActionChainRef = React.useRef<Promise<void>>(Promise.resolve());
+  const desiredVideoOnRef = React.useRef(callType === 'video');
   const didDismissCallRef = React.useRef(false);
 
   const parseParticipantsInput = (value: any): any[] => {
@@ -80,10 +91,22 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     return [];
   };
 
+  const runVideoAction = React.useCallback((action: () => Promise<void>) => {
+    const next = videoActionChainRef.current.then(action);
+    videoActionChainRef.current = next.catch(() => {});
+    return next;
+  }, []);
+
   const normalizeParticipant = (participant: any): GroupParticipant | null => {
     if (!participant) return null;
     const userId = String(participant.userId || participant.id || participant._id || '');
     if (!userId) return null;
+    const rtcUidRaw = participant.rtcUid;
+    const rtcUid = typeof rtcUidRaw === 'number'
+      ? rtcUidRaw
+      : (typeof rtcUidRaw === 'string' && rtcUidRaw.trim() && Number.isFinite(Number(rtcUidRaw))
+        ? Number(rtcUidRaw)
+        : null);
     return {
       userId,
       name: participant.name || participant.displayName || participant.title || participant.userName || null,
@@ -92,6 +115,9 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
       joinedAt: participant.joinedAt || null,
       leftAt: participant.leftAt || null,
       durationSeconds: typeof participant.durationSeconds === 'number' ? participant.durationSeconds : null,
+      rtcUid,
+      videoEnabled: typeof participant.videoEnabled === 'boolean' ? participant.videoEnabled : null,
+      cameraFacing: participant.cameraFacing === 'rear' ? 'rear' : (participant.cameraFacing === 'front' ? 'front' : null),
     };
   };
 
@@ -100,7 +126,18 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     const add = (participant: any) => {
       const normalized = normalizeParticipant(participant);
       if (!normalized) return;
-      map.set(normalized.userId, normalized);
+      const existing = map.get(normalized.userId);
+      map.set(normalized.userId, {
+        ...(existing || {}),
+        ...normalized,
+        rtcUid: normalized.rtcUid != null ? normalized.rtcUid : existing?.rtcUid ?? null,
+        videoEnabled: typeof normalized.videoEnabled === 'boolean'
+          ? normalized.videoEnabled
+          : existing?.videoEnabled ?? null,
+        cameraFacing: normalized.cameraFacing
+          || existing?.cameraFacing
+          || null,
+      });
     };
 
     parseParticipantsInput(incomingList).forEach(add);
@@ -111,6 +148,9 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
         name: 'You',
         avatar: currentUser.avatar || null,
         status: 'joined',
+        rtcUid: localRtcUid,
+        videoEnabled: callType === 'video' ? isVideoOn : false,
+        cameraFacing,
       });
     }
 
@@ -127,9 +167,11 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
       return aTime - bTime;
     });
 
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (callType !== 'video') {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    }
     setParticipants(ordered);
-  }, [currentUser?.id, currentUser?.avatar]);
+  }, [cameraFacing, callType, currentUser?.avatar, currentUser?.id, isVideoOn, localRtcUid]);
 
   const syncFromSessionState = React.useCallback((state: any) => {
     if (!state) return;
@@ -170,6 +212,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const leaveAndDismissCall = React.useCallback(async () => {
     if (didDismissCallRef.current) return;
     didDismissCallRef.current = true;
+    desiredVideoOnRef.current = false;
     clearCallNotification(callId).catch(() => {});
     try {
       const { leaveChannel } = await import('../services/agoraService');
@@ -209,7 +252,26 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
     const setupAgora = async () => {
       const ok = await ensureAudioVideoPermissions();
-      if (!ok) return;
+      if (!ok) {
+        if (callType === 'video') {
+          desiredVideoOnRef.current = false;
+          setHasCameraAccess(false);
+          setLocalVideoReady(false);
+          setIsVideoOn(false);
+          if (callId && currentUser?.id) {
+            signaling.updateCallParticipantState({
+              callId,
+              userId: currentUser.id,
+              rtcUid: localRtcUid || undefined,
+              videoEnabled: false,
+              cameraFacing,
+            });
+          }
+        }
+        return;
+      }
+
+      setHasCameraAccess(true);
 
       try {
         const { default: agoraService } = await import('../services/agoraService');
@@ -222,6 +284,17 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           if (!mounted) return;
         } catch (initError) {
           console.error('[GroupActiveCall] Agora initialization failed:', initError);
+          desiredVideoOnRef.current = false;
+          setLocalVideoReady(false);
+          if (callType === 'video' && callId && currentUser?.id) {
+            signaling.updateCallParticipantState({
+              callId,
+              userId: currentUser.id,
+              rtcUid: localRtcUid || undefined,
+              videoEnabled: false,
+              cameraFacing,
+            });
+          }
           return;
         }
 
@@ -229,11 +302,49 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
         try {
           if (callType === 'video') {
-            await muteLocalVideo(false);
+            await runVideoAction(async () => {
+              if (!desiredVideoOnRef.current) return;
+              const requestId = ++videoActionIdRef.current;
+              await setFrontCamera();
+              if (!desiredVideoOnRef.current || !mounted) return;
+              const enabled = await muteLocalVideo(false);
+              if (!mounted || requestId !== videoActionIdRef.current || !desiredVideoOnRef.current) return;
+              setCameraFacing('front');
+              setIsVideoOn(enabled);
+              setLocalVideoReady(enabled);
+              if (!enabled) setHasCameraAccess(false);
+              if (callId && currentUser?.id) {
+                signaling.updateCallParticipantState({
+                  callId,
+                  userId: currentUser.id,
+                  rtcUid: localRtcUid || undefined,
+                  videoEnabled: enabled,
+                  cameraFacing: 'front',
+                });
+              }
+            });
           }
         } catch {}
 
-        setRemoteUidListener(() => {});
+        setRemoteUidListener((uid: number | null) => {
+          if (!mounted) return;
+          if (uid) {
+            setParticipants((current) => {
+              const selfId = String(currentUser?.id || '');
+              let assigned = false;
+              const next = current.map((participant) => {
+                if (String(participant.userId) === selfId) return participant;
+                if (!assigned && participant.rtcUid == null && participant.videoEnabled !== false) {
+                  assigned = true;
+                  return { ...participant, rtcUid: uid };
+                }
+                return participant;
+              });
+              return next;
+            });
+          }
+          signaling.requestCallSessionState(callId);
+        });
 
         const joinAgora = async (token: string | null, resolvedChannel: string) => {
           if (!mounted) return;
@@ -241,15 +352,49 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             token,
             resolvedChannel,
             0,
-            async () => {},
-            async () => {},
             async () => {
+              if (mounted) signaling.requestCallSessionState(callId);
+            },
+            async () => {
+              if (mounted) signaling.requestCallSessionState(callId);
+            },
+            async (channelName: string, uid: number) => {
               if (!mounted) return;
+              let localVideoEnabled = callType === 'video';
               try { await setSpeakerphone(true); setIsSpeakerOn(true); } catch {}
               try { await muteLocalAudio(false); setIsMuted(false); } catch {}
               if (callType === 'video') {
-                try { await muteLocalVideo(false); setIsVideoOn(true); } catch {}
+                try {
+                  await runVideoAction(async () => {
+                    if (!desiredVideoOnRef.current) return;
+                    const requestId = ++videoActionIdRef.current;
+                    await setFrontCamera();
+                    if (!desiredVideoOnRef.current || !mounted) return;
+                    const enabled = await muteLocalVideo(false);
+                    if (!mounted || requestId !== videoActionIdRef.current || !desiredVideoOnRef.current) return;
+                    localVideoEnabled = enabled;
+                    setCameraFacing('front');
+                    setIsVideoOn(enabled);
+                    setLocalVideoReady(enabled);
+                    if (!enabled) setHasCameraAccess(false);
+                  });
+                } catch {
+                  localVideoEnabled = false;
+                  setLocalVideoReady(false);
+                }
               }
+              try {
+                setLocalRtcUid(uid);
+                if (currentUser?.id) {
+                  signaling.updateCallParticipantState({
+                    callId,
+                    userId: currentUser.id,
+                    rtcUid: uid,
+                    videoEnabled: localVideoEnabled,
+                    cameraFacing: 'front',
+                  });
+                }
+              } catch {}
               signaling.requestCallSessionState(callId);
             },
           );
@@ -320,6 +465,36 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     } catch {}
     await leaveAndDismissCall();
   };
+
+  const handleFlipCamera = React.useCallback(async () => {
+    if (callType !== 'video' || !hasCameraAccess || !isVideoOn) return;
+    try {
+      await runVideoAction(async () => {
+        if (!desiredVideoOnRef.current) return;
+        const requestId = ++videoActionIdRef.current;
+        const switched = await switchCamera();
+        if (switched && requestId === videoActionIdRef.current && desiredVideoOnRef.current) {
+          const nextFacing = cameraFacing === 'front' ? 'rear' : 'front';
+          setCameraFacing(nextFacing);
+          setLocalVideoReady(true);
+          if (callId && currentUser?.id) {
+            signaling.updateCallParticipantState({
+              callId,
+              userId: currentUser.id,
+              rtcUid: localRtcUid || undefined,
+              videoEnabled: true,
+              cameraFacing: nextFacing,
+            });
+          }
+          return;
+        }
+
+        console.warn('[GroupActiveCall] Camera flip was rejected by the engine');
+      });
+    } catch (error) {
+      console.warn('[GroupActiveCall] Camera flip failed:', error);
+    }
+  }, [callId, callType, cameraFacing, currentUser?.id, hasCameraAccess, isVideoOn, localRtcUid, runVideoAction]);
 
   const visibleParticipants = React.useMemo(() => {
     if (participants.length) return participants;
@@ -409,11 +584,15 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             width={tileWidth}
             height={tileHeight}
             spotlight={visibleCount === 1}
+            callType={callType}
+            showLocalVideo={isVideoOn && hasCameraAccess && localVideoReady}
+            onFlipCamera={handleFlipCamera}
+            cameraFacing={cameraFacing}
           />
         ))}
       </View>
     );
-  }, [currentUser?.id, gap, gridRows.length, theme, tileHeight, tileWidth]);
+  }, [callType, currentUser?.id, gap, handleFlipCamera, hasCameraAccess, isVideoOn, localVideoReady, gridRows.length, theme, tileHeight, tileWidth, visibleCount]);
   const statusText = sessionActive
     ? formatDuration(elapsedSeconds)
     : 'Waiting for members';
@@ -674,8 +853,47 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               theme={theme}
               onPress={async () => {
                 const next = !isVideoOn;
-                setIsVideoOn(next);
-                try { await muteLocalVideo(!next); } catch {}
+                desiredVideoOnRef.current = next;
+                if (next) {
+                  await runVideoAction(async () => {
+                    if (!desiredVideoOnRef.current) return;
+                    const requestId = ++videoActionIdRef.current;
+                    const enabled = await muteLocalVideo(false);
+                    if (requestId !== videoActionIdRef.current || !desiredVideoOnRef.current) return;
+                    setIsVideoOn(enabled);
+                    if (!enabled) setHasCameraAccess(false);
+                    setLocalVideoReady(enabled);
+                    if (callId && currentUser?.id) {
+                      signaling.updateCallParticipantState({
+                        callId,
+                        userId: currentUser.id,
+                        rtcUid: localRtcUid || undefined,
+                        videoEnabled: enabled,
+                        cameraFacing,
+                      });
+                    }
+                  });
+                } else {
+                  await runVideoAction(async () => {
+                    const requestId = ++videoActionIdRef.current;
+                    setIsVideoOn(false);
+                    setLocalVideoReady(false);
+                    const disabled = await muteLocalVideo(true);
+                    if (requestId !== videoActionIdRef.current || desiredVideoOnRef.current) return;
+                    if (!disabled) {
+                      console.warn('[GroupActiveCall] Camera disable request was rejected by the engine');
+                    }
+                    if (callId && currentUser?.id) {
+                      signaling.updateCallParticipantState({
+                        callId,
+                        userId: currentUser.id,
+                        rtcUid: localRtcUid || undefined,
+                        videoEnabled: false,
+                        cameraFacing,
+                      });
+                    }
+                  });
+                }
               }}
             />
           ) : null}
@@ -711,6 +929,10 @@ const ParticipantTile = ({
   width,
   height,
   spotlight = false,
+  callType,
+  showLocalVideo = false,
+  onFlipCamera,
+  cameraFacing = 'front',
 }: {
   participant: GroupParticipant;
   currentUserId?: string;
@@ -718,10 +940,19 @@ const ParticipantTile = ({
   width: number;
   height: number;
   spotlight?: boolean;
+  callType?: string;
+  showLocalVideo?: boolean;
+  onFlipCamera?: () => void;
+  cameraFacing?: 'front' | 'rear';
 }) => {
   const isSelf = String(participant.userId) === String(currentUserId);
   const displayName = isSelf ? 'You' : participant.name || 'Unknown';
   const initials = getInitials(displayName);
+  const remoteUid = typeof participant.rtcUid === 'number' ? participant.rtcUid : null;
+  const shouldShowVideo = callType === 'video'
+    ? (isSelf ? showLocalVideo : participant.videoEnabled !== false && !!remoteUid)
+    : false;
+  const streamUid = isSelf ? 0 : (remoteUid || 0);
   const avatarSize = spotlight
     ? Math.max(120, Math.min(width, height) * 0.34)
     : Math.max(60, Math.min(width * 0.28, 92));
@@ -744,30 +975,68 @@ const ParticipantTile = ({
         style={[
           styles.tileAvatarWrap,
           { backgroundColor: theme.inputBackground },
+          shouldShowVideo && styles.tileAvatarWrapVideo,
           spotlight && styles.tileAvatarWrapSpotlight,
         ]}
       >
-        {isValidAvatarUri(participant.avatar) ? (
-          <Image
-            source={{ uri: participant.avatar || undefined }}
-            style={{ width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }}
-          />
-        ) : (
-          <View
-            style={[
-              styles.initialBubble,
-              {
-                width: avatarSize,
-                height: avatarSize,
-                borderRadius: avatarSize / 2,
-                backgroundColor: isSelf ? theme.primary : theme.messageBlue,
-              },
-            ]}
-          >
-            <Text style={[styles.initialText, { color: isSelf ? theme.background : theme.primary }]}>
-              {initials || '?'}
-            </Text>
+        {shouldShowVideo ? (
+          <View style={styles.tileVideoFrame}>
+            {RtcSurfaceView ? (
+              <RtcSurfaceView
+                key={`participant-video-${participant.userId}-${streamUid}`}
+                canvas={{ uid: streamUid }}
+                style={StyleSheet.absoluteFill}
+                zOrderMediaOverlay={isSelf}
+              />
+            ) : (
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.inputBackground }]} />
+            )}
+            {isSelf ? (
+              <View pointerEvents="box-none" style={styles.tileVideoOverlay}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={onFlipCamera}
+                  style={[
+                    styles.tileFlipButton,
+                    {
+                      backgroundColor: cameraFacing === 'rear' ? theme.primary : theme.surface,
+                    },
+                  ]}
+                >
+                  <Icon
+                    name="camera-reverse"
+                    size={16}
+                    color={cameraFacing === 'rear' ? theme.background : theme.text}
+                  />
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
+        ) : (
+          <>
+            {isValidAvatarUri(participant.avatar) ? (
+              <Image
+                source={{ uri: participant.avatar || undefined }}
+                style={{ width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }}
+              />
+            ) : (
+              <View
+                style={[
+                  styles.initialBubble,
+                  {
+                    width: avatarSize,
+                    height: avatarSize,
+                    borderRadius: avatarSize / 2,
+                    backgroundColor: isSelf ? theme.primary : theme.messageBlue,
+                  },
+                ]}
+              >
+                <Text style={[styles.initialText, { color: isSelf ? theme.background : theme.primary }]}>
+                  {initials || '?'}
+                </Text>
+              </View>
+            )}
+          </>
         )}
       </View>
       <Text
@@ -1228,10 +1497,35 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: SPACING.md,
   },
+  tileAvatarWrapVideo: {
+    overflow: 'hidden',
+    padding: 0,
+    alignItems: 'stretch',
+    justifyContent: 'center',
+  },
   tileAvatarWrapSpotlight: {
     flex: 0,
     width: '100%',
     marginBottom: SPACING.xl,
+  },
+  tileVideoFrame: {
+    flex: 1,
+    alignSelf: 'stretch',
+    borderRadius: BORDER_RADIUS.lg,
+    overflow: 'hidden',
+  },
+  tileVideoOverlay: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+    padding: SPACING.sm,
+  },
+  tileFlipButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   initialBubble: {
     alignItems: 'center',
