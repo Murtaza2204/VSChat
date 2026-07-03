@@ -152,20 +152,6 @@ const NewGroupDetailsScreen: React.FC<{ navigation: any; route: any }> = ({
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.settingRow} activeOpacity={0.75}>
-          <View>
-            <Text style={[styles.settingTitle, { color: theme.text }]}>
-              Disappearing messages
-            </Text>
-            <Text style={[styles.settingSubtitle, { color: theme.textSecondary }]}>Off</Text>
-          </View>
-          <Icon name="timer-outline" size={30} color={theme.textSecondary} />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.settingRow} activeOpacity={0.75}>
-          <Text style={[styles.settingTitle, { color: theme.text }]}>Group permissions</Text>
-          <Icon name="settings-outline" size={30} color={theme.textSecondary} />
-        </TouchableOpacity>
 
         <View style={styles.membersSection}>
           <Text style={[styles.membersLabel, { color: theme.textSecondary }]}>

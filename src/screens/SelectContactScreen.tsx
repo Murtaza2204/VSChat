@@ -261,14 +261,6 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity style={styles.actionRow} activeOpacity={0.75}>
-              <View style={[styles.actionIcon, { backgroundColor: theme.primary }]}>
-                <Icon name="person" size={24} color={theme.background} />
-                <Icon name="add" size={14} color={theme.background} style={styles.actionPlus} />
-              </View>
-              <Text style={[styles.actionText, { color: theme.text }]}>New contact</Text>
-              <Icon name="qr-code-outline" size={24} color={theme.primary} style={styles.qrIcon} />
-            </TouchableOpacity>
 
             <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>Contacts</Text>
           </View>
