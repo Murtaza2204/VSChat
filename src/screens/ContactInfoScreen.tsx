@@ -26,6 +26,7 @@ import GroupDescriptionModal from '../components/GroupDescriptionModal';
 import api from '../config/api';
 import messagesUtil from '../utils/messages';
 import groupsApi from '../utils/groups';
+import { findOrCreateConversation } from '../utils/conversations';
 import { Chat } from '../types';
 
 const mediaItems = [
@@ -131,6 +132,31 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
     setSelectedMemberIds((current) =>
       current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
     );
+  };
+
+  const handleNavigateToMemberChat = async (member: any) => {
+    const memberId = String(getMemberId(member) || '');
+    if (!memberId || String(memberId) === String(currentUserId) || !currentUserId) {
+      return;
+    }
+
+    try {
+      const response = await findOrCreateConversation(currentUserId, memberId);
+      const conversation = response.conversation || response;
+      navigation.navigate('Chat', {
+        conversationId: conversation._id || conversation.id,
+        participant: {
+          id: memberId,
+          title:
+            member.displayName || member.name || member.title || member.phoneNumber || member.phone || 'Unknown',
+          avatar: member.profilePictureUrl || member.avatar || undefined,
+          phoneNumber: member.phoneNumber || member.phone,
+          bio: member.bio,
+        },
+      });
+    } catch (error: any) {
+      console.warn('ContactInfoScreen: failed to open member chat', error?.message || error);
+    }
   };
 
   const handleCancelRemoveMode = () => {
@@ -680,10 +706,11 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
 
             {(membersProfiles || groupMembers).map((member: any, index: number) => {
               const id = member.id || member._id || member;
-              const name = member.displayName || member.name || member.title || '';
-              const avatar = member.profilePictureUrl || member.avatar || (name ? name.charAt(0) : '');
+              const rawName = member.displayName || member.name || member.title || '';
               const memberId = String(id || '');
               const isCurrentUser = String(memberId) === String(currentUserId);
+              const name = isCurrentUser ? 'You' : rawName;
+              const avatar = member.profilePictureUrl || member.avatar || (rawName ? rawName.charAt(0) : '');
               const isSelected = selectedMemberIdSet.has(memberId);
               const isAdminBadge =
                 (ownerId && String(memberId) === String(ownerId)) ||
@@ -698,6 +725,8 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                   onPress={() => {
                     if (isRemoveMode && !isCurrentUser) {
                       handleToggleMemberSelection(member);
+                    } else if (!isRemoveMode) {
+                      handleNavigateToMemberChat(member);
                     }
                   }}
                 >

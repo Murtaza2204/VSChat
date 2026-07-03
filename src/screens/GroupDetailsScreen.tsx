@@ -4,6 +4,7 @@ import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Acti
 import Header from '../components/Header';
 import {useThemeStore} from '../stores/themeStore';
 import {useAuthStore} from '../stores/authStore';
+import {useChatStore} from '../stores/chatStore';
 import groupsApi from '../utils/groups';
 import messagesApi from '../utils/messages';
 import Avatar from '../components/Avatar';
@@ -75,6 +76,8 @@ const GroupDetailsScreen = ({navigation, route}) => {
     setLoading(false);
   };
 
+  const chatState = useChatStore.getState();
+
   const handleLeave = () => {
     const title = `Exit group: "${group?.title || 'Group'}"?`;
     Alert.alert(title, undefined, [
@@ -86,7 +89,6 @@ const GroupDetailsScreen = ({navigation, route}) => {
           try {
             await groupsApi.leaveGroup(groupId, user?.id);
             try {
-              const chatState = require('../stores/chatStore').useChatStore.getState();
               chatState.deleteChatForMe(groupId);
               chatState.setCurrentChat(null);
             } catch (e) {}

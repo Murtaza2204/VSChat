@@ -11,6 +11,7 @@ interface ChatStore {
   
   setChats: (chats: Chat[]) => void;
   updateChatLastMessage: (conversationId: string, lastMessage: string, lastMessageTime?: Date) => void;
+  updateChat: (conversationId: string, updates: Partial<Chat>) => void;
   setCurrentChat: (chat: Chat | null) => void;
   setMessages: (messages: Message[]) => void;
   addMessage: (chatId: string, message: Message) => void;
@@ -400,6 +401,52 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         ...currentChat,
         title: title || currentChat.title,
       } : currentChat,
+    });
+  },
+
+  updateChat: (conversationId, updates) => {
+    const { chats, currentChat } = get();
+    const normalizeParticipants = (existingParticipants, incomingParticipants) => {
+      if (!Array.isArray(incomingParticipants)) return existingParticipants;
+      if (Array.isArray(existingParticipants) && existingParticipants.length && typeof existingParticipants[0] === 'object') {
+        const ids = new Set(incomingParticipants.map((participant) => String(participant?.id || participant?._id || participant)));
+        return incomingParticipants.map((participant) => {
+          if (participant && typeof participant === 'object') {
+            const userId = String(participant.id || participant._id || participant.userId || participant);
+            return {
+              ...participant,
+              id: userId,
+            };
+          }
+          return participant;
+        }).filter((participant) => ids.has(String(participant?.id || participant?._id || participant)));
+      }
+      return incomingParticipants;
+    };
+
+    const updatedChats = chats.map((chat) => {
+      if (String(chat.conversationId || chat.id) !== String(conversationId)) {
+        return chat;
+      }
+      const merged = { ...chat, ...updates };
+      if (updates.participants) {
+        merged.participants = normalizeParticipants(chat.participants, updates.participants);
+      }
+      return merged;
+    });
+
+    set({
+      chats: updatedChats,
+      currentChat:
+        currentChat && String(currentChat.conversationId || currentChat.id) === String(conversationId)
+          ? {
+              ...currentChat,
+              ...updates,
+              participants: updates.participants
+                ? normalizeParticipants(currentChat.participants, updates.participants)
+                : currentChat.participants,
+            }
+          : currentChat,
     });
   },
 

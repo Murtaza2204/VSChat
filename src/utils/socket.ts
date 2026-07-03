@@ -13,29 +13,37 @@ const setupListeners = () => {
   
   // Remove old listeners to avoid duplicates
   socket.off('conversation:update');
+  socket.off('conversation:updated');
   socket.off('message:reacted');
   
-  // Setup conversation update listener
-  socket.on('conversation:update', (payload: any) => {
+  const handleConversationUpdate = (payload: any) => {
     try {
       console.log('[socket] conversation:update received:', payload);
-      const { conversationId, lastMessage, lastMessageAt, lastMessageActorId, lastMessageRaw, lastMessageReaction, lastMessageReactedBy } = payload || {};
-      if (!conversationId || !lastMessage) return;
+      const conversationId = payload?.conversationId;
+      if (!conversationId) return;
 
       const store = useChatStore.getState();
-      // If reactor/reaction/raw provided, pass a structured object so `updateChatLastMessage`
-      // can render a reaction preview while preserving the original sender (actorId)
-      if (typeof lastMessageReaction !== 'undefined' || lastMessageReactedBy) {
-        store.updateChatLastMessage(conversationId, { reactedBy: lastMessageReactedBy, reaction: lastMessageReaction, raw: lastMessageRaw || lastMessage, originalActorId: lastMessageActorId }, lastMessageAt ? new Date(lastMessageAt) : undefined);
-      } else if (lastMessageActorId || lastMessageRaw) {
-        store.updateChatLastMessage(conversationId, { actorId: lastMessageActorId, raw: lastMessageRaw || lastMessage }, lastMessageAt ? new Date(lastMessageAt) : undefined);
-      } else {
+      const updates = { ...payload };
+      delete updates.conversationId;
+      const { lastMessage, lastMessageAt } = updates;
+      delete updates.lastMessage;
+      delete updates.lastMessageAt;
+
+      if (Object.keys(updates).length > 0) {
+        store.updateChat(conversationId, updates);
+      }
+
+      if (typeof lastMessage !== 'undefined' || typeof lastMessageAt !== 'undefined') {
         store.updateChatLastMessage(conversationId, lastMessage, lastMessageAt ? new Date(lastMessageAt) : undefined);
       }
-    } catch (e) { 
-      console.warn('[socket] conversation:update error:', e); 
+    } catch (e) {
+      console.warn('[socket] conversation:update error:', e);
     }
-  });
+  };
+
+  // Setup conversation update listeners
+  socket.on('conversation:update', handleConversationUpdate);
+  socket.on('conversation:updated', handleConversationUpdate);
 
   // Setup message reacted listener
   socket.on('message:reacted', (payload: any) => {
