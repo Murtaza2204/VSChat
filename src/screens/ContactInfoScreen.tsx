@@ -580,19 +580,24 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                   />
                 </View>
               ) : (
-                <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
-                  {localTitle}
-                </Text>
+                <View style={styles.titleRow}>
+                  <View style={styles.iconSpacer} />
+                  <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
+                    {localTitle}
+                  </Text>
+                  {isAdmin ? (
+                    <TouchableOpacity
+                      style={styles.editNameIcon}
+                      activeOpacity={0.8}
+                      onPress={() => setIsEditingTitle(true)}
+                    >
+                      <Icon name="pencil-outline" size={20} color={theme.text} />
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.iconSpacer} />
+                  )}
+                </View>
               )}
-              {isAdmin && !isEditingTitle ? (
-                <TouchableOpacity
-                  style={[styles.editTitleButton, { backgroundColor: theme.primary }]}
-                  activeOpacity={0.8}
-                  onPress={() => setIsEditingTitle(true)}
-                >
-                  <Text style={[styles.editTitleButtonText, { color: theme.background }]}>Edit</Text>
-                </TouchableOpacity>
-              ) : null}
               {isEditingTitle ? (
                 <View style={styles.titleButtonRow}>
                   <TouchableOpacity
@@ -1090,6 +1095,25 @@ const styles = StyleSheet.create({
   titleEditRow: {
     width: '100%',
     marginTop: SPACING.lg,
+  },
+  titleRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: SPACING.lg,
+    paddingHorizontal: SPACING.md,
+  },
+  iconSpacer: {
+    width: 28,
+    height: 28,
+  },
+  editNameIcon: {
+    marginLeft: SPACING.sm,
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   titleInput: {
     minHeight: 48,
