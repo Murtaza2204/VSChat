@@ -4,10 +4,10 @@ import { API_BASE_URL } from '../config/api';
 import { useAuthStore } from '../stores/authStore';
 
 let socket: any = null;
-let onCallResponseListener: ((payload: any) => void) | null = null;
 let onIncomingCallListener: ((payload: any) => void) | null = null;
-let onCallCreatedListener: ((payload: any) => void) | null = null;
-let onCallSessionStateListener: ((payload: any) => void) | null = null;
+const callResponseListeners = new Set<(payload: any) => void>();
+const callCreatedListeners = new Set<(payload: any) => void>();
+const callSessionStateListeners = new Set<(payload: any) => void>();
 const callEndedListeners = new Set<(payload: any) => void>();
 let _lastCallCreatedById: Record<string, any> = {};
 
@@ -69,7 +69,9 @@ export const initSignaling = async (onIncomingCall: (payload: any) => void) => {
 
   socket.on('call:response', (payload: any) => {
     console.log('[Signaling] Received call:response:', payload);
-    onCallResponseListener && onCallResponseListener(payload);
+    callResponseListeners.forEach((listener) => {
+      try { listener(payload); } catch (e) {}
+    });
   });
 
   socket.on('call:created', (payload: any) => {
@@ -77,12 +79,16 @@ export const initSignaling = async (onIncomingCall: (payload: any) => void) => {
     try {
       if (payload && payload.callId) _lastCallCreatedById[String(payload.callId)] = payload;
     } catch (e) {}
-    onCallCreatedListener && onCallCreatedListener(payload);
+    callCreatedListeners.forEach((listener) => {
+      try { listener(payload); } catch (e) {}
+    });
   });
 
   socket.on('call:session:state', (payload: any) => {
     console.log('[Signaling] Received call:session:state:', payload);
-    onCallSessionStateListener && onCallSessionStateListener(payload);
+    callSessionStateListeners.forEach((listener) => {
+      try { listener(payload); } catch (e) {}
+    });
   });
 
   socket.on('call:ended', (payload: any) => {
@@ -148,18 +154,27 @@ export const endCall = async (callId: string, userId: string, reason = 'hangup')
 };
 
 export const onCallResponse = (listener: (payload: any) => void) => {
-  onCallResponseListener = listener;
+  callResponseListeners.add(listener);
   console.log('[Signaling] Registered call response listener');
+  return () => {
+    callResponseListeners.delete(listener);
+  };
 };
 
 export const onCallCreated = (listener: (payload: any) => void) => {
-  onCallCreatedListener = listener;
+  callCreatedListeners.add(listener);
   console.log('[Signaling] Registered call created listener');
+  return () => {
+    callCreatedListeners.delete(listener);
+  };
 };
 
 export const onCallSessionState = (listener: (payload: any) => void) => {
-  onCallSessionStateListener = listener;
+  callSessionStateListeners.add(listener);
   console.log('[Signaling] Registered call session state listener');
+  return () => {
+    callSessionStateListeners.delete(listener);
+  };
 };
 
 export const onCallEnded = (listener: (payload: any) => void) => {

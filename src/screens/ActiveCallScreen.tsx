@@ -91,7 +91,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
     try {
       const signaling = require('../services/signaling');
-      signaling.onCallResponse(async (payload: any) => {
+      const unsubscribe = signaling.onCallResponse(async (payload: any) => {
         if (payload?.callId && route.params?.callId && String(payload.callId) !== String(route.params.callId)) return;
 
         if (payload?.response === 'accept') {
@@ -102,6 +102,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           leaveAndDismissCall();
         }
       });
+      return unsubscribe;
     } catch (e) {}
   }, [leaveAndDismissCall, route.params?.callId, isCallerRoute]);
 
@@ -113,6 +114,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
     // Initialize Agora and join channel for real audio/video
     let mounted = true;
+    let unsubscribeCallCreated: (() => void) | null = null;
     const setupAgora = async () => {
       const ok = await ensureAudioVideoPermissions();
       if (!ok) return;
@@ -174,7 +176,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             }
           };
 
-          signaling.onCallCreated(handleCallCreated);
+          unsubscribeCallCreated = signaling.onCallCreated(handleCallCreated);
           try {
             const cached = signaling.getLastCallCreated(route.params?.callId);
             if (cached) { console.log('[ActiveCall] Found cached call:created, handling immediately'); handleCallCreated(cached); }
@@ -205,7 +207,11 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
       setupAgora();
     }
 
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      mounted = false;
+      try { if (unsubscribeCallCreated) unsubscribeCallCreated(); } catch (e) {}
+    };
   }, []);
 
   React.useEffect(() => {

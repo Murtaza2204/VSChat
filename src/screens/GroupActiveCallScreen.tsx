@@ -250,6 +250,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   React.useEffect(() => {
     let mounted = true;
     let callCreatedHandler: ((payload: any) => void) | null = null;
+    let unsubscribeCallCreated: (() => void) | null = null;
 
     const setupAgora = async () => {
       const ok = await ensureAudioVideoPermissions();
@@ -393,6 +394,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
                     rtcUid: uid,
                     videoEnabled: localVideoEnabled,
                     cameraFacing: 'front',
+                    joinedAt: new Date(),
                   });
                 }
               } catch {}
@@ -408,7 +410,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             await joinAgora(payload?.token || null, payload?.channel || channel);
             syncFromSessionState(payload);
           };
-          signaling.onCallCreated(callCreatedHandler);
+          unsubscribeCallCreated = signaling.onCallCreated(callCreatedHandler);
           const cached = signaling.getLastCallCreated(callId);
           if (cached) {
             await callCreatedHandler(cached);
@@ -429,16 +431,17 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
     return () => {
       mounted = false;
-      try { if (callCreatedHandler) signaling.onCallCreated(() => {}); } catch {}
+      try { if (unsubscribeCallCreated) unsubscribeCallCreated(); } catch {}
     };
   }, [appIdParam, callId, callType, cameraFacing, channelParam, currentUser?.id, isCaller, localRtcUid, runVideoAction, tokenParam, syncFromSessionState]);
 
   React.useEffect(() => {
-    signaling.onCallSessionState((payload: any) => {
+    const unsubscribe = signaling.onCallSessionState((payload: any) => {
       if (payload?.callId && callId && String(payload.callId) !== String(callId)) return;
       syncFromSessionState(payload);
     });
     signaling.requestCallSessionState(callId);
+    return unsubscribe;
   }, [callId, syncFromSessionState]);
 
   React.useEffect(() => {

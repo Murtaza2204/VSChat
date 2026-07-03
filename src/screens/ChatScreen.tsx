@@ -84,6 +84,15 @@ const getParticipantId = (participant: any) =>
     ? participant
     : participant?.id || participant?._id || participant?.userId;
 
+const getInitialsFromName = (name?: string | null) =>
+  String(name || '')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part.charAt(0))
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
 const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
   route,
@@ -249,6 +258,9 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     : chat.participants?.length
     ? chat.participants.find((p) => String(p.id) !== String(currentUserId))?.name || ''
     : '';
+  const [activeGroupCall, setActiveGroupCall] = useState<any | null>(null);
+  const activeGroupCallRef = useRef<any | null>(null);
+  const endedGroupCallIdsRef = useRef<Set<string>>(new Set());
   const [messageText, setMessageText] = useState('');
   const [replyMessage, setReplyMessage] = useState<Message | null>(null);
   const [actionMessage, setActionMessage] = useState<Message | null>(null);
@@ -283,6 +295,164 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const MAX_DOCUMENT_SIZE = 20 * 1024 * 1024; // 20 MB
   const liveLocationWatchRef = useRef<number | null>(null);
   const liveLocationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    activeGroupCallRef.current = activeGroupCall;
+  }, [activeGroupCall]);
+
+  const normalizeCallParticipantId = (participant: any) =>
+    String(participant?.userId || participant?.id || participant?._id || participant || '');
+
+  const isCallParticipantJoined = (participant: any) => {
+    if (!participant) return false;
+    const status = String(participant.status || '').toLowerCase();
+    return status === 'joined' || (!!participant.joinedAt && !participant.leftAt);
+  };
+
+  const activeGroupCallVisible = useMemo(() => {
+    if (!isGroupConversation || !activeGroupCall) return false;
+    const callStatus = String(activeGroupCall.callStatus || '').toLowerCase();
+    if (callStatus === 'ended' || activeGroupCall.endedAt) return false;
+    if (!currentUserId) return false;
+    const participants = Array.isArray(activeGroupCall.participants) ? activeGroupCall.participants : [];
+    return !participants.some((participant) => (
+      normalizeCallParticipantId(participant) === String(currentUserId) && isCallParticipantJoined(participant)
+    ));
+  }, [activeGroupCall, currentUserId, isGroupConversation]);
+
+  const activeGroupCallDisplayParticipants = useMemo(() => {
+    if (!activeGroupCall || !Array.isArray(activeGroupCall.participants)) return [];
+    const participants = activeGroupCall.participants
+      .filter((participant: any) => normalizeCallParticipantId(participant) !== String(currentUserId))
+      .filter((participant: any) => {
+        const status = String(participant?.status || '').toLowerCase();
+        return status !== 'declined' && status !== 'left';
+      })
+      .filter((participant: any) => isCallParticipantJoined(participant) || String(participant?.status || '').toLowerCase() === 'invited')
+      .slice(0, 2);
+    return participants;
+  }, [activeGroupCall, currentUserId]);
+
+  const getEndedGroupCallStorageKey = React.useCallback(
+    (groupId?: string | null) => (groupId ? `endedGroupCall:${String(groupId)}` : null),
+    [],
+  );
+
+  const markEndedGroupCall = React.useCallback(
+    async (groupId?: string | null, callId?: string | null) => {
+      const key = getEndedGroupCallStorageKey(groupId || conversationId);
+      if (!key || !callId) return;
+      endedGroupCallIdsRef.current.add(String(callId));
+      try {
+        await AsyncStorage.setItem(key, String(callId));
+      } catch (e) {}
+    },
+    [conversationId, getEndedGroupCallStorageKey],
+  );
+
+  const clearEndedGroupCallMarker = React.useCallback(
+    async (groupId?: string | null, callId?: string | null) => {
+      const key = getEndedGroupCallStorageKey(groupId || conversationId);
+      if (!key) return;
+      if (callId) endedGroupCallIdsRef.current.delete(String(callId));
+      try {
+        await AsyncStorage.removeItem(key);
+      } catch (e) {}
+    },
+    [conversationId, getEndedGroupCallStorageKey],
+  );
+
+  const refreshActiveGroupCall = React.useCallback(async () => {
+    if (!isGroupConversation || !conversationId || !currentUserId) {
+      setActiveGroupCall(null);
+      return;
+    }
+
+    try {
+      const response = await api.get('/calls/active', {
+        params: {
+          groupId: conversationId,
+          userId: currentUserId,
+        },
+      });
+      const nextCall = response?.data?.call || null;
+      const storageKey = getEndedGroupCallStorageKey(conversationId);
+      const storedEndedCallId = storageKey ? await AsyncStorage.getItem(storageKey) : null;
+      if (nextCall?.callId && storedEndedCallId && String(storedEndedCallId) === String(nextCall.callId)) {
+        setActiveGroupCall(null);
+        return;
+      }
+      if (nextCall?.callId && storedEndedCallId && String(storedEndedCallId) !== String(nextCall.callId)) {
+        await clearEndedGroupCallMarker(conversationId, storedEndedCallId);
+      }
+      setActiveGroupCall(nextCall);
+    } catch (error) {
+      console.warn('[ChatScreen] Failed to load active group call:', error);
+    }
+  }, [clearEndedGroupCallMarker, conversationId, currentUserId, getEndedGroupCallStorageKey, isGroupConversation]);
+
+  useEffect(() => {
+    refreshActiveGroupCall();
+
+    if (!navigation?.addListener) return undefined;
+    const unsubscribeFocus = navigation.addListener('focus', refreshActiveGroupCall);
+    return () => {
+      try { unsubscribeFocus?.(); } catch (e) {}
+    };
+  }, [navigation, refreshActiveGroupCall]);
+
+  useEffect(() => {
+    if (!isGroupConversation || !conversationId) {
+      setActiveGroupCall(null);
+      return undefined;
+    }
+
+    const onSessionState = (payload: any) => {
+      const payloadGroupId = String(payload?.groupId || '');
+      const payloadCallId = String(payload?.callId || '');
+      const currentCallId = String(activeGroupCallRef.current?.callId || '');
+      const matchesCurrentChat =
+        (payloadGroupId && String(conversationId) === payloadGroupId) ||
+        (payloadCallId && currentCallId && payloadCallId === currentCallId);
+
+      if (!matchesCurrentChat) return;
+
+      const callStatus = String(payload?.callStatus || '').toLowerCase();
+      if (callStatus === 'ended' || payload?.endedAt) {
+        if (payloadCallId) markEndedGroupCall(payloadGroupId || conversationId, payloadCallId);
+        setActiveGroupCall((current) => (
+          current && String(current.callId || '') === payloadCallId ? null : current
+        ));
+        return;
+      }
+
+      if (payloadCallId) clearEndedGroupCallMarker(payloadGroupId || conversationId, payloadCallId);
+      setActiveGroupCall(payload);
+    };
+
+    const onEnded = (payload: any) => {
+      const payloadGroupId = String(payload?.groupId || '');
+      const payloadCallId = String(payload?.callId || '');
+      const currentCallId = String(activeGroupCallRef.current?.callId || '');
+      const matchesCurrentChat =
+        (payloadGroupId && String(conversationId) === payloadGroupId) ||
+        (payloadCallId && currentCallId && payloadCallId === currentCallId);
+
+      if (!matchesCurrentChat) return;
+      if (payloadCallId) markEndedGroupCall(payloadGroupId || conversationId, payloadCallId);
+      setActiveGroupCall((current) => (
+        current && String(current.callId || '') === payloadCallId ? null : current
+      ));
+    };
+
+    const unsubscribeSession = signaling.onCallSessionState(onSessionState);
+    const unsubscribeEnded = signaling.onCallEnded(onEnded);
+
+    return () => {
+      try { unsubscribeSession?.(); } catch (e) {}
+      try { unsubscribeEnded?.(); } catch (e) {}
+    };
+  }, [conversationId, isGroupConversation, refreshActiveGroupCall]);
 
   // Helper to resolve media URIs before opening viewer
   const resolveMediaUris = async (items: MediaItem[]): Promise<MediaItem[]> => {
@@ -1534,6 +1704,36 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       groupName: chat?.title || 'Group',
       groupAvatar: (chat as any)?.groupProfilePicture || chat?.avatar,
       groupParticipants: groupParticipantProfiles,
+      returnRoute: {
+        name: 'Chat',
+        params: route.params,
+      },
+    });
+  };
+
+  const handleJoinActiveGroupCall = () => {
+    if (!activeGroupCall || !isGroupConversation) return;
+
+    const callType = activeGroupCall.callType || 'audio';
+    const sessionParticipants = Array.isArray(activeGroupCall.participants)
+      ? activeGroupCall.participants
+      : (chat?.participants || []);
+
+    navigation.navigate('GroupActiveCall', {
+      callType,
+      callerName: activeGroupCall.groupName || chat?.title || 'Group',
+      callerAvatar: activeGroupCall.groupAvatar || (chat as any)?.groupProfilePicture || chat?.avatar || null,
+      appId: activeGroupCall.appId || activeGroupCall.metadata?.appId || AGORA_APP_ID,
+      channel: activeGroupCall.channel || activeGroupCall.metadata?.channel || `call-${activeGroupCall.callId}`,
+      token: activeGroupCall.token || activeGroupCall.metadata?.token || null,
+      callId: activeGroupCall.callId,
+      isCaller: String(activeGroupCall.callerId || '') === String(currentUserId || ''),
+      isReceiver: true,
+      isGroupCall: true,
+      groupId: activeGroupCall.groupId || conversationId,
+      groupName: activeGroupCall.groupName || chat?.title || 'Group',
+      groupAvatar: activeGroupCall.groupAvatar || (chat as any)?.groupProfilePicture || chat?.avatar || null,
+      groupParticipants: sessionParticipants,
       returnRoute: {
         name: 'Chat',
         params: route.params,
@@ -3611,6 +3811,68 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         </Pressable>
       </Modal>
 
+      {activeGroupCallVisible && isGroupConversation && (
+        <View style={[styles.callBannerContainer, { backgroundColor: theme.background }]}>
+          <TouchableOpacity
+            activeOpacity={0.88}
+            onPress={handleJoinActiveGroupCall}
+            style={[
+              styles.callBannerCard,
+              {
+                backgroundColor: '#24C25E',
+                shadowColor: '#000',
+              },
+            ]}
+          >
+            <View style={styles.callBannerAvatars}>
+              {activeGroupCallDisplayParticipants.length ? (
+                activeGroupCallDisplayParticipants.map((participant: any, index: number) => {
+                  const name = participant?.name || participant?.displayName || participant?.title || 'Member';
+                  const avatarUri = participant?.avatar || participant?.profilePictureUrl || null;
+                  return (
+                    <View
+                      key={`${normalizeCallParticipantId(participant)}-${index}`}
+                      style={[
+                        styles.callBannerAvatarOverlap,
+                        index > 0 && styles.callBannerAvatarStacked,
+                      ]}
+                    >
+                      {isValidAvatarUri(avatarUri) ? (
+                        <Image source={{ uri: avatarUri }} style={styles.callBannerAvatarImage} />
+                      ) : (
+                        <View style={[styles.callBannerAvatarFallback, { backgroundColor: 'rgba(255,255,255,0.18)' }]}>
+                          <Text style={styles.callBannerAvatarFallbackText}>{getInitialsFromName(name) || '?'}</Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })
+              ) : (
+                <View style={styles.callBannerAvatarOverlap}>
+                  <View style={[styles.callBannerAvatarFallback, { backgroundColor: 'rgba(255,255,255,0.18)' }]}>
+                    <Icon name="people" size={18} color="#FFFFFF" />
+                  </View>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.callBannerTextBlock}>
+              <Text style={styles.callBannerTitle} numberOfLines={1}>
+                Tap to join
+              </Text>
+              <Text style={styles.callBannerSubtitle} numberOfLines={1}>
+                {String(activeGroupCall.callType || 'audio') === 'video' ? 'Video call in progress' : 'Voice call in progress'}
+              </Text>
+            </View>
+
+            <View style={styles.callBannerJoinPill}>
+              <Icon name="call" size={16} color="#0C2B17" />
+              <Text style={styles.callBannerJoinText}>Join</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <FlatList
         ref={flatListRef}
         data={messagesWithSeparators}
@@ -4155,6 +4417,85 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingLeft: SPACING.sm,
     paddingRight: SPACING.xs,
+  },
+  callBannerContainer: {
+    paddingHorizontal: SPACING.sm,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.xs,
+  },
+  callBannerCard: {
+    minHeight: 56,
+    borderRadius: BORDER_RADIUS.full,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+  },
+  callBannerAvatars: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: SPACING.sm,
+  },
+  callBannerAvatarOverlap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  callBannerAvatarStacked: {
+    marginLeft: -10,
+  },
+  callBannerAvatarImage: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  callBannerAvatarFallback: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  callBannerAvatarFallbackText: {
+    color: '#FFFFFF',
+    fontSize: FONT_SIZES.xs,
+    fontWeight: '800',
+  },
+  callBannerTextBlock: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: SPACING.sm,
+  },
+  callBannerTitle: {
+    color: '#0C2B17',
+    fontSize: FONT_SIZES.md,
+    fontWeight: '800',
+  },
+  callBannerSubtitle: {
+    color: '#0C2B17',
+    fontSize: FONT_SIZES.xs,
+    marginTop: 1,
+    opacity: 0.82,
+  },
+  callBannerJoinPill: {
+    minHeight: 36,
+    borderRadius: BORDER_RADIUS.full,
+    backgroundColor: '#B6FFCA',
+    paddingHorizontal: SPACING.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  callBannerJoinText: {
+    color: '#0C2B17',
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '800',
   },
   backButton: {
     width: 40,
