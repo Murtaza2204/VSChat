@@ -27,6 +27,7 @@ import api from '../config/api';
 import messagesUtil from '../utils/messages';
 import groupsApi from '../utils/groups';
 import { findOrCreateConversation } from '../utils/conversations';
+import { startConversationCall } from '../utils/calls';
 import { Chat } from '../types';
 
 const mediaItems = [
@@ -675,6 +676,24 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                     participant: chat.isGroup ? undefined : chat.participants?.find((participant: any) => String(participant.id) !== String(user?.id)),
                     searchMode: true,
                     searchQuery: '',
+                  });
+                  return;
+                }
+
+                if (action.label === 'Audio' || action.label === 'Video') {
+                  startConversationCall({
+                    navigation,
+                    chat,
+                    participant: otherParticipant,
+                    currentUserId,
+                    conversationId: (chat as any).conversationId || chat.id,
+                    routeParams: {
+                      ...route.params,
+                      callType: action.label.toLowerCase(),
+                      returnRouteName: 'ContactInfo',
+                      returnRouteParams: route.params,
+                    },
+                    isGroupConversation: chat.isGroup,
                   });
                 }
               }}

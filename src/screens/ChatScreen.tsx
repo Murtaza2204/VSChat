@@ -57,8 +57,9 @@ import useMedia from '../hooks/useMedia';
 import FullScreenImageViewer from '../components/FullScreenImageViewer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import signaling from '../services/signaling';
-import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
+import { AGORA_APP_ID } from '../config/agora';
 import { markConversationNotificationsRead } from '../services/notifications';
+import { startConversationCall } from '../utils/calls';
 
 // Validate RNFetchBlob module has required methods
 const validateRNFetchBlob = (module: any): boolean => {
@@ -1661,80 +1662,19 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   }, [conversationId, currentUserId, viewerMessage]);
 
   const handleStartCall = (callType: 'audio' | 'video') => {
-    // send invite to recipient(s) then navigate caller to ActiveCall
-    const callId = `call-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const conversationKey = conversationId || chat?.conversationId || chat?.id;
-    const directCallPeer = !isGroupConversation
-      ? (participant || chat?.participants?.find((p) => String(getParticipantId(p)) !== String(currentUserId)) || null)
-      : null;
-    const directCallPeerName = directCallPeer?.name || directCallPeer?.displayName || chat?.title || 'Unknown';
-    const directCallPeerAvatar = directCallPeer?.avatar || directCallPeer?.profilePictureUrl || chat?.avatar || null;
-    const groupRecipientIds = isGroupConversation
-      ? (chat?.participants || [])
-          .map(getParticipantId)
-          .filter(Boolean)
-          .filter((participantId) => String(participantId) !== String(currentUserId))
-          .map(String)
-      : [];
-    const targetRecipientIds = groupRecipientIds.length
-      ? groupRecipientIds
-      : [derivedReceiverId || chat?.userId || chat?.id].filter(Boolean);
-    const groupParticipantProfiles = isGroupConversation
-      ? (chat?.participants || [])
-          .map((participant) => {
-            const participantId = getParticipantId(participant);
-            if (!participantId) return null;
-            return {
-              userId: String(participantId),
-              name: participant.name || participant.displayName || participant.title || 'Unknown',
-              avatar: participant.avatar || participant.profilePictureUrl || null,
-            };
-          })
-          .filter(Boolean)
-      : [];
-    try {
-      const perCallChannel = `call-${callId}`;
-      signaling.inviteCall(targetRecipientIds, callType, {
-        channel: perCallChannel,
-        // Do not send hardcoded token; let server generate and attach token/appId
-        callId,
-        isGroupCall: isGroupConversation,
-        groupId: conversationKey,
-        groupName: chat?.title || 'Group',
-        groupAvatar: (chat as any)?.groupProfilePicture || chat?.avatar,
-        chatId: conversationKey,
-        groupMemberIds: groupRecipientIds,
-        groupParticipants: groupParticipantProfiles,
-      });
-      console.log('[ChatScreen] Sent call invite:', { targetRecipientIds, callType, callId, isGroupCall: isGroupConversation });
-    } catch (e) {
-      console.warn('[ChatScreen] inviteCall failed', e);
-    }
-
-    navigation.navigate(isGroupConversation ? 'GroupActiveCall' : 'ActiveCall', {
-      callType,
-      callerName: isGroupConversation ? (chat?.title || 'Group') : chat.title,
-      callerAvatar: isGroupConversation ? ((chat as any)?.groupProfilePicture || chat?.avatar) : chat.avatar,
-      peerName: isGroupConversation ? undefined : directCallPeerName,
-      peerAvatar: isGroupConversation ? undefined : directCallPeerAvatar,
-      calleeName: isGroupConversation ? undefined : directCallPeerName,
-      calleeAvatar: isGroupConversation ? undefined : directCallPeerAvatar,
-      chatId: conversationKey,
-      calleeId: isGroupConversation ? undefined : (derivedReceiverId || chat.id),
-      appId: AGORA_APP_ID,
-      channel: `call-${callId}`,
-      token: undefined,
-      callId,
-      isCaller: true,
-      isGroupCall: isGroupConversation,
-      groupId: conversationKey,
-      groupName: chat?.title || 'Group',
-      groupAvatar: (chat as any)?.groupProfilePicture || chat?.avatar,
-      groupParticipants: groupParticipantProfiles,
-      returnRoute: {
-        name: 'Chat',
-        params: route.params,
+    startConversationCall({
+      navigation,
+      chat,
+      participant,
+      currentUserId,
+      conversationId,
+      routeParams: {
+        ...route.params,
+        callType,
+        returnRouteName: 'Chat',
+        returnRouteParams: route.params,
       },
+      isGroupConversation,
     });
   };
 
