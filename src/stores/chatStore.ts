@@ -20,7 +20,9 @@ interface ChatStore {
   deleteChatForMe: (chatId: string) => void;
   createGroup: (title: string, participants: Chat[]) => Chat;
   updateGroupAvatar: (groupChatId: string, avatar: string | null) => void;
+  updateGroupTitle: (groupChatId: string, title: string) => void;
   addGroupMember: (groupChatId: string, member: Chat) => void;
+  removeGroupMembers: (groupChatId: string, memberIds: string[]) => void;
   setSearchQuery: (query: string) => void;
   getSearchedChats: () => Chat[];
   markChatAsRead: (chatId: string) => void;
@@ -372,10 +374,31 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     });
     set({
       chats: updatedChats,
-      currentChat: currentChat?.id === groupChatId ? {
+      currentChat: currentChat && (String(currentChat.id) === String(groupChatId) || String(currentChat.conversationId || '') === String(groupChatId)) ? {
         ...currentChat,
         avatar: avatar || currentChat.avatar,
         groupProfilePicture: avatar ?? currentChat.groupProfilePicture ?? null,
+      } : currentChat,
+    });
+  },
+
+  updateGroupTitle: (groupChatId, title) => {
+    const { chats, currentChat } = get();
+    const updatedChats = chats.map((chat) => {
+      if (String(chat.id) !== String(groupChatId) && String(chat.conversationId || '') !== String(groupChatId)) {
+        return chat;
+      }
+      return {
+        ...chat,
+        title: title || chat.title,
+      };
+    });
+
+    set({
+      chats: updatedChats,
+      currentChat: currentChat && (String(currentChat.id) === String(groupChatId) || String(currentChat.conversationId || '') === String(groupChatId)) ? {
+        ...currentChat,
+        title: title || currentChat.title,
       } : currentChat,
     });
   },
@@ -419,6 +442,39 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       chats: updatedChats,
       currentChat:
         currentChat?.id === groupChatId && updatedGroup ? updatedGroup : currentChat,
+    });
+  },
+
+  removeGroupMembers: (groupChatId, memberIds) => {
+    const { chats, currentChat } = get();
+    const normalizedIds = memberIds.map((id) => String(id));
+
+    const updateParticipants = (participants = []) =>
+      participants.filter(
+        (participant) => !normalizedIds.includes(String(participant?.id || participant?._id || participant)),
+      );
+
+    const updatedChats = chats.map((chat) => {
+      if (String(chat.id) !== String(groupChatId) && String(chat.conversationId || '') !== String(groupChatId)) {
+        return chat;
+      }
+      return {
+        ...chat,
+        participants: updateParticipants(chat.participants),
+      };
+    });
+
+    set({
+      chats: updatedChats,
+      currentChat:
+        currentChat &&
+        (String(currentChat.id) === String(groupChatId) ||
+          String(currentChat.conversationId || '') === String(groupChatId))
+          ? {
+              ...currentChat,
+              participants: updateParticipants(currentChat.participants),
+            }
+          : currentChat,
     });
   },
 

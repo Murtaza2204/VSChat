@@ -13,6 +13,7 @@ import {
   Alert,
   Platform,
   ToastAndroid,
+  TextInput,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -40,7 +41,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
 }) => {
   const { chat: routeChat } = route.params as { chat: Chat };
   const { theme } = useThemeStore();
-  const { chats } = useChatStore();
+  const { chats, updateGroupTitle, removeGroupMembers } = useChatStore();
   const chat = chats.find((item) => item.id === routeChat.id) || routeChat;
   // derive display name, avatar and phone from possible shapes returned by backend
   let displayName = chat.title;
@@ -55,6 +56,13 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   const [avatarState, setAvatarState] = useState<string | null>(
     (chat as any).groupProfilePicture || chat.avatar || null,
   );
+  const [isEditingTitle, setIsEditingTitle] = useState<boolean>(false);
+  const [titleDraft, setTitleDraft] = useState<string>(chat.title || '');
+  const [isSavingGroupTitle, setIsSavingGroupTitle] = useState<boolean>(false);
+  const [localTitle, setLocalTitle] = useState<string>(chat.title || '');
+  const [isRemoveMode, setIsRemoveMode] = useState<boolean>(false);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [isRemovingMembers, setIsRemovingMembers] = useState<boolean>(false);
   // member count should reflect actual participants array / resolved profiles
   const groupMemberCount = (membersProfiles ? membersProfiles.length : groupMembers.length);
   const { user } = useAuthStore();
@@ -106,6 +114,76 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const [about, setAbout] = useState<string>(initialAbout);
 
+  const isAdmin = Boolean(
+    currentUserId &&
+      (ownerId ? String(currentUserId) === String(ownerId) : String(currentUserId) === String(chat.ownerId)),
+  );
+
+  const selectedMemberIdSet = new Set(selectedMemberIds);
+  const isManageMembersEnabled = chat.isGroup && isAdmin;
+
+  const getMemberId = (member: any) => member?.id || member?._id || member;
+  const handleToggleMemberSelection = (member: any) => {
+    const id = String(getMemberId(member) || '');
+    if (!id || String(id) === String(currentUserId)) {
+      return;
+    }
+    setSelectedMemberIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    );
+  };
+
+  const handleCancelRemoveMode = () => {
+    setIsRemoveMode(false);
+    setSelectedMemberIds([]);
+  };
+
+  const applyLocalMemberRemoval = (memberIds: string[]) => {
+    setMembersProfiles((profiles) =>
+      profiles ? profiles.filter((member) => !memberIds.includes(String(getMemberId(member)))) : profiles,
+    );
+  };
+
+  const handleRemoveSelectedMembers = async () => {
+    if (selectedMemberIds.length === 0) {
+      return;
+    }
+
+    Alert.alert(
+      `Remove ${selectedMemberIds.length} member${selectedMemberIds.length === 1 ? '' : 's'}?`,
+      'Removed members will no longer be part of this group.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsRemovingMembers(true);
+              const convId = (chat as any).conversationId || chat.id;
+              await groupsApi.updateGroup(convId, {
+                title: chat.title,
+                description: groupDescription,
+                addMembers: [],
+                removeMembers: selectedMemberIds,
+              });
+              removeGroupMembers(convId, selectedMemberIds);
+              applyLocalMemberRemoval(selectedMemberIds);
+              setSelectedMemberIds([]);
+              setIsRemoveMode(false);
+              showSuccessMessage('Members removed from group');
+            } catch (error: any) {
+              console.error('Error removing members:', error);
+              Alert.alert('Error', error.message || 'Unable to remove members from group');
+            } finally {
+              setIsRemovingMembers(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   // helper: format +<country><number> => +<country> <number> (country 1-3 digits)
   const formatPhone = (p: string) => {
     if (!p || typeof p !== 'string') return '';
@@ -132,6 +210,13 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
       })();
 
   const [phone, setPhone] = useState<string>(formatPhone(initialPhoneRaw));
+
+  useEffect(() => {
+    if (!isEditingTitle) {
+      setTitleDraft(chat.title || '');
+      setLocalTitle(chat.title || '');
+    }
+  }, [chat.title, isEditingTitle]);
   const [mediaPreviews, setMediaPreviews] = useState<any[]>([]);
 
   useEffect(() => {
@@ -271,6 +356,35 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   };
 
+  const handleStartEditTitle = () => {
+    setTitleDraft(chat.title || '');
+    setIsEditingTitle(true);
+  };
+
+  const handleSaveGroupTitle = async () => {
+    if (!chat.isGroup) return;
+    const nextTitle = titleDraft.trim() || 'Group';
+    try {
+      setIsSavingGroupTitle(true);
+      const convId = (chat as any).conversationId || chat.id;
+      const updatedGroup = await groupsApi.updateGroup(convId, {
+        title: nextTitle,
+        addMembers: [],
+        removeMembers: [],
+      });
+      const savedTitle = updatedGroup?.title || nextTitle;
+      updateGroupTitle(convId, savedTitle);
+      setLocalTitle(savedTitle);
+      showSuccessMessage('Group name updated');
+      setIsEditingTitle(false);
+    } catch (error: any) {
+      console.error('Error saving group title:', error);
+      Alert.alert('Error', error.message || 'Unable to update group name');
+    } finally {
+      setIsSavingGroupTitle(false);
+    }
+  };
+
   const quickActions = [
     { label: 'Audio', icon: 'call-outline' },
     { label: 'Video', icon: 'videocam-outline' },
@@ -366,16 +480,72 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
               </View>
             )}
           </TouchableOpacity>
-          {displayName ? (
-            <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
-              {displayName}
-            </Text>
-          ) : null}
-          {phone ? (
-            <Text style={[styles.phone, { color: theme.textSecondary }]} numberOfLines={1}>
-              {phone}
-            </Text>
-          ) : null}
+          {chat.isGroup ? (
+            <>
+              {isEditingTitle ? (
+                <View style={styles.titleEditRow}>
+                  <TextInput
+                    value={titleDraft}
+                    onChangeText={setTitleDraft}
+                    style={[styles.titleInput, { color: theme.text, borderColor: theme.border }]}
+                    placeholder="Group name"
+                    placeholderTextColor={theme.textSecondary}
+                    editable={!isSavingGroupTitle}
+                    returnKeyType="done"
+                    onSubmitEditing={handleSaveGroupTitle}
+                  />
+                </View>
+              ) : (
+                <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
+                  {localTitle}
+                </Text>
+              )}
+              {isAdmin && !isEditingTitle ? (
+                <TouchableOpacity
+                  style={[styles.editTitleButton, { backgroundColor: theme.primary }]}
+                  activeOpacity={0.8}
+                  onPress={() => setIsEditingTitle(true)}
+                >
+                  <Text style={[styles.editTitleButtonText, { color: theme.background }]}>Edit</Text>
+                </TouchableOpacity>
+              ) : null}
+              {isEditingTitle ? (
+                <View style={styles.titleButtonRow}>
+                  <TouchableOpacity
+                    style={[styles.titleButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setTitleDraft(chat.title || '');
+                      setIsEditingTitle(false);
+                    }}
+                  >
+                    <Text style={[styles.titleButtonText, { color: theme.text }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.titleButton, { backgroundColor: theme.primary, borderColor: theme.primary }]}
+                    activeOpacity={0.8}
+                    onPress={handleSaveGroupTitle}
+                    disabled={isSavingGroupTitle}
+                  >
+                    {isSavingGroupTitle ? (
+                      <ActivityIndicator size="small" color={theme.background} />
+                    ) : (
+                      <Text style={[styles.titleButtonText, { color: theme.background }]}>Save</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+              <Text style={[styles.phone, { color: theme.textSecondary }]} numberOfLines={1}>
+                {phone}
+              </Text>
+            </>
+          ) : (
+            displayName ? (
+              <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
+                {displayName}
+              </Text>
+            ) : null
+          )}
           {chat.isGroup ? (
             <TouchableOpacity
               style={styles.descriptionContainer}
@@ -472,9 +642,24 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
               <Text style={[styles.membersCount, { color: theme.textSecondary }]}>
                 {groupMemberCount} members
               </Text>
-              <TouchableOpacity style={styles.memberSearchButton} activeOpacity={0.75}>
-                <Icon name="search" size={24} color={theme.textSecondary} />
-              </TouchableOpacity>
+              <View style={styles.memberHeaderButtons}>
+                <TouchableOpacity style={styles.memberSearchButton} activeOpacity={0.75}>
+                  <Icon name="search" size={24} color={theme.textSecondary} />
+                </TouchableOpacity>
+                {isManageMembersEnabled && (
+                  <TouchableOpacity
+                    style={styles.memberSearchButton}
+                    activeOpacity={0.75}
+                    onPress={() => setIsRemoveMode((prev) => !prev)}
+                  >
+                    <Icon
+                      name={isRemoveMode ? 'close-outline' : 'person-remove-outline'}
+                      size={24}
+                      color={theme.textSecondary}
+                    />
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
 
             <TouchableOpacity
@@ -487,19 +672,35 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                 })
               }
             >
-              <View style={[styles.addMemberAvatar, { backgroundColor: theme.success }]}>
+              <View style={[styles.addMemberAvatar, { backgroundColor: theme.success }]}> 
                 <Icon name="person-add" size={24} color={theme.background} />
               </View>
               <Text style={[styles.addMemberText, { color: theme.text }]}>Add members</Text>
             </TouchableOpacity>
 
             {(membersProfiles || groupMembers).map((member: any, index: number) => {
-              // membersProfiles contains { id, displayName, profilePictureUrl, phoneNumber }
               const id = member.id || member._id || member;
               const name = member.displayName || member.name || member.title || '';
               const avatar = member.profilePictureUrl || member.avatar || (name ? name.charAt(0) : '');
+              const memberId = String(id || '');
+              const isCurrentUser = String(memberId) === String(currentUserId);
+              const isSelected = selectedMemberIdSet.has(memberId);
+              const isAdminBadge =
+                (ownerId && String(memberId) === String(ownerId)) ||
+                (!ownerId && chat.ownerId && String(memberId) === String(chat.ownerId)) ||
+                (index === 0 && !ownerId && !chat.ownerId);
+
               return (
-                <View key={id || index} style={styles.memberRow}>
+                <TouchableOpacity
+                  key={memberId || index}
+                  style={styles.memberRow}
+                  activeOpacity={0.75}
+                  onPress={() => {
+                    if (isRemoveMode && !isCurrentUser) {
+                      handleToggleMemberSelection(member);
+                    }
+                  }}
+                >
                   <Avatar source={avatar} size="medium" theme={theme} />
                   <View style={styles.memberCopy}>
                     <View style={styles.memberTitleRow}>
@@ -513,7 +714,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                       >
                         {name || 'Unknown'}
                       </Text>
-                      {(ownerId && String(id) === String(ownerId)) || (!ownerId && chat.ownerId && String(id) === String(chat.ownerId)) || (index === 0 && !ownerId && !chat.ownerId) ? (
+                      {isAdminBadge ? (
                         <View
                           style={[
                             styles.adminBadge,
@@ -531,9 +732,59 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                       {(member.phoneNumber || (member as any).phone) || 'Available'}
                     </Text>
                   </View>
-                </View>
+                  {isRemoveMode ? (
+                    <View
+                      style={[
+                        styles.selectionIndicator,
+                        isCurrentUser && styles.selectionDisabled,
+                        isSelected && styles.selectionIndicatorSelected,
+                        { borderColor: isSelected ? theme.primary : theme.textSecondary },
+                      ]}
+                    >
+                      {isSelected ? (
+                        <Icon name="checkmark" size={18} color={theme.background} />
+                      ) : isCurrentUser ? (
+                        <Icon name="close" size={18} color={theme.textSecondary} />
+                      ) : null}
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
               );
             })}
+          </View>
+        )}
+
+        {chat.isGroup && isRemoveMode && (
+          <View style={styles.removeActionBar}>
+            <TouchableOpacity
+              style={[styles.cancelRemoveButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+              onPress={handleCancelRemoveMode}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.cancelRemoveButtonText, { color: theme.text }]}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.confirmRemoveButton,
+                { backgroundColor: selectedMemberIds.length ? theme.error : theme.surface },
+              ]}
+              onPress={handleRemoveSelectedMembers}
+              disabled={!selectedMemberIds.length || isRemovingMembers}
+              activeOpacity={0.75}
+            >
+              {isRemovingMembers ? (
+                <ActivityIndicator color={theme.background} />
+              ) : (
+                <Text
+                  style={[
+                    styles.confirmRemoveButtonText,
+                    { color: selectedMemberIds.length ? theme.background : theme.textSecondary },
+                  ]}
+                >
+                  Remove {selectedMemberIds.length} member{selectedMemberIds.length === 1 ? '' : 's'}
+                </Text>
+              )}
+            </TouchableOpacity>
           </View>
         )}
 
@@ -691,6 +942,47 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
   },
+  titleEditRow: {
+    width: '100%',
+    marginTop: SPACING.lg,
+  },
+  titleInput: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: BORDER_RADIUS.lg,
+    paddingHorizontal: SPACING.lg,
+    fontSize: FONT_SIZES.xxl,
+    fontWeight: '700',
+  },
+  editTitleButton: {
+    marginTop: SPACING.md,
+    borderRadius: BORDER_RADIUS.full,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+  },
+  editTitleButtonText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '700',
+  },
+  titleButtonRow: {
+    width: '100%',
+    marginTop: SPACING.md,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+  },
+  titleButton: {
+    flex: 1,
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: BORDER_RADIUS.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titleButtonText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '700',
+  },
   quickActionGrid: {
     flexDirection: 'row',
     paddingHorizontal: SPACING.lg,
@@ -839,6 +1131,60 @@ const styles = StyleSheet.create({
   },
   adminBadgeText: {
     fontSize: FONT_SIZES.xs,
+    fontWeight: '700',
+  },
+  memberHeaderButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  selectionIndicator: {
+    width: 28,
+    height: 28,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: SPACING.md,
+  },
+  selectionIndicatorSelected: {
+    backgroundColor: '#007AFF',
+  },
+  selectionDisabled: {
+    opacity: 0.4,
+  },
+  removeActionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+    borderTopWidth: 1,
+    borderColor: '#E5E5EA',
+    backgroundColor: '#F8F8F8',
+  },
+  cancelRemoveButton: {
+    flex: 1,
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: BORDER_RADIUS.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: SPACING.sm,
+  },
+  cancelRemoveButtonText: {
+    fontSize: FONT_SIZES.base,
+    fontWeight: '700',
+  },
+  confirmRemoveButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: BORDER_RADIUS.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.lg,
+  },
+  confirmRemoveButtonText: {
+    fontSize: FONT_SIZES.base,
     fontWeight: '700',
   },
 });
