@@ -120,6 +120,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       ? chat.participants.find((p) => String(p.id) !== String(currentUserId))?.id
       : undefined);
   const [loadedMessages, setLoadedMessages] = useState<Message[]>([]);
+  const [isChatCleared, setIsChatCleared] = useState(false);
   const deletedForMeIdsRef = useRef(new Set<string>());
   const hiddenMediaItemIdsRef = useRef(new Map<string, Set<string>>());
   const [membersProfiles, setMembersProfiles] = useState<any[] | null>(null);
@@ -2217,11 +2218,20 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     const loadMessages = React.useCallback(async () => {
       if (!conversationId) {
         setLoadedMessages([]);
+        setIsChatCleared(false);
         return;
       }
 
     try {
+      let clearedAt: Date | null = null;
       try {
+        const rawClearedChats = await AsyncStorage.getItem('clearedChats');
+        const clearedChatMap = rawClearedChats ? JSON.parse(rawClearedChats) : {};
+        const clearedAtRaw = clearedChatMap && typeof clearedChatMap === 'object'
+          ? clearedChatMap[String(conversationId)] || clearedChatMap[String(chat?.id || '')]
+          : null;
+        clearedAt = clearedAtRaw ? new Date(clearedAtRaw) : null;
+
         const storageKey = `hiddenMediaItems:${String(conversationId || chat?.id || '')}`;
         const rawHidden = await AsyncStorage.getItem(storageKey);
         const parsedHidden = rawHidden ? JSON.parse(rawHidden) : {};
@@ -2234,8 +2244,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       } catch (e) {}
 
       const msgs = await messagesApi.getMessages(conversationId);
-      const normalizedMessages = (msgs || []).map(normalizeServerMessage);
+      const normalizedMessages = (msgs || [])
+        .map(normalizeServerMessage)
+        .filter((message) => !clearedAt || new Date(message.timestamp || message.createdAt || 0) > clearedAt);
       setLoadedMessages(normalizedMessages);
+      setIsChatCleared(!!clearedAt && normalizedMessages.length === 0);
       normalizedMessages.forEach((message) => {
         void autoDownloadReceivedMedia(message);
       });
@@ -3395,6 +3408,18 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.messageList}
         onEndReachedThreshold={0.1}
+        ListEmptyComponent={() => (
+          <View style={styles.emptyChatState}>
+            <Text style={[styles.emptyChatTitle, { color: theme.text }]}> 
+              {isChatCleared ? 'Chat cleared' : 'No messages yet'}
+            </Text>
+            <Text style={[styles.emptyChatSubtitle, { color: theme.textSecondary }]}> 
+              {isChatCleared
+                ? 'This conversation is empty on your device only.'
+                : 'Start the conversation by sending a message.'}
+            </Text>
+          </View>
+        )}
       />
 
       {actionMessage && (
@@ -3987,6 +4012,26 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingVertical: SPACING.md,
     justifyContent: 'flex-end',
+  },
+  emptyChatState: {
+    flex: 1,
+    minHeight: 220,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.xl,
+  },
+  emptyChatTitle: {
+    fontSize: FONT_SIZES.xl,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: SPACING.xs,
+  },
+  emptyChatSubtitle: {
+    fontSize: FONT_SIZES.md,
+    textAlign: 'center',
+    lineHeight: 22,
+    maxWidth: 280,
   },
   dateSeparatorWrap: {
     alignItems: 'center',

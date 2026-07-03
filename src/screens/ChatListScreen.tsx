@@ -60,9 +60,17 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       }
       const rawHidden = await AsyncStorage.getItem('deletedChats');
       const hiddenChatIds = rawHidden ? (JSON.parse(rawHidden) as string[]) : [];
+      const rawCleared = await AsyncStorage.getItem('clearedChats');
+      const clearedChatMap = rawCleared ? JSON.parse(rawCleared) : {};
       const convos = await conversationsApi.getConversations(myId);
       // map conversations to Chat-like items
       const chatItems = convos.map((c: any) => {
+        const conversationKey = String(c._id || c.id || '');
+        const clearedAt = clearedChatMap && typeof clearedChatMap === 'object' ? clearedChatMap[conversationKey] : null;
+        const clearedAtDate = clearedAt ? new Date(clearedAt) : null;
+        const lastMessageAt = c.lastMessageAt ? new Date(c.lastMessageAt) : new Date(c.createdAt);
+        const lastMessageTime = lastMessageAt;
+        const isClearedBeforeLastMessage = !!clearedAtDate && lastMessageAt <= clearedAtDate;
         const isGroup = c.isGroup === true;
         if (isGroup) {
           // prefer server-computed `unreadCount` (controller sets this) and
@@ -110,8 +118,8 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             id: String(c._id),
             title: c.title || 'Group',
             avatar: c.groupProfilePicture || c.avatar || '👥',
-              lastMessage: lastMessageText,
-            lastMessageTime: c.lastMessageAt ? new Date(c.lastMessageAt) : new Date(c.createdAt),
+              lastMessage: isClearedBeforeLastMessage ? '' : lastMessageText,
+            lastMessageTime,
             isGroup: true,
             conversationId: c._id,
             participants: c.participantsProfiles || c.participants || [],
@@ -144,8 +152,8 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           avatar: participant?.profilePictureUrl || undefined,
           bio: participant?.bio || undefined,
           phoneNumber: participant?.phoneNumber,
-          lastMessage: lastMessageText,
-          lastMessageTime: c.lastMessageAt ? new Date(c.lastMessageAt) : new Date(c.createdAt),
+          lastMessage: isClearedBeforeLastMessage ? '' : lastMessageText,
+          lastMessageTime,
           isGroup: false,
           conversationId: c._id,
           unreadCount: typeof c.unreadCount === 'number' ? c.unreadCount : 0,

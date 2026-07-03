@@ -461,6 +461,37 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   };
 
+  const persistClearedChatAt = async (conversationId: string) => {
+    try {
+      const raw = await AsyncStorage.getItem('clearedChats');
+      const clearedChats = raw ? JSON.parse(raw) : {};
+      const next = clearedChats && typeof clearedChats === 'object' ? { ...clearedChats } : {};
+      next[conversationId] = new Date().toISOString();
+      await AsyncStorage.setItem('clearedChats', JSON.stringify(next));
+    } catch (e) {
+      // ignore persistence errors
+    }
+  };
+
+  const handleClearChat = async () => {
+    try {
+      const conversationId = String((chat as any).conversationId || chat.id || '');
+      const chatState = require('../stores/chatStore').useChatStore.getState();
+      chatState.setCurrentChat(null);
+      await cleanupConversationStorage(conversationId);
+      await persistClearedChatAt(conversationId);
+      showSuccessMessage('Chat cleared');
+      if (navigation.canGoBack?.()) {
+        navigation.goBack();
+      } else {
+        navigation.popToTop();
+      }
+    } catch (e) {
+      console.warn('clear chat failed', e);
+      Alert.alert('Error', 'Unable to clear chat. Please try again.');
+    }
+  };
+
   const handleDeleteChat = async () => {
     try {
       const conversationId = String((chat as any).conversationId || chat.id || '');
@@ -820,6 +851,22 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                 activeOpacity={0.75}
                 onPress={async () => {
                   try {
+                      if (row.title === 'Clear chat') {
+                        Alert.alert(
+                          'Clear chat',
+                          'Are you sure you want to clear this chat? This action cannot be undone.',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Clear',
+                              style: 'destructive',
+                              onPress: handleClearChat,
+                            },
+                          ],
+                        );
+                        return;
+                      }
+
                     if (chat.isGroup && row.title === 'Exit group') {
                       const title = `Exit group: "${chat.title || 'Group'}"?`;
                       Alert.alert(title, undefined, [
