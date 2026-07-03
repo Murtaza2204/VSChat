@@ -16,8 +16,7 @@ import { SPACING, FONT_SIZES, BORDER_RADIUS } from '../constants/colors';
 import CallCard from '../components/CallCard';
 import EmptyState from '../components/EmptyState';
 import { TextInput } from 'react-native';
-import signaling from '../services/signaling';
-import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
+import { startConversationCall } from '../utils/calls';
 
 const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { getSearchedCalls, setCalls } = useCallStore();
@@ -63,6 +62,7 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
           return {
             id: String(rc._id || rc.callId || Math.random()),
+            conversationId: isGroupCall ? (rc.groupId || (rc.metadata && rc.metadata.groupId) || rc.callId || '') : (otherId || (rc.calleeId || rc.callerId) || ''),
             userId: isGroupCall ? (rc.groupId || (rc.metadata && rc.metadata.groupId) || rc.callId || '') : (otherId || (rc.calleeId || rc.callerId) || ''),
             userName: name || String(otherId || 'Unknown'),
             userAvatar: isGroupCall ? (rc.groupAvatar || (rc.metadata && rc.metadata.groupAvatar) || undefined) : undefined,
@@ -71,6 +71,17 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             duration: rc.durationSeconds || 0,
             timestamp: rc.createdAt ? new Date(rc.createdAt) : (rc.startedAt ? new Date(rc.startedAt) : new Date()),
             status: (rc.callStatus === 'missed' || rc.callStatus === 'noAnswer') ? 'missed' : 'completed',
+            isGroupCall,
+            groupId: isGroupCall ? (rc.groupId || (rc.metadata && rc.metadata.groupId) || rc.callId || '') : undefined,
+            groupName: isGroupCall ? (rc.groupName || (rc.metadata && rc.metadata.groupName) || name || 'Group') : undefined,
+            groupAvatar: isGroupCall ? (rc.groupAvatar || (rc.metadata && rc.metadata.groupAvatar) || undefined) : undefined,
+            participants: Array.isArray((rc as any).participants)
+              ? (rc as any).participants.map((participant: any) => ({
+                  id: participant?.userId || participant?.id || participant?._id || participant,
+                  name: participant?.name || participant?.displayName || participant?.title,
+                  avatar: participant?.avatar || participant?.profilePictureUrl || null,
+                }))
+              : [],
           };
         });
 
@@ -103,33 +114,41 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   }, [user]);
 
   const renderCallItem = ({ item }: any) => (
-    <CallCard
+      <CallCard
       call={item}
       onPress={() => navigation.navigate('CallDetails', { call: item })}
       onCallPress={(type) => {
         try {
-          const callId = `cli-${Date.now()}`;
-          const channel = `call-${callId}`;
-          // Do not send a hardcoded token; let server generate and attach token/appId
-          signaling.inviteCall(item.userId, type, {
-            callId,
-            channel,
-            appId: AGORA_APP_ID,
-          });
-
-          navigation.navigate('ActiveCall', {
-            callerName: item.userName,
-            callerAvatar: item.userAvatar,
-            peerName: item.userName,
-            peerAvatar: item.userAvatar,
-            calleeName: item.userName,
-            calleeAvatar: item.userAvatar,
-            callType: type,
-            appId: AGORA_APP_ID,
-            channel,
-            callId,
-            token: undefined,
-            isCaller: true,
+          const isGroupConversation = item.isGroupCall === true;
+          const callConversationId = String(item.conversationId || item.groupId || item.userId || '');
+          const participant = !isGroupConversation
+            ? {
+                id: item.userId,
+                name: item.userName,
+                avatar: item.userAvatar,
+              }
+            : null;
+          startConversationCall({
+            navigation,
+            chat: {
+              id: callConversationId || item.userId,
+              conversationId: callConversationId || item.userId,
+              title: item.groupName || item.userName,
+              avatar: item.groupAvatar || item.userAvatar,
+              groupProfilePicture: item.groupAvatar || item.userAvatar,
+              isGroup: isGroupConversation,
+              participants: item.participants || [],
+              userId: !isGroupConversation ? item.userId : undefined,
+            },
+            participant,
+            currentUserId: user?.id,
+            conversationId: callConversationId,
+            routeParams: {
+              callType: type,
+              returnRouteName: 'CallsList',
+              returnRouteParams: {},
+            },
+            isGroupConversation,
           });
         } catch (e) {
           console.warn('inviteCall failed', e);

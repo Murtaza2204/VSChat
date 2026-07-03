@@ -1,6 +1,7 @@
 import api from '../config/api';
 import signaling from '../services/signaling';
 import { AGORA_APP_ID } from '../config/agora';
+import { useChatStore } from '../stores/chatStore';
 
 export interface RawCall {
   _id?: any;
@@ -13,6 +14,7 @@ export interface RawCall {
   groupId?: string;
   groupName?: string;
   groupAvatar?: string;
+  participants?: any[];
   createdAt?: string;
   startedAt?: string;
   endedAt?: string;
@@ -59,13 +61,21 @@ export const startConversationCall = ({
   const callId = `call-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   const conversationKey = conversationId || chat?.conversationId || chat?.id;
   const isGroupChat = !!(isGroupConversation ?? chat?.isGroup);
+  const resolvedChat = (() => {
+    const storeChats = useChatStore.getState().chats || [];
+    const storedMatch = storeChats.find((entry: any) => {
+      const entryKey = String(entry?.conversationId || entry?.groupId || entry?.id || '');
+      return entryKey && String(conversationKey || '') === entryKey;
+    });
+    return storedMatch || chat;
+  })();
   const directCallPeer = !isGroupChat
-    ? (participant || chat?.participants?.find((p: any) => String(getParticipantId(p)) !== String(currentUserId)) || null)
+    ? (participant || resolvedChat?.participants?.find((p: any) => String(getParticipantId(p)) !== String(currentUserId)) || null)
     : null;
-  const directCallPeerName = directCallPeer?.name || directCallPeer?.displayName || chat?.title || 'Unknown';
-  const directCallPeerAvatar = directCallPeer?.avatar || directCallPeer?.profilePictureUrl || chat?.avatar || null;
+  const directCallPeerName = directCallPeer?.name || directCallPeer?.displayName || resolvedChat?.title || 'Unknown';
+  const directCallPeerAvatar = directCallPeer?.avatar || directCallPeer?.profilePictureUrl || resolvedChat?.avatar || null;
   const groupRecipientIds = isGroupChat
-    ? (chat?.participants || [])
+    ? (resolvedChat?.participants || [])
         .map(getParticipantId)
         .filter(Boolean)
         .filter((participantId) => String(participantId) !== String(currentUserId))
@@ -73,9 +83,9 @@ export const startConversationCall = ({
     : [];
   const targetRecipientIds = groupRecipientIds.length
     ? groupRecipientIds
-    : [chat?.userId || derivedReceiverIdFromChat(chat, currentUserId, participant) || chat?.id].filter(Boolean);
+    : [resolvedChat?.userId || derivedReceiverIdFromChat(resolvedChat, currentUserId, participant) || resolvedChat?.id].filter(Boolean);
   const groupParticipantProfiles = isGroupChat
-    ? (chat?.participants || [])
+    ? (resolvedChat?.participants || [])
         .map((p: any) => {
           const participantId = getParticipantId(p);
           if (!participantId) return null;
@@ -95,8 +105,8 @@ export const startConversationCall = ({
       callId,
       isGroupCall: isGroupChat,
       groupId: conversationKey,
-      groupName: chat?.title || 'Group',
-      groupAvatar: chat?.groupProfilePicture || chat?.avatar,
+      groupName: resolvedChat?.title || 'Group',
+      groupAvatar: resolvedChat?.groupProfilePicture || resolvedChat?.avatar,
       chatId: conversationKey,
       groupMemberIds: groupRecipientIds,
       groupParticipants: groupParticipantProfiles,
@@ -108,14 +118,14 @@ export const startConversationCall = ({
 
   navigation.navigate(isGroupChat ? 'GroupActiveCall' : 'ActiveCall', {
     callType,
-    callerName: isGroupChat ? (chat?.title || 'Group') : chat?.title,
-    callerAvatar: isGroupChat ? (chat?.groupProfilePicture || chat?.avatar) : chat?.avatar,
+    callerName: isGroupChat ? (resolvedChat?.title || 'Group') : resolvedChat?.title,
+    callerAvatar: isGroupChat ? (resolvedChat?.groupProfilePicture || resolvedChat?.avatar) : resolvedChat?.avatar,
     peerName: isGroupChat ? undefined : directCallPeerName,
     peerAvatar: isGroupChat ? undefined : directCallPeerAvatar,
     calleeName: isGroupChat ? undefined : directCallPeerName,
     calleeAvatar: isGroupChat ? undefined : directCallPeerAvatar,
     chatId: conversationKey,
-    calleeId: isGroupChat ? undefined : (derivedReceiverIdFromChat(chat, currentUserId, participant) || chat?.id),
+    calleeId: isGroupChat ? undefined : (derivedReceiverIdFromChat(resolvedChat, currentUserId, participant) || resolvedChat?.id),
     appId: AGORA_APP_ID,
     channel: `call-${callId}`,
     token: undefined,
@@ -123,8 +133,8 @@ export const startConversationCall = ({
     isCaller: true,
     isGroupCall: isGroupChat,
     groupId: conversationKey,
-    groupName: chat?.title || 'Group',
-    groupAvatar: chat?.groupProfilePicture || chat?.avatar,
+    groupName: resolvedChat?.title || 'Group',
+    groupAvatar: resolvedChat?.groupProfilePicture || resolvedChat?.avatar,
     groupParticipants: groupParticipantProfiles,
     returnRoute: {
       name: routeParams?.returnRouteName || 'Chat',
