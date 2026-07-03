@@ -620,7 +620,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                 </View>
               ) : null}
               <Text style={[styles.phone, { color: theme.textSecondary }]} numberOfLines={1}>
-                {phone}
+                {chat.isGroup ? `${groupMemberCount} members` : phone}
               </Text>
             </>
           ) : (
