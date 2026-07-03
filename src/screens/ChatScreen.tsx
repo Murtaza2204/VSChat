@@ -18,6 +18,7 @@ import {
   ActivityIndicator,
   Dimensions,
   Linking,
+  Keyboard,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { ToastAndroid } from 'react-native';
@@ -178,6 +179,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [forwardModalVisible, setForwardModalVisible] = useState(false);
   const [selectedForwardTargets, setSelectedForwardTargets] = useState<string[]>([]);
   const [forwardNote, setForwardNote] = useState('');
+  const [nativeReactionInputVisible, setNativeReactionInputVisible] = useState(false);
+  const [nativeReactionText, setNativeReactionText] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectionMenuVisible, setSelectionMenuVisible] = useState(false);
   const [locationMenuVisible, setLocationMenuVisible] = useState(false);
@@ -194,6 +197,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const flatListRef = useRef<FlatList>(null);
   const pendingMediaDownloadKeysRef = useRef(new Set<string>());
   const completedMediaDownloadKeysRef = useRef(new Set<string>());
+  const nativeReactionInputRef = useRef<TextInput | null>(null);
+  const nativeReactionHandledRef = useRef(false);
   const [nowTick, setNowTick] = useState(Date.now());
   const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
   const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50 MB
@@ -2673,6 +2678,69 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     setActionMessage(null);
   };
 
+  const handleNativeEmojiReaction = (reaction: string) => {
+    const single = selectedMessages.length === 1 ? selectedMessages[0] : actionMessage;
+    if (!single) return;
+
+    const currentUser = currentUserId;
+    const existingReactions = Array.isArray(single.reactions) ? [...single.reactions] : [];
+    const nextReactions = existingReactions.some((r) => String(r.userId) === String(currentUser))
+      ? existingReactions.map((r) => (String(r.userId) === String(currentUser) ? { ...r, reaction } : r))
+      : [...existingReactions, { userId: String(currentUser), reaction }];
+
+    updateMessage(single.id, { reaction, reactions: nextReactions });
+    setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(single.id) ? { ...m, reaction, reactions: nextReactions } : m)));
+
+    (async () => {
+      try {
+        const res = await messagesApi.reactMessage(single.id, reaction);
+        if (res?.message) {
+          const normalized = normalizeServerMessage(res.message);
+          setLoadedMessages((prev) => prev.map((m) => (String(m.id) === String(normalized.id) ? normalized : m)));
+          try {
+            updateMessage(String(normalized.id), normalized as any);
+          } catch (e) {}
+        }
+      } catch (e) {
+        console.warn('react API failed, reverting', e);
+        try {
+          const msgs = await messagesApi.getMessages(conversationId);
+          setLoadedMessages(msgs.map(normalizeServerMessage));
+        } catch (err) { console.warn('failed to reload messages after react revert', err); }
+      }
+    })();
+
+    setNativeReactionInputVisible(false);
+    setNativeReactionText('');
+    nativeReactionHandledRef.current = false;
+    Keyboard.dismiss();
+    setSelectedMessages([]);
+    setActionMessage(null);
+  };
+
+  const handleNativeReactionInputChange = (text: string) => {
+    if (nativeReactionHandledRef.current) return;
+    const trimmed = text.trim();
+    setNativeReactionText(text);
+    if (!trimmed) return;
+    nativeReactionHandledRef.current = true;
+    handleNativeEmojiReaction(trimmed);
+  };
+
+  const openNativeReactionInput = () => {
+    nativeReactionHandledRef.current = false;
+    setNativeReactionText('');
+    setNativeReactionInputVisible(true);
+  };
+
+  useEffect(() => {
+    if (!nativeReactionInputVisible) return;
+    const timer = setTimeout(() => {
+      nativeReactionInputRef.current?.focus?.();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [nativeReactionInputVisible]);
+
   const handleAttachmentOption = async (option: string) => {
     if (option === 'Gallery') {
       await handleGalleryPress();
@@ -3456,11 +3524,33 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           })}
           <TouchableOpacity
             activeOpacity={0.75}
-            onPress={() => handleReactToActionMessage('👍')}
+            onPress={openNativeReactionInput}
             style={[styles.reactionPlusButton, { backgroundColor: theme.border }]}
           >
             <Icon name="add" size={22} color={theme.text} />
           </TouchableOpacity>
+        </View>
+      )}
+
+      {nativeReactionInputVisible && (
+        <View style={styles.nativeReactionInputWrapper} pointerEvents="none">
+          <Text style={styles.nativeReactionInputHint}>Open the emoji keyboard to react</Text>
+          <TextInput
+            ref={nativeReactionInputRef}
+            value={nativeReactionText}
+            onChangeText={handleNativeReactionInputChange}
+            autoCapitalize="none"
+            autoCorrect={false}
+            caretHidden
+            showSoftInputOnFocus
+            keyboardType="default"
+            style={styles.nativeReactionInput}
+            onBlur={() => {
+              setNativeReactionInputVisible(false);
+              setNativeReactionText('');
+              nativeReactionHandledRef.current = false;
+            }}
+          />
         </View>
       )}
 
@@ -4082,6 +4172,33 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  nativeReactionInput: {
+    position: 'absolute',
+    left: -9999,
+    top: -9999,
+    width: 1,
+    height: 1,
+    opacity: 0,
+  },
+  nativeReactionInputWrapper: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 150,
+    alignItems: 'center',
+    zIndex: 40,
+  },
+  nativeReactionInputHint: {
+    fontSize: FONT_SIZES.sm,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: SPACING.xs,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderRadius: BORDER_RADIUS.full,
+    overflow: 'hidden',
   },
   forwardContainer: {
     flex: 1,
