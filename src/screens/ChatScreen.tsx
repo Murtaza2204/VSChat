@@ -136,6 +136,19 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [membersProfiles, setMembersProfiles] = useState<any[] | null>(null);
   const { state: uploadState, upload: uploadUsingHook, reset: resetUpload } = useMediaUpload();
   const chatMessages = useMemo(() => (conversationId ? loadedMessages : (chat?.messages || [])), [conversationId, loadedMessages, chat]);
+  const sortedChatMessages = useMemo(() => {
+    const toTime = (message: any) => {
+      const value = message?.timestamp || message?.createdAt || 0;
+      const time = new Date(value).getTime();
+      return Number.isFinite(time) ? time : 0;
+    };
+
+    return [...(chatMessages || [])].sort((a: any, b: any) => {
+      const timeDelta = toTime(a) - toTime(b);
+      if (timeDelta !== 0) return timeDelta;
+      return String(a?.id || '').localeCompare(String(b?.id || ''));
+    });
+  }, [chatMessages]);
   // format date label according to rules
   const getDateLabel = (d: Date) => {
     if (!d) return '';
@@ -157,7 +170,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const messagesWithSeparators = useMemo(() => {
     const out: any[] = [];
     let lastDateKey: string | null = null;
-    const msgs = chatMessages || [];
+    const msgs = sortedChatMessages || [];
     for (let i = 0; i < msgs.length; i++) {
       const m = msgs[i];
       const t = m && m.timestamp ? new Date(m.timestamp) : new Date();
@@ -170,7 +183,20 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       out.push(m);
     }
     return out;
-  }, [chatMessages, nowTick]);
+  }, [sortedChatMessages, nowTick]);
+
+  const renderedMessagesWithSeparators = useMemo(
+    () => [...messagesWithSeparators].reverse(),
+    [messagesWithSeparators],
+  );
+
+  const getRenderedIndexForMessageId = React.useCallback((messageId?: string | null) => {
+    if (!messageId || !messagesWithSeparators.length) return -1;
+    const originalIndex = messagesWithSeparators.findIndex((item) => !item.__dateSeparator && String(item.id) === String(messageId));
+    if (originalIndex === -1) return -1;
+    return messagesWithSeparators.length - 1 - originalIndex;
+  }, [messagesWithSeparators]);
+
   const [isSearchMode, setIsSearchMode] = useState<boolean>(!!routeSearchMode);
   const [searchQuery, setSearchQuery] = useState<string>(routeSearchQuery || '');
   const [activeSearchMatchIndex, setActiveSearchMatchIndex] = useState<number>(0);
@@ -221,14 +247,15 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     if (!isSearchMode || !normalizedSearchQuery || !searchMatches.length) return;
     const target = searchMatches[Math.min(activeSearchMatchIndex, searchMatches.length - 1)];
     if (!target) return;
+    const renderedIndex = messagesWithSeparators.length - 1 - target.index;
     requestAnimationFrame(() => {
       try {
-        flatListRef.current?.scrollToIndex({ index: target.index, animated: true, viewPosition: 0.4 });
+        flatListRef.current?.scrollToIndex({ index: renderedIndex, animated: true, viewPosition: 0.4 });
       } catch (e) {
         console.warn('[ChatScreen] scroll to search result failed', e);
       }
     });
-  }, [activeSearchMatchIndex, isSearchMode, normalizedSearchQuery, searchMatches]);
+  }, [activeSearchMatchIndex, isSearchMode, messagesWithSeparators.length, normalizedSearchQuery, searchMatches]);
 
   const openSearchMode = () => {
     setIsSearchMode(true);
@@ -1469,7 +1496,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       } catch (e) {
         console.warn('Send message failed', (e as any)?.message || String(e));
       }
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      setTimeout(() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
       return;
     }
 
@@ -1488,7 +1515,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       setReplyMessage(null);
     }
     addMessage(chat.id, newMessage);
-    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    setTimeout(() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
   };
 
   // Listen for socket events to reconcile messages for this conversation when open
@@ -2042,7 +2069,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         const target = useChatStore.getState().chats.find((c) => String(c.conversationId) === String(conversationId) || String(c.id) === String(chat?.id));
         if (target) useChatStore.getState().addMessage(target.id, normalized as any);
       } catch (e) {}
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      setTimeout(() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
     } catch (e) {
       console.warn('Error processing uploaded media message', e);
     }
@@ -2072,7 +2099,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
 
     setTimeout(() => {
-      flatListRef.current?.scrollToEnd({ animated: true });
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
     }, 100);
   };
 
@@ -2135,7 +2162,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
 
     setTimeout(() => {
-      flatListRef.current?.scrollToEnd({ animated: true });
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
     }, 100);
 
     return newMessage.id;
@@ -3040,10 +3067,6 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   };
 
-  useEffect(() => {
-    flatListRef.current?.scrollToEnd({ animated: true });
-  }, [chatMessages]);
-
   // periodic tick to refresh date labels, ensures 'Today'/'Yesterday' update at midnight
   useEffect(() => {
     const id = setInterval(() => setNowTick(Date.now()), 60 * 1000);
@@ -3142,7 +3165,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     if (!renderItem) return null;
 
     const repliedMessage = item.replyToId
-      ? chatMessages.find((m) => m.id === item.replyToId)
+      ? sortedChatMessages.find((m) => m.id === item.replyToId)
       : null;
     const sender =
       (membersProfiles && membersProfiles.find((p) => String(p.id) === String(item.senderId))) ||
@@ -3225,13 +3248,10 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         replyToMediaItemObjectKey={renderItem.replyToMediaItemObjectKey}
         onReplyPress={() => {
           if (repliedMessage) {
-            const messageIndex = chatMessages.findIndex((m) => m.id === repliedMessage.id);
-            if (messageIndex !== -1) {
-              // compute index in messagesWithSeparators (accounts for inserted date separators)
-              const targetIndex = messagesWithSeparators.findIndex((it) => !it.__dateSeparator && String(it.id) === String(repliedMessage.id));
-              const scrollIndex = targetIndex !== -1 ? targetIndex : messageIndex;
+            const targetIndex = getRenderedIndexForMessageId(String(repliedMessage.id));
+            if (targetIndex !== -1) {
               flatListRef.current?.scrollToIndex({
-                index: scrollIndex,
+                index: targetIndex,
                 animated: true,
                 viewPosition: 0.5,
               });
@@ -3875,10 +3895,12 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
       <FlatList
         ref={flatListRef}
-        data={messagesWithSeparators}
+        data={renderedMessagesWithSeparators}
         renderItem={renderMessage}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.messageList}
+        inverted
+        style={styles.chatList}
         onEndReachedThreshold={0.1}
         ListEmptyComponent={() => (
           <View style={styles.emptyChatState}>
@@ -4626,7 +4648,9 @@ const styles = StyleSheet.create({
   messageList: {
     flexGrow: 1,
     paddingVertical: SPACING.md,
-    justifyContent: 'flex-end',
+  },
+  chatList: {
+    flex: 1,
   },
   emptyChatState: {
     flex: 1,
