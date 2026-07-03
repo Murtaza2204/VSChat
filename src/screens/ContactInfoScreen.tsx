@@ -422,16 +422,11 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   const settingsRows = [
     { title: 'Manage storage', subtitle: '92.9 MB', icon: 'images-outline' },
   ];
-  if (!isIndividualChat) {
-    settingsRows.push({ title: 'Notifications', icon: 'notifications-outline' });
-  }
 
   const dangerRows = [];
-  dangerRows.push({ title: 'Add to Favorites', icon: 'heart-outline', danger: false });
   dangerRows.push({ title: 'Clear chat', icon: 'remove-circle-outline', danger: false });
   if (chat.isGroup) {
     dangerRows.push({ title: 'Exit group', icon: 'log-out-outline', danger: true });
-    dangerRows.push({ title: 'Report group', icon: 'thumbs-down-outline', danger: true });
   } else {
     dangerRows.push({ title: 'Delete chat', icon: 'trash-outline', danger: true });
   }
