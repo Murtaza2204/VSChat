@@ -24,13 +24,11 @@ import NewGroupScreen from '../screens/NewGroupScreen';
 import NewGroupDetailsScreen from '../screens/NewGroupDetailsScreen';
 import GroupDetailsScreen from '../screens/GroupDetailsScreen';
 import CallsListScreen from '../screens/CallsListScreen';
-import DialPadScreen from '../screens/DialPadScreen';
 import ReceiverCallScreen from '../screens/ReceiverCallScreen';
 import ActiveCallScreen from '../screens/ActiveCallScreen';
 import GroupActiveCallScreen from '../screens/GroupActiveCallScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
-import SettingsScreen from '../screens/SettingsScreen';
 import MyQRScreen from '../screens/MyQRScreen';
 import ScanQRScreen from '../screens/ScanQRScreen';
 
@@ -94,7 +92,6 @@ const CallsStack = () => {
     >
       <Stack.Screen name="CallsList" component={CallsListScreen} />
       <Stack.Screen name="CallDetails" component={CallsListScreen} />
-      <Stack.Screen name="DialPad" component={DialPadScreen} />
       <Stack.Screen name="IncomingCall" component={ReceiverCallScreen} />
       <Stack.Screen name="ActiveCall" component={ActiveCallScreen} />
       <Stack.Screen name="GroupActiveCall" component={GroupActiveCallScreen} />
@@ -115,7 +112,6 @@ const ProfileStack = () => {
       <Stack.Screen name="MyQR" component={MyQRScreen} />
       <Stack.Screen name="ScanQR" component={ScanQRScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
-      <Stack.Screen name="Settings" component={SettingsScreen} />
       <Stack.Screen name="IncomingCall" component={ReceiverCallScreen} />
     </Stack.Navigator>
   );
@@ -150,8 +146,7 @@ const MainTabs = () => {
               focusedRouteName === 'ActiveCall' ||
               focusedRouteName === 'GroupActiveCall')) ||
           (route.name === 'Calls' &&
-            (focusedRouteName === 'DialPad' ||
-              focusedRouteName === 'IncomingCall' ||
+            (focusedRouteName === 'IncomingCall' ||
               focusedRouteName === 'ActiveCall' ||
               focusedRouteName === 'GroupActiveCall')) ||
           (route.name === 'Profile' && (focusedRouteName === 'IncomingCall' || focusedRouteName === 'GroupActiveCall'));

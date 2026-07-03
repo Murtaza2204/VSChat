@@ -183,13 +183,6 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         />
       )}
 
-      <TouchableOpacity
-        style={[styles.keypadButton, { backgroundColor: theme.primary }]}
-        activeOpacity={0.85}
-        onPress={() => navigation.navigate('DialPad')}
-      >
-        <Icon name="keypad" size={26} color={theme.background} />
-      </TouchableOpacity>
     </SafeAreaView>
   );
 };

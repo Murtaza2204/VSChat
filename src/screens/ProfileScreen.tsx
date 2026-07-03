@@ -139,21 +139,7 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             />
           </View>
 
-          <TouchableOpacity
-            style={[
-              styles.settingItem,
-              { backgroundColor: theme.surface, borderColor: theme.border },
-            ]}
-            onPress={() => navigation.navigate('Settings')}
-          >
-            <View style={styles.settingContent}>
-              <Icon name="settings" size={20} color={theme.primary} />
-              <Text style={[styles.settingText, { color: theme.text }]}>
-                More Settings
-              </Text>
-            </View>
-            <Icon name="chevron-forward" size={20} color={theme.textSecondary} />
-          </TouchableOpacity>
+
         </View>
 
         <View style={styles.footerSection}>
