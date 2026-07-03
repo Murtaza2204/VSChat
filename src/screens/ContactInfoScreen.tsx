@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { launchImageLibrary } from 'react-native-image-picker';
 import {
   FlatList,
@@ -64,6 +64,9 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   const [isRemoveMode, setIsRemoveMode] = useState<boolean>(false);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [isRemovingMembers, setIsRemovingMembers] = useState<boolean>(false);
+  const [isMemberSearchVisible, setIsMemberSearchVisible] = useState<boolean>(false);
+  const [memberSearchQuery, setMemberSearchQuery] = useState<string>('');
+  const memberSearchInputRef = useRef<TextInput | null>(null);
   // member count should reflect actual participants array / resolved profiles
   const groupMemberCount = (membersProfiles ? membersProfiles.length : groupMembers.length);
   const { user } = useAuthStore();
@@ -119,6 +122,35 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
     currentUserId &&
       (ownerId ? String(currentUserId) === String(ownerId) : String(currentUserId) === String(chat.ownerId)),
   );
+
+  useEffect(() => {
+    if (isMemberSearchVisible) {
+      setTimeout(() => memberSearchInputRef.current?.focus?.(), 0);
+    } else {
+      setMemberSearchQuery('');
+    }
+  }, [isMemberSearchVisible]);
+
+  const normalizedMemberSearchQuery = memberSearchQuery.trim().toLowerCase();
+  const filteredGroupMembers = useMemo(() => {
+    const list = membersProfiles || groupMembers;
+    if (!normalizedMemberSearchQuery) {
+      return list;
+    }
+
+    return list.filter((member: any) => {
+      const id = member.id || member._id || member;
+      const memberId = String(id || '');
+      const rawName = member.displayName || member.name || member.title || '';
+      const phoneNumber = member.phoneNumber || member.phone || '';
+      const displayName = String(memberId) === String(currentUserId) ? 'You' : rawName;
+      return (
+        displayName.toLowerCase().includes(normalizedMemberSearchQuery) ||
+        String(rawName).toLowerCase().includes(normalizedMemberSearchQuery) ||
+        String(phoneNumber).toLowerCase().includes(normalizedMemberSearchQuery)
+      );
+    });
+  }, [groupMembers, membersProfiles, normalizedMemberSearchQuery, currentUserId]);
 
   const selectedMemberIdSet = new Set(selectedMemberIds);
   const isManageMembersEnabled = chat.isGroup && isAdmin;
@@ -695,7 +727,11 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                 {groupMemberCount} members
               </Text>
               <View style={styles.memberHeaderButtons}>
-                <TouchableOpacity style={styles.memberSearchButton} activeOpacity={0.75}>
+                <TouchableOpacity
+                  style={styles.memberSearchButton}
+                  activeOpacity={0.75}
+                  onPress={() => setIsMemberSearchVisible((prev) => !prev)}
+                >
                   <Icon name="search" size={24} color={theme.textSecondary} />
                 </TouchableOpacity>
                 {isManageMembersEnabled && (
@@ -714,6 +750,33 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
               </View>
             </View>
 
+            {isMemberSearchVisible && (
+              <View style={[styles.memberSearchContainer, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
+                <Icon name="search" size={20} color={theme.textSecondary} />
+                <TextInput
+                  ref={memberSearchInputRef}
+                  style={[styles.memberSearchInput, { color: theme.text }]}
+                  value={memberSearchQuery}
+                  onChangeText={setMemberSearchQuery}
+                  placeholder="Search members"
+                  placeholderTextColor={theme.textSecondary}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                  returnKeyType="search"
+                  clearButtonMode="while-editing"
+                />
+                {!!memberSearchQuery && (
+                  <TouchableOpacity
+                    activeOpacity={0.75}
+                    onPress={() => setMemberSearchQuery('')}
+                    style={styles.memberSearchClearButton}
+                  >
+                    <Icon name="close-circle" size={20} color={theme.textSecondary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
             <TouchableOpacity
               style={styles.memberRow}
               activeOpacity={0.75}
@@ -730,7 +793,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
               <Text style={[styles.addMemberText, { color: theme.text }]}>Add members</Text>
             </TouchableOpacity>
 
-            {(membersProfiles || groupMembers).map((member: any, index: number) => {
+            {filteredGroupMembers.map((member: any, index: number) => {
               const id = member.id || member._id || member;
               const rawName = member.displayName || member.name || member.title || '';
               const memberId = String(id || '');
@@ -1207,6 +1270,30 @@ const styles = StyleSheet.create({
   memberHeaderButtons: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  memberSearchContainer: {
+    minHeight: 48,
+    marginHorizontal: SPACING.xl,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    borderRadius: BORDER_RADIUS.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  memberSearchInput: {
+    flex: 1,
+    marginLeft: SPACING.sm,
+    marginRight: SPACING.xs,
+    fontSize: FONT_SIZES.base,
+    paddingVertical: 0,
+  },
+  memberSearchClearButton: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   selectionIndicator: {
     width: 28,
