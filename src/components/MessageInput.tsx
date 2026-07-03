@@ -120,14 +120,6 @@ const MessageInput: React.FC<MessageInputProps> = ({
       )}
 
       <View style={styles.inputRow}>
-        <TouchableOpacity
-          onPress={onEmojiPress}
-          disabled={disabled}
-          style={styles.iconButton}
-        >
-          <Icon name="happy" size={22} color={theme.primary} />
-        </TouchableOpacity>
-
         <View
           style={[
             styles.inputContainer,
@@ -248,13 +240,13 @@ const styles = StyleSheet.create({
   },
   iconButton: {
     padding: SPACING.sm,
-    marginHorizontal: SPACING.xs,
+    marginLeft: SPACING.xs,
   },
   inputContainer: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: SPACING.xs,
+    marginRight: SPACING.xs,
     paddingHorizontal: SPACING.md,
     borderRadius: BORDER_RADIUS.full,
     borderWidth: 1,
