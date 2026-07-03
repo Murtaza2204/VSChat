@@ -50,6 +50,7 @@ interface ChatBubbleProps {
   senderAvatar?: string;
   showSenderInfo?: boolean;
   isGroupChat?: boolean;
+  highlighted?: boolean;
   status?: string;
 }
 
@@ -86,6 +87,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
   senderAvatar,
   showSenderInfo = false,
   isGroupChat = false,
+  highlighted = false,
   status = 'sent',
 }) => {
   const [now, setNow] = useState(Date.now());
@@ -323,6 +325,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
                 ? theme.surface
                 : bubbleColor
           },
+          highlighted && { borderWidth: 2, borderColor: theme.primary },
           isSelected && styles.selectedBubble,
           isOwn && SHADOWS.sm,
         ]}

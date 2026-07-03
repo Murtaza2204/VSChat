@@ -72,7 +72,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   const { user } = useAuthStore();
   const currentUserId = user?.id;
   const otherParticipant = !chat.isGroup
-    ? (chat.participants || []).find((p) => String(p.id) !== String(currentUserId))
+    ? (chat.participants || []).find((p) => String(p.id) !== String(user?.id))
     : null;
 
   const routeAny: any = route.params || {};
@@ -662,6 +662,17 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                 { borderColor: theme.border, backgroundColor: theme.surface },
               ]}
               activeOpacity={0.75}
+              onPress={() => {
+                if (action.label === 'Search') {
+                  navigation.navigate('Chat', {
+                    chat,
+                    conversationId: (chat as any).conversationId || chat.id,
+                    participant: chat.isGroup ? undefined : chat.participants?.find((participant: any) => String(participant.id) !== String(user?.id)),
+                    searchMode: true,
+                    searchQuery: '',
+                  });
+                }
+              }}
             >
               <Icon name={action.icon} size={26} color={theme.primary} />
               <Text style={[styles.quickActionText, { color: theme.text }]}>

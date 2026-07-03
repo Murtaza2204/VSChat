@@ -88,7 +88,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
   route,
 }) => {
-  const { chat: routeChat, conversationId: routeConversationId, participant } = route.params || {};
+    const { chat: routeChat, conversationId: routeConversationId, participant, searchMode: routeSearchMode = false, searchQuery: routeSearchQuery = '' } = route.params || {};
   const { theme } = useThemeStore();
   const { user } = useAuthStore();
   const currentUserId = user?.id;
@@ -162,6 +162,84 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
     return out;
   }, [chatMessages, nowTick]);
+  const [isSearchMode, setIsSearchMode] = useState<boolean>(!!routeSearchMode);
+  const [searchQuery, setSearchQuery] = useState<string>(routeSearchQuery || '');
+  const [activeSearchMatchIndex, setActiveSearchMatchIndex] = useState<number>(0);
+  const searchInputRef = useRef<TextInput | null>(null);
+  const normalizedSearchQuery = searchQuery.trim();
+  const searchMatches = useMemo(() => {
+    if (!normalizedSearchQuery) return [] as Array<{ id: string; index: number }>;
+    const query = normalizedSearchQuery.toLowerCase();
+    return messagesWithSeparators
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => !item?.__dateSeparator)
+      .filter(({ item }) => {
+        const haystack = [
+          item?.content,
+          item?.senderName,
+          item?.type,
+          item?.caption,
+          item?.metadata?.caption,
+          item?.location?.title,
+          item?.location?.address,
+          item?.call?.type,
+        ]
+          .filter((part) => part !== undefined && part !== null)
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(query);
+      })
+      .map(({ item, index }) => ({ id: String(item.id), index }));
+  }, [messagesWithSeparators, normalizedSearchQuery]);
+  useEffect(() => {
+    if (routeSearchMode) {
+      setIsSearchMode(true);
+      setSearchQuery(routeSearchQuery || '');
+    }
+  }, [routeSearchMode, routeSearchQuery]);
+
+  useEffect(() => {
+    if (!isSearchMode) return;
+    requestAnimationFrame(() => searchInputRef.current?.focus?.());
+  }, [isSearchMode]);
+
+  useEffect(() => {
+    if (!isSearchMode) return;
+    setActiveSearchMatchIndex(0);
+  }, [normalizedSearchQuery, isSearchMode]);
+
+  useEffect(() => {
+    if (!isSearchMode || !normalizedSearchQuery || !searchMatches.length) return;
+    const target = searchMatches[Math.min(activeSearchMatchIndex, searchMatches.length - 1)];
+    if (!target) return;
+    requestAnimationFrame(() => {
+      try {
+        flatListRef.current?.scrollToIndex({ index: target.index, animated: true, viewPosition: 0.4 });
+      } catch (e) {
+        console.warn('[ChatScreen] scroll to search result failed', e);
+      }
+    });
+  }, [activeSearchMatchIndex, isSearchMode, normalizedSearchQuery, searchMatches]);
+
+  const openSearchMode = () => {
+    setIsSearchMode(true);
+    requestAnimationFrame(() => searchInputRef.current?.focus?.());
+  };
+
+  const closeSearchMode = () => {
+    setIsSearchMode(false);
+    setSearchQuery('');
+    setActiveSearchMatchIndex(0);
+  };
+
+  const jumpToSearchMatch = (direction: 1 | -1) => {
+    if (!searchMatches.length) return;
+    setActiveSearchMatchIndex((current) => {
+      const nextIndex = (current + direction + searchMatches.length) % searchMatches.length;
+      return nextIndex;
+    });
+  };
+
   const isGroupConversation = !!chat?.isGroup || (chat?.participants?.length || 0) > 2;
   const groupMemberCount = (chat.participants?.length || 0) + (isGroupConversation ? 1 : 0);
   const groupSubtitle = isGroupConversation
@@ -2879,6 +2957,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     const resolvedSenderName = fullSenderName;
 
     const shouldShowSender = isGroupConversation && item.senderId !== currentUserId && item.type !== 'system';
+    const searchMatchIndex = searchMatches.findIndex((match) => String(match.id) === String(item.id));
 
     return (
       <ChatBubble
@@ -2921,6 +3000,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         onDocumentPress={() => openDocumentMessage(renderItem)}
         onForwardPress={() => openForwardForMessage(renderItem)}
         isSelected={selectedMessages.some((m) => String(m.id) === String(renderItem.id))}
+        highlighted={isSearchMode && searchMatchIndex !== -1}
         reaction={renderItem.reaction}
         reactions={renderItem.reactions}
         mediaReactionSummary={getVisibleMediaReactionSummary(renderItem)}
@@ -3218,63 +3298,125 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           </>
         ) : (
           <>
-            <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={isSearchMode ? closeSearchMode : () => navigation.goBack()}
+            >
               <Icon name="arrow-back" size={24} color={theme.text} />
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.headerProfileButton}
-              activeOpacity={0.75}
-              onPress={() =>
-                navigation.navigate('ContactInfo', {
-                  chat: {
-                    ...chat,
-                    phoneNumber: (participant as any)?.phoneNumber || (chat as any)?.phoneNumber,
-                    profilePictureUrl: (participant as any)?.profilePictureUrl || (chat as any)?.profilePictureUrl,
-                    displayName: (participant as any)?.title || (participant as any)?.displayName || (chat as any)?.displayName || chat.title,
-                  },
-                })
-              }
-            >
-              <Avatar source={(chat as any).groupProfilePicture || chat.avatar || (isGroupConversation ? '👥' : (chat.title ? chat.title.charAt(0) : ''))} size="medium" theme={theme} />
-              <View style={styles.headerTextBlock}>
-                <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-                  {chat.title}
-                </Text>
-                {isGroupConversation && (
-                  <Text
-                    style={[styles.headerSubtitle, { color: theme.textSecondary }]}
-                    numberOfLines={1}
-                  >
-                    {groupSubtitle}
+            {isSearchMode ? (
+              <View style={{ flex: 1, marginLeft: SPACING.sm, marginRight: SPACING.xs }}>
+                <View style={[styles.searchBar, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
+                  <Icon name="search" size={20} color={theme.textSecondary} />
+                  <TextInput
+                    ref={searchInputRef}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    placeholder="Search messages"
+                    placeholderTextColor={theme.textSecondary}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                    returnKeyType="search"
+                    onSubmitEditing={() => jumpToSearchMatch(1)}
+                    style={[styles.searchInput, { color: theme.text }]}
+                  />
+                  {!!searchQuery && (
+                    <TouchableOpacity
+                      activeOpacity={0.75}
+                      onPress={() => setSearchQuery('')}
+                      style={styles.searchClearButton}
+                    >
+                      <Icon name="close-circle" size={18} color={theme.textSecondary} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <View style={styles.searchMetaRow}>
+                  <Text style={[styles.searchStatusText, { color: theme.textSecondary }]}>
+                    {!normalizedSearchQuery
+                      ? 'Type to search messages'
+                      : searchMatches.length
+                        ? `${Math.min(activeSearchMatchIndex + 1, searchMatches.length)} of ${searchMatches.length}`
+                        : 'No messages found'}
                   </Text>
-                )}
+                  <View style={styles.searchNavRow}>
+                    <TouchableOpacity
+                      activeOpacity={0.75}
+                      onPress={() => jumpToSearchMatch(-1)}
+                      disabled={!searchMatches.length}
+                      style={styles.searchNavButton}
+                    >
+                      <Icon name="chevron-up" size={18} color={searchMatches.length ? theme.primary : theme.textSecondary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      activeOpacity={0.75}
+                      onPress={() => jumpToSearchMatch(1)}
+                      disabled={!searchMatches.length}
+                      style={styles.searchNavButton}
+                    >
+                      <Icon name="chevron-down" size={18} color={searchMatches.length ? theme.primary : theme.textSecondary} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </View>
-            </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.headerProfileButton}
+                activeOpacity={0.75}
+                onPress={() =>
+                  navigation.navigate('ContactInfo', {
+                    chat: {
+                      ...chat,
+                      phoneNumber: (participant as any)?.phoneNumber || (chat as any)?.phoneNumber,
+                      profilePictureUrl: (participant as any)?.profilePictureUrl || (chat as any)?.profilePictureUrl,
+                      displayName: (participant as any)?.title || (participant as any)?.displayName || (chat as any)?.displayName || chat.title,
+                    },
+                  })
+                }
+              >
+                <Avatar source={(chat as any).groupProfilePicture || chat.avatar || (isGroupConversation ? '👥' : (chat.title ? chat.title.charAt(0) : ''))} size="medium" theme={theme} />
+                <View style={styles.headerTextBlock}>
+                  <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
+                    {chat.title}
+                  </Text>
+                  {isGroupConversation && (
+                    <Text
+                      style={[styles.headerSubtitle, { color: theme.textSecondary }]}
+                      numberOfLines={1}
+                    >
+                      {groupSubtitle}
+                    </Text>
+                  )}
+                </View>
+              </TouchableOpacity>
+            )}
 
-            <TouchableOpacity
-              style={styles.headerIconButton}
-              activeOpacity={0.75}
-              onPress={() => handleStartCall('video')}
-            >
-              <Icon name="videocam-outline" size={26} color={theme.primary} />
-            </TouchableOpacity>
+            {!isSearchMode && (
+              <>
+                <TouchableOpacity
+                  style={styles.headerIconButton}
+                  activeOpacity={0.75}
+                  onPress={() => handleStartCall('video')}
+                >
+                  <Icon name="videocam-outline" size={26} color={theme.primary} />
+                </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.headerIconButton}
-              activeOpacity={0.75}
-              onPress={() => handleStartCall('audio')}
-            >
-              <Icon name="call-outline" size={24} color={theme.primary} />
-            </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.headerIconButton}
+                  activeOpacity={0.75}
+                  onPress={() => handleStartCall('audio')}
+                >
+                  <Icon name="call-outline" size={24} color={theme.primary} />
+                </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.headerIconButton}
-              activeOpacity={0.75}
-              onPress={() => setMenuVisible(true)}
-            >
-              <Icon name="ellipsis-vertical" size={22} color={theme.primary} />
-            </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.headerIconButton}
+                  activeOpacity={0.75}
+                  onPress={() => setMenuVisible(true)}
+                >
+                  <Icon name="ellipsis-vertical" size={22} color={theme.primary} />
+                </TouchableOpacity>
+              </>
+            )}
           </>
         )}
       </View>
@@ -4045,6 +4187,48 @@ const styles = StyleSheet.create({
   headerIconButton: {
     width: 42,
     height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchBar: {
+    minHeight: 42,
+    borderRadius: BORDER_RADIUS.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.sm,
+    gap: SPACING.xs,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: 0,
+    fontSize: FONT_SIZES.md,
+  },
+  searchClearButton: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchMetaRow: {
+    marginTop: SPACING.xs / 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  searchStatusText: {
+    flex: 1,
+    fontSize: FONT_SIZES.xs,
+    marginRight: SPACING.sm,
+  },
+  searchNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  searchNavButton: {
+    width: 28,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
   },
