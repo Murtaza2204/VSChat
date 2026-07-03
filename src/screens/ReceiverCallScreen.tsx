@@ -289,14 +289,6 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
                 SHADOWS.md,
               ]}
             >
-              <AcceptedControl icon="ellipsis-horizontal" theme={theme} />
-              <AcceptedControl
-                icon={isVideoOn ? 'videocam' : 'videocam-off'}
-                active={isVideoOn}
-                muted={!isVideoOn}
-                theme={theme}
-                onPress={() => setIsVideoOn(!isVideoOn)}
-              />
               <AcceptedControl
                 icon={isSpeakerOn ? 'volume-high' : 'volume-medium'}
                 active={isSpeakerOn}
@@ -407,14 +399,6 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
               SHADOWS.md,
             ]}
           >
-            <AcceptedControl icon="ellipsis-horizontal" theme={theme} />
-            <AcceptedControl
-              icon={isVideoOn ? 'videocam' : 'videocam-off'}
-              active={isVideoOn}
-              muted={!isVideoOn}
-              theme={theme}
-              onPress={() => setIsVideoOn(!isVideoOn)}
-            />
             <AcceptedControl
               icon={isSpeakerOn ? 'volume-high' : 'volume-medium'}
               active={isSpeakerOn}
@@ -494,7 +478,6 @@ const AcceptedHeader = ({
   onCollapse: () => void;
 }) => (
   <View style={styles.acceptedHeader}>
-    <HeaderButton icon="contract-outline" theme={theme} onPress={onCollapse} />
     <View style={styles.acceptedTitleBlock}>
       <Text style={[styles.acceptedName, { color: theme.text }]} numberOfLines={1}>
         {callerName}
@@ -506,7 +489,6 @@ const AcceptedHeader = ({
         </Text>
       </View>
     </View>
-    <HeaderButton icon="person-add" theme={theme} />
   </View>
 );
 
@@ -584,7 +566,7 @@ const AcceptedControl = ({
   >
     <Icon
       name={icon}
-      size={danger ? 23 : 21}
+      size={danger ? 22 : 18}
       color={danger || active ? theme.background : muted ? theme.textSecondary : theme.text}
     />
   </TouchableOpacity>
@@ -602,14 +584,12 @@ const AcceptedHeaderOverlay = ({
   onCollapse: () => void;
 }) => (
   <View style={styles.videoAcceptedHeader}>
-    <HeaderButton icon="contract-outline" theme={theme} onPress={onCollapse} />
     <View style={styles.videoAcceptedTitle}>
       <Text style={styles.videoAcceptedName} numberOfLines={1}>
         {callerName}
       </Text>
       <Text style={styles.videoDuration}>{duration}</Text>
     </View>
-    <HeaderButton icon="person-add" theme={theme} />
   </View>
 );
 
@@ -758,18 +738,37 @@ const styles = StyleSheet.create({
     left: SPACING.lg,
     right: SPACING.lg,
     bottom: SPACING.xxl,
-    minHeight: 82,
+    minHeight: 70,
     borderRadius: BORDER_RADIUS.full,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
     paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
   },
-  acceptedControl: {
+  videoAcceptedTray: {
+    position: 'absolute',
+    left: SPACING.lg,
+    right: SPACING.lg,
+    bottom: SPACING.xxl,
+    minHeight: 70,
+    borderRadius: BORDER_RADIUS.full,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+  },
+  headerButtonPlaceholder: {
     width: 54,
     height: 54,
-    borderRadius: 27,
+  },
+  acceptedControl: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },

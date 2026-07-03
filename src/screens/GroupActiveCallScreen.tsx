@@ -623,7 +623,6 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             )}
 
             <View style={styles.outgoingVideoHeader}>
-              <OutgoingCircleIcon icon="contract-outline" theme={theme} onPress={() => navigation.goBack()} />
               <View style={styles.outgoingVideoTitleBlock}>
                 {isValidAvatarUri(groupAvatar) ? (
                   <Image source={{ uri: groupAvatar }} style={styles.outgoingVideoHeaderAvatar} />
@@ -633,30 +632,9 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
                 </Text>
                 <Text style={styles.outgoingVideoStatus}>{outgoingStatus}</Text>
               </View>
-              <OutgoingCircleIcon icon="person-add" theme={theme} />
-            </View>
-
-            <View style={styles.outgoingVideoSideActions}>
-              <OutgoingCircleIcon icon="person-add" theme={theme} />
-              {!sessionActive && (
-                <OutgoingCircleIcon icon="camera-reverse" theme={theme} onPress={() => switchCamera()} />
-              )}
-              <OutgoingCircleIcon icon="color-wand" theme={theme} />
             </View>
 
             <OutgoingVideoControlTray theme={theme}>
-              <OutgoingTrayButton icon="ellipsis-horizontal" theme={theme} />
-              <OutgoingTrayButton
-                icon={isVideoOn ? 'videocam' : 'videocam-off'}
-                active={isVideoOn}
-                muted={!isVideoOn}
-                theme={theme}
-                onPress={async () => {
-                  const next = !isVideoOn;
-                  setIsVideoOn(next);
-                  try { await muteLocalVideo(!next); } catch {}
-                }}
-              />
               <OutgoingTrayButton
                 icon={isSpeakerOn ? 'volume-high' : 'volume-medium'}
                 active={isSpeakerOn}
@@ -696,18 +674,14 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           </View>
 
           <View style={styles.outgoingHeader}>
-            <OutgoingHeaderButton icon="contract-outline" theme={theme} onPress={() => navigation.goBack()} />
-
             <View style={styles.outgoingTitleBlock}>
               <Text style={[styles.outgoingCallerName, { color: theme.text }]} numberOfLines={1}>
                 {groupName}
               </Text>
-              <Text style={[styles.outgoingStatusText, { color: theme.textSecondary }]}>
+              <Text style={[styles.outgoingStatusText, { color: theme.textSecondary }]}> 
                 {outgoingStatus}
               </Text>
             </View>
-
-            <OutgoingHeaderButton icon="person-add" theme={theme} />
           </View>
 
           <View style={styles.outgoingAvatarSection}>
@@ -743,7 +717,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
           <View
             style={[
-              styles.outgoingControlPanel,
+              styles.outgoingVideoTray,
               {
                 backgroundColor: theme.surface,
                 borderColor: theme.border,
@@ -751,9 +725,8 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               SHADOWS.md,
             ]}
           >
-            <OutgoingCallControl
+            <OutgoingTrayButton
               icon={isSpeakerOn ? 'volume-high' : 'volume-medium'}
-              label="Speaker"
               active={isSpeakerOn}
               theme={theme}
               onPress={async () => {
@@ -761,21 +734,8 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
                 try { await setSpeakerphone(next); setIsSpeakerOn(next); } catch { setIsSpeakerOn(next); }
               }}
             />
-            <OutgoingCallControl
-              icon={isVideoOn ? 'videocam' : 'videocam-off'}
-              label="Video"
-              active={isVideoOn}
-              muted={!isVideoOn}
-              theme={theme}
-              onPress={async () => {
-                const next = !isVideoOn;
-                setIsVideoOn(next);
-                try { await muteLocalVideo(!next); } catch {}
-              }}
-            />
-            <OutgoingCallControl
+            <OutgoingTrayButton
               icon={isMuted ? 'mic-off' : 'mic-off-outline'}
-              label="Mute"
               active={isMuted}
               theme={theme}
               onPress={async () => {
@@ -783,9 +743,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
                 try { await muteLocalAudio(next); setIsMuted(next); } catch { setIsMuted(next); }
               }}
             />
-            <OutgoingCallControl icon="ellipsis-horizontal" label="More" theme={theme} />
-            <OutgoingCallControl icon="phone-portrait-outline" label="Share" muted theme={theme} />
-            <OutgoingCallControl icon="call" label="End" danger theme={theme} onPress={handleEndCall} />
+            <OutgoingTrayButton icon="call" danger theme={theme} onPress={handleEndCall} />
           </View>
         </View>
       </SafeAreaView>
@@ -796,14 +754,6 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity
-            activeOpacity={0.78}
-            onPress={() => navigation.goBack()}
-            style={[styles.headerButton, { backgroundColor: theme.surface }]}
-          >
-            <Icon name="contract-outline" size={24} color={theme.text} />
-          </TouchableOpacity>
-
           <View style={styles.titleBlock}>
             {isValidAvatarUri(groupAvatar) ? (
               <Image source={{ uri: groupAvatar }} style={styles.headerAvatar} />
@@ -811,17 +761,10 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             <Text style={[styles.groupName, { color: theme.text }]} numberOfLines={1}>
               {groupName}
             </Text>
-            <Text style={[styles.statusText, { color: theme.textSecondary }]}>
+            <Text style={[styles.statusText, { color: theme.textSecondary }]}> 
               {statusText}
             </Text>
           </View>
-
-          <TouchableOpacity
-            activeOpacity={0.78}
-            style={[styles.headerButton, { backgroundColor: theme.surface }]}
-          >
-            <Icon name="people-outline" size={24} color={theme.text} />
-          </TouchableOpacity>
         </View>
 
         <View
@@ -858,7 +801,6 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             SHADOWS.md,
           ]}
         >
-          <TrayButton icon="ellipsis-horizontal" theme={theme} />
           {callType === 'video' ? (
             <TrayButton
               icon={isVideoOn ? 'videocam' : 'videocam-off'}
@@ -1351,10 +1293,12 @@ const styles = StyleSheet.create({
   },
   outgoingVideoTray: {
     position: 'absolute',
-    left: SPACING.lg,
-    right: SPACING.lg,
     bottom: SPACING.xl,
-    minHeight: 80,
+    alignSelf: 'center',
+    minWidth: 300,
+    maxWidth: 420,
+    width: 'auto',
+    height: 64,
     borderRadius: BORDER_RADIUS.full,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1363,9 +1307,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
   },
   outgoingTrayButton: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1438,6 +1382,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.md,
+    paddingBottom: SPACING.xl * 2,
   },
   header: {
     minHeight: 104,
@@ -1568,20 +1513,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   tray: {
-    minHeight: 80,
+    position: 'absolute',
+    bottom: SPACING.xl,
+    alignSelf: 'center',
+    minWidth: 300,
+    maxWidth: 420,
+    width: 'auto',
+    height: 64,
     borderRadius: BORDER_RADIUS.full,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: SPACING.md,
-    marginTop: SPACING.lg,
-    marginBottom: SPACING.xl,
+    zIndex: 5,
   },
   trayButton: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     alignItems: 'center',
     justifyContent: 'center',
   },

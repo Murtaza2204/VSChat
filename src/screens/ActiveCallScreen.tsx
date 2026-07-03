@@ -322,11 +322,6 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           )}
 
           <View style={styles.videoHeader}>
-            <CircleIcon
-              icon="contract-outline"
-              theme={theme}
-              onPress={() => navigation.goBack()}
-            />
             <View style={styles.videoTitleBlock}>
               {displayAvatar ? (
                 <Image source={{ uri: displayAvatar }} style={styles.videoHeaderAvatar} />
@@ -336,17 +331,15 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               </Text>
               <Text style={styles.videoStatus}>{accepted ? formatDuration(elapsedSeconds) : 'Ringing...'}</Text>
             </View>
-            <CircleIcon icon="person-add" theme={theme} />
           </View>
 
-        <View style={styles.videoSideActions}>
-          <CircleIcon icon="person-add" theme={theme} />
-          {!accepted && <CircleIcon icon="camera-reverse" theme={theme} onPress={() => switchCamera()} />}
-          <CircleIcon icon="color-wand" theme={theme} />
-        </View>
+          {!accepted && (
+            <View style={styles.videoSideActions}>
+              <CircleIcon icon="camera-reverse" theme={theme} onPress={() => switchCamera()} />
+            </View>
+          )}
 
           <VideoControlTray theme={theme}>
-            <TrayButton icon="ellipsis-horizontal" theme={theme} />
             <TrayButton
               icon={isVideoOn ? 'videocam' : 'videocam-off'}
               active={isVideoOn}
@@ -397,22 +390,14 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           <Text style={styles.debugText}>speaker:{isSpeakerOn ? 'on' : 'off'}</Text>
         </View>
         <View style={styles.header}>
-          <HeaderButton
-            icon="contract-outline"
-            theme={theme}
-            onPress={() => navigation.goBack()}
-          />
-
           <View style={styles.titleBlock}>
             <Text style={[styles.callerName, { color: theme.text }]} numberOfLines={1}>
               {displayName}
             </Text>
-            <Text style={[styles.statusText, { color: theme.textSecondary }]}>
+            <Text style={[styles.statusText, { color: theme.textSecondary }]}> 
               {callStatus}
             </Text>
           </View>
-
-          <HeaderButton icon="person-add" theme={theme} />
         </View>
 
         <View style={styles.avatarSection}>
@@ -466,18 +451,6 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             }}
           />
           <CallControl
-            icon={isVideoOn ? 'videocam' : 'videocam-off'}
-            label="Video"
-            active={isVideoOn}
-            muted={!isVideoOn}
-            theme={theme}
-            onPress={async () => {
-              const next = !isVideoOn;
-              setIsVideoOn(next);
-              try { await muteLocalVideo(!next); } catch (e) {}
-            }}
-          />
-          <CallControl
             icon={isMuted ? 'mic-off' : 'mic-off-outline'}
             label="Mute"
             active={isMuted}
@@ -487,8 +460,6 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               try { await muteLocalAudio(next); setIsMuted(next); } catch (e) { setIsMuted(next); }
             }}
           />
-          <CallControl icon="ellipsis-horizontal" label="More" theme={theme} />
-          <CallControl icon="phone-portrait-outline" label="Share" muted theme={theme} />
           <CallControl icon="call" label="End" danger theme={theme} onPress={handleEndCall} />
         </View>
       </View>
@@ -641,7 +612,6 @@ const HeaderButton = ({
 
 const CallControl = ({
   icon,
-  label,
   active,
   danger,
   muted,
@@ -649,7 +619,6 @@ const CallControl = ({
   onPress,
 }: {
   icon: string;
-  label: string;
   active?: boolean;
   danger?: boolean;
   muted?: boolean;
@@ -671,11 +640,10 @@ const CallControl = ({
     >
       <Icon
         name={icon}
-        size={danger ? 23 : 21}
+        size={danger ? 24 : 20}
         color={danger || active ? theme.background : muted ? theme.textSecondary : theme.text}
       />
     </View>
-    <Text style={[styles.controlLabel, { color: theme.text }]}>{label}</Text>
   </TouchableOpacity>
 );
 
@@ -856,21 +824,23 @@ const styles = StyleSheet.create({
   },
   videoTray: {
     position: 'absolute',
-    left: SPACING.lg,
-    right: SPACING.lg,
     bottom: SPACING.xxl,
-    minHeight: 76,
+    alignSelf: 'center',
+    minWidth: 220,
+    maxWidth: 320,
+    width: 'auto',
+    height: 58,
     borderRadius: BORDER_RADIUS.full,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: SPACING.sm,
   },
   trayButton: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -918,35 +888,32 @@ const styles = StyleSheet.create({
   },
   controlPanel: {
     position: 'absolute',
-    left: SPACING.lg,
-    right: SPACING.lg,
     bottom: SPACING.xxl,
-    minHeight: 238,
-    borderRadius: BORDER_RADIUS.xl,
+    alignSelf: 'center',
+    minWidth: 300,
+    maxWidth: 420,
+    width: 'auto',
+    height: 66,
+    borderRadius: BORDER_RADIUS.full,
     borderWidth: 1,
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.lg,
-    paddingBottom: SPACING.sm,
+    paddingHorizontal: SPACING.md,
   },
   controlItem: {
-    width: '30%',
     alignItems: 'center',
-    marginBottom: SPACING.md,
+    marginHorizontal: SPACING.sm,
   },
   controlCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     alignItems: 'center',
     justifyContent: 'center',
   },
   controlLabel: {
-    fontSize: FONT_SIZES.sm,
-    fontWeight: '500',
-    marginTop: SPACING.sm,
+    display: 'none',
   },
 });
 
