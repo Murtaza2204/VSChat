@@ -47,10 +47,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const attachmentOptions = [
     { name: 'Gallery', icon: 'images', color: '#168DFF' },
     { name: 'Camera', icon: 'camera', color: '#FF2F7D' },
-    { name: 'Location', icon: 'location', color: '#00C989' },
-    { name: 'Contact', icon: 'person', color: '#00A7E8' },
     { name: 'Document', icon: 'document-text', color: '#8C69FF' },
-    { name: 'Poll', icon: 'reorder-three', color: '#F4A62A' },
   ];
 
   const handleAttachmentPress = () => {
