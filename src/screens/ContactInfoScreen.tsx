@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { launchImageLibrary } from 'react-native-image-picker';
 import {
-  FlatList,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -9,7 +8,6 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   View,
-  Image,
   Alert,
   Platform,
   ToastAndroid,
@@ -24,18 +22,10 @@ import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
 import Avatar from '../components/Avatar';
 import GroupDescriptionModal from '../components/GroupDescriptionModal';
 import api from '../config/api';
-import messagesUtil from '../utils/messages';
 import groupsApi from '../utils/groups';
 import { findOrCreateConversation } from '../utils/conversations';
 import { startConversationCall } from '../utils/calls';
 import { Chat } from '../types';
-
-const mediaItems = [
-  { id: '1', icon: 'image', label: 'GIF' },
-  { id: '2', icon: 'document-text', label: 'Doc' },
-  { id: '3', icon: 'videocam', label: '0:07' },
-  { id: '4', icon: 'image', label: 'Photo' },
-];
 
 const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
@@ -49,7 +39,6 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   let displayName = chat.title;
   const groupMembers = chat.participants || [];
   const [membersProfiles, setMembersProfiles] = useState<any[] | null>(null);
-  const [mediaCount, setMediaCount] = useState<number | null>(null);
   const [ownerId, setOwnerId] = useState<string | null>(chat.ownerId || null);
   const [adminIds, setAdminIds] = useState<string[]>(
     Array.isArray(chat.admins) && chat.admins.length
@@ -389,7 +378,6 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
       setLocalTitle(chat.title || '');
     }
   }, [chat.title, isEditingTitle]);
-  const [mediaPreviews, setMediaPreviews] = useState<any[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -418,28 +406,6 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
       cancelled = true;
     };
   }, [chat, user, phone]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!chat) return;
-      const convId = (chat as any).conversationId || chat.id;
-      if (!convId) return;
-      try {
-        const msgs = await messagesUtil.getMessages(convId);
-        if (cancelled) return;
-        // extract media messages (type !== 'text') and take first 6
-        const media = (msgs || []).filter((m: any) => m.type && m.type !== 'text');
-        setMediaPreviews(media.slice(0, 6));
-        setMediaCount(media.length);
-      } catch (e) {
-        // ignore
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [chat]);
 
   // fetch authoritative conversation and participant profiles for groups
   useEffect(() => {
@@ -581,10 +547,6 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   ];
 
   const isIndividualChat = !chat.isGroup;
-
-  const settingsRows = [
-    { title: 'Manage storage', subtitle: '92.9 MB', icon: 'images-outline' },
-  ];
 
   const dangerRows = [];
   dangerRows.push({ title: 'Clear chat', icon: 'remove-circle-outline', danger: false });
@@ -832,55 +794,6 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
               <Text style={[styles.quickActionText, { color: theme.text }]}>
                 {action.label}
               </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <TouchableOpacity style={styles.mediaHeader} activeOpacity={0.75}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            Media, links, and docs
-          </Text>
-          <View style={styles.mediaCount}>
-            <Text style={[styles.mediaCountText, { color: theme.textSecondary }]}> {mediaCount !== null ? mediaCount : 0} </Text>
-            <Icon name="chevron-forward" size={24} color={theme.textSecondary} />
-          </View>
-        </TouchableOpacity>
-
-        <FlatList
-          data={mediaPreviews.length ? mediaPreviews : []}
-          keyExtractor={(item, idx) => String(item.id || item._id || idx)}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.mediaList}
-          renderItem={({ item }) => (
-            <View style={[styles.mediaTile, { backgroundColor: theme.inputBackground }]}>
-              {item.url || (item.attachment && item.attachment.url) ? (
-                <Image
-                  source={{ uri: item.url || item.attachment.url }}
-                  style={{ width: 56, height: 56, borderRadius: 8 }}
-                />
-              ) : (
-                <Icon name={item.icon || 'image'} size={30} color={theme.primary} />
-              )}
-              <Text style={[styles.mediaLabel, { color: theme.text }]}> 
-                {item.label || (item.type ? item.type.toUpperCase() : '')}
-              </Text>
-            </View>
-          )}
-        />
-
-        <View style={styles.rowsSection}>
-          {settingsRows.map((row) => (
-            <TouchableOpacity key={row.title} style={styles.infoRow} activeOpacity={0.75}>
-              <Icon name={row.icon} size={26} color={theme.textSecondary} />
-              <View style={styles.rowCopy}>
-                <Text style={[styles.rowTitle, { color: theme.text }]}>{row.title}</Text>
-                {!!row.subtitle && (
-                  <Text style={[styles.rowSubtitle, { color: theme.textSecondary }]}>
-                    {row.subtitle}
-                  </Text>
-                )}
-              </View>
             </TouchableOpacity>
           ))}
         </View>
@@ -1415,45 +1328,6 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.base,
     fontWeight: '700',
     marginTop: SPACING.sm,
-  },
-  mediaHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: SPACING.lg,
-    marginBottom: SPACING.md,
-  },
-  sectionTitle: {
-    fontSize: FONT_SIZES.lg,
-    fontWeight: '700',
-  },
-  mediaCount: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  mediaCountText: {
-    fontSize: FONT_SIZES.lg,
-    fontWeight: '700',
-    marginRight: SPACING.xs,
-  },
-  mediaList: {
-    paddingHorizontal: SPACING.lg,
-    paddingBottom: SPACING.xl,
-  },
-  mediaTile: {
-    width: 112,
-    height: 112,
-    borderRadius: BORDER_RADIUS.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: SPACING.md,
-  },
-  mediaLabel: {
-    position: 'absolute',
-    left: SPACING.sm,
-    bottom: SPACING.sm,
-    fontSize: FONT_SIZES.sm,
-    fontWeight: '700',
   },
   rowsSection: {
     paddingTop: SPACING.sm,
