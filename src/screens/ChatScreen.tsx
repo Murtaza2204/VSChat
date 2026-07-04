@@ -123,6 +123,71 @@ const joinHumanList = (items: string[] = []) => {
   return `${list.slice(0, -1).join(', ')}, and ${list[list.length - 1]}`;
 };
 
+const isGenericDocumentName = (name?: string) => {
+  const trimmed = String(name || '').trim();
+  return (
+    /^(media|attachment|document)(\.[a-z0-9]{1,5})?$/i.test(trimmed) ||
+    /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(trimmed) ||
+    /^[0-9a-f]{16,}$/i.test(trimmed) ||
+    /^[0-9a-f-]{20,}$/i.test(trimmed)
+  );
+};
+
+const buildMediaReactionSnippet = (message: any) => {
+  const mediaItems = Array.isArray(message?.mediaItems) && message.mediaItems.length
+    ? message.mediaItems
+    : (Array.isArray(message?.attachments) && message.attachments.length
+      ? message.attachments
+      : (message?.media ? [message.media] : []));
+
+  const getFilename = (item: any = {}) => {
+    const candidates = [item.originalFilename, item.name, item.filename, item.fileName];
+    for (const candidate of candidates) {
+      const value = String(candidate || '').trim();
+      if (value && !isGenericDocumentName(value)) return value;
+    }
+    return 'Document';
+  };
+
+  const classify = (item: any = {}) => {
+    const rawType = String(item.mediaType || item.type || item.kind || '').toLowerCase();
+    const mimeType = String(item.mimeType || item.mime || '').toLowerCase();
+    if (rawType.includes('image') || rawType.includes('photo') || mimeType.startsWith('image/')) return 'photo';
+    if (rawType.includes('video') || mimeType.startsWith('video/')) return 'video';
+    if (rawType.includes('document') || rawType.includes('file') || rawType.includes('attachment') || mimeType.startsWith('application/')) return 'file';
+    return 'unknown';
+  };
+
+  if (!mediaItems.length) {
+    if (message?.type === 'image') return '📷 Photo';
+    if (message?.type === 'video') return '🎥 Video';
+    if (message?.type === 'file' || message?.type === 'document') return `📄 ${getFilename(message)}`;
+    return String(message?.content || '').slice(0, 80);
+  }
+
+  const classified = mediaItems.map((item: any) => ({ ...item, kind: classify(item) }));
+  const photos = classified.filter((item) => item.kind === 'photo');
+  const videos = classified.filter((item) => item.kind === 'video');
+  const files = classified.filter((item) => item.kind === 'file');
+
+  if (files.length && photos.length === 0 && videos.length === 0) {
+    return files.length === 1 ? `📄 ${getFilename(files[0])}` : `📄 ${files.length} Documents`;
+  }
+  if (photos.length > 0 && videos.length === 0) {
+    return photos.length === 1 ? '📷 Photo' : `📷 ${photos.length} Photos`;
+  }
+  if (videos.length > 0 && photos.length === 0) {
+    return videos.length === 1 ? '🎥 Video' : `🎥 ${videos.length} Videos`;
+  }
+  if (photos.length > 0 && videos.length > 0) {
+    return `📎 ${photos.length + videos.length} Media`;
+  }
+  if (files.length > 0) {
+    return `📎 ${photos.length + videos.length + files.length} Media`;
+  }
+  return String(message?.content || '').slice(0, 80);
+};
+
 const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
   route,
@@ -3180,9 +3245,10 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
               let snippet = '';
               try {
                 const reactedMsg = chatItem && chatItem.messages ? (chatItem.messages.find((m: any) => String(m.id) === String(messageId))) : null;
-                if (reactedMsg && reactedMsg.content) snippet = reactedMsg.content;
+                if (reactedMsg) snippet = buildMediaReactionSnippet(reactedMsg);
                 else if (chatItem && chatItem.messages && chatItem.messages.length) {
-                  snippet = chatItem.messages.slice().sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()).slice(-1)[0].content || '';
+                  const latest = chatItem.messages.slice().sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()).slice(-1)[0];
+                  snippet = buildMediaReactionSnippet(latest);
                 }
               } catch (e) { snippet = ''; }
               // Use updateChatLastMessage with a reaction payload so store formats preview
