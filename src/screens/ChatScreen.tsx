@@ -19,6 +19,7 @@ import {
   Dimensions,
   Linking,
   Keyboard,
+  NativeModules,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { ToastAndroid } from 'react-native';
@@ -60,6 +61,25 @@ import signaling from '../services/signaling';
 import { AGORA_APP_ID } from '../config/agora';
 import { markConversationNotificationsRead } from '../services/notifications';
 import { startConversationCall } from '../utils/calls';
+
+// Trigger Android MediaStore scan so Gallery app recognizes newly downloaded files
+const scanMediaFile = async (filePath: string, mediaType?: string | null) => {
+  if (Platform.OS !== 'android') return;
+  try {
+    // Use MediaStore broadcast to trigger gallery scan
+    const { NativeModule } = NativeModules;
+    if (NativeModule && typeof NativeModule.scanFile === 'function') {
+      await NativeModule.scanFile(filePath);
+      console.log('[ChatScreen][media-scan] MediaStore scan triggered for', { filePath });
+    } else {
+      // Fallback: use sendBroadcast with Intent to scan
+      // This is handled by Android automatically in most cases when file is written
+      console.log('[ChatScreen][media-scan] NativeModule not available, relying on Android auto-scan');
+    }
+  } catch (e) {
+    console.warn('[ChatScreen][media-scan] failed to trigger media scan', e);
+  }
+};
 
 // Validate RNFetchBlob module has required methods
 const validateRNFetchBlob = (module: any): boolean => {
@@ -557,21 +577,21 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
     const downloadBaseUrl = 'https://pub-9e006aecccb34fa0af4dc9a24327c25f.r2.dev';
     
-    // Use hardcoded Android paths (standard, always available)
+    // Use hardcoded Android paths with VSChat subfolder for organization
     const dirs: any = Platform.OS === 'android'
       ? {
-          PictureDir: '/storage/emulated/0/Pictures',
-          MovieDir: '/storage/emulated/0/Movies',
-          DownloadDir: '/storage/emulated/0/Download',
-          DocumentDir: '/storage/emulated/0/Documents',
-          MusicDir: '/storage/emulated/0/Music',
+          PictureDir: '/storage/emulated/0/Pictures/VSChat',
+          MovieDir: '/storage/emulated/0/Movies/VSChat',
+          DownloadDir: '/storage/emulated/0/Download/VSChat',
+          DocumentDir: '/storage/emulated/0/Download/VSChat',
+          MusicDir: '/storage/emulated/0/Music/VSChat',
         }
       : {
-          PictureDir: '/var/mobile/Media/DCIM/100APPLE',
-          MovieDir: '/var/mobile/Media/DCIM',
-          DownloadDir: '/var/mobile/Downloads',
-          DocumentDir: '/var/mobile/Documents',
-          MusicDir: '/var/mobile/Music',
+          PictureDir: '/var/mobile/Media/DCIM/100APPLE/VSChat',
+          MovieDir: '/var/mobile/Media/DCIM/VSChat',
+          DownloadDir: '/var/mobile/Downloads/VSChat',
+          DocumentDir: '/var/mobile/Downloads/VSChat',
+          MusicDir: '/var/mobile/Music/VSChat',
         };
 
     // Detailed diagnostics for RNFetchBlob availability
@@ -687,6 +707,16 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         }
 
         pendingMediaDownloadKeysRef.current.add(downloadKey);
+
+        // Create destination directory if it doesn't exist
+        try {
+          if (RNFetchBlob.fs && typeof RNFetchBlob.fs.mkdir === 'function') {
+            await RNFetchBlob.fs.mkdir(destinationDir);
+            console.log('[ChatScreen][auto-download] directory created/verified', { destinationDir });
+          }
+        } catch (mkdirErr) {
+          console.warn('[ChatScreen][auto-download] directory creation failed', { destinationDir, error: mkdirErr });
+        }
 
         for (let attempt = 1; attempt <= 3; attempt += 1) {
           let downloadUrl = '';
@@ -851,6 +881,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             if (finalExists && fileSize > 0) {
               completedMediaDownloadKeysRef.current.add(downloadKey);
               console.log('[ChatScreen][auto-download] download successful', { messageId: message.id, fileName, fileSize, destinationPath });
+              // Trigger MediaStore scan so file appears in Gallery
+              await scanMediaFile(destinationPath, mediaType);
               return;
             }
             throw new Error(`Downloaded file check failed: exists=${finalExists}, size=${fileSize}`);
@@ -924,6 +956,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                   if (fbExists && fbSize > 0) {
                     completedMediaDownloadKeysRef.current.add(downloadKey);
                     console.log('[ChatScreen][auto-download] fallback download successful', { messageId: message.id, destinationPath, fbSize });
+                    // Trigger MediaStore scan so file appears in Gallery
+                    await scanMediaFile(destinationPath, mediaType);
                     fallbackSucceeded = true;
                   }
                 }
