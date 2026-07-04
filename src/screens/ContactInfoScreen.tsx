@@ -43,7 +43,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
 }) => {
   const { chat: routeChat } = route.params as { chat: Chat };
   const { theme } = useThemeStore();
-  const { chats, updateGroupTitle, removeGroupMembers } = useChatStore();
+  const { chats, updateGroupTitle, removeGroupMembers, updateChat } = useChatStore();
   const chat = chats.find((item) => item.id === routeChat.id) || routeChat;
   // derive display name, avatar and phone from possible shapes returned by backend
   let displayName = chat.title;
@@ -51,6 +51,13 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   const [membersProfiles, setMembersProfiles] = useState<any[] | null>(null);
   const [mediaCount, setMediaCount] = useState<number | null>(null);
   const [ownerId, setOwnerId] = useState<string | null>(chat.ownerId || null);
+  const [adminIds, setAdminIds] = useState<string[]>(
+    Array.isArray(chat.admins) && chat.admins.length
+      ? chat.admins.map(String)
+      : chat.ownerId
+        ? [String(chat.ownerId)]
+        : [],
+  );
   const [groupDescription, setGroupDescription] = useState<string>(chat.description || '');
   const [showDescriptionModal, setShowDescriptionModal] = useState<boolean>(false);
   const [isDescriptionSaving, setIsDescriptionSaving] = useState<boolean>(false);
@@ -64,7 +71,10 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   const [localTitle, setLocalTitle] = useState<string>(chat.title || '');
   const [isRemoveMode, setIsRemoveMode] = useState<boolean>(false);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [isAddAdminMode, setIsAddAdminMode] = useState<boolean>(false);
+  const [selectedAdminIds, setSelectedAdminIds] = useState<string[]>([]);
   const [isRemovingMembers, setIsRemovingMembers] = useState<boolean>(false);
+  const [isAddingAdmins, setIsAddingAdmins] = useState<boolean>(false);
   const [isMemberSearchVisible, setIsMemberSearchVisible] = useState<boolean>(false);
   const [memberSearchQuery, setMemberSearchQuery] = useState<string>('');
   const memberSearchInputRef = useRef<TextInput | null>(null);
@@ -119,10 +129,22 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const [about, setAbout] = useState<string>(initialAbout);
 
-  const isAdmin = Boolean(
-    currentUserId &&
-      (ownerId ? String(currentUserId) === String(ownerId) : String(currentUserId) === String(chat.ownerId)),
-  );
+  const resolvedAdminIds = useMemo(() => {
+    const ids = adminIds.length
+      ? adminIds.map(String)
+      : Array.isArray((chat as any).admins) && (chat as any).admins.length
+        ? (chat as any).admins.map(String)
+        : ownerId
+          ? [String(ownerId)]
+          : chat.ownerId
+            ? [String(chat.ownerId)]
+            : [];
+    return Array.from(new Set(ids.filter(Boolean)));
+  }, [adminIds, chat.admins, chat.ownerId, ownerId]);
+
+  const adminIdSet = useMemo(() => new Set(resolvedAdminIds), [resolvedAdminIds]);
+
+  const isAdmin = Boolean(currentUserId && adminIdSet.has(String(currentUserId)));
 
   useEffect(() => {
     if (isMemberSearchVisible) {
@@ -154,6 +176,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   }, [groupMembers, membersProfiles, normalizedMemberSearchQuery, currentUserId]);
 
   const selectedMemberIdSet = new Set(selectedMemberIds);
+  const selectedAdminIdSet = new Set(selectedAdminIds);
   const isManageMembersEnabled = chat.isGroup && isAdmin;
 
   const getMemberId = (member: any) => member?.id || member?._id || member;
@@ -165,6 +188,44 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
     setSelectedMemberIds((current) =>
       current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
     );
+  };
+
+  const handleToggleAdminSelection = (member: any) => {
+    const id = String(getMemberId(member) || '');
+    if (!id || String(id) === String(currentUserId) || adminIdSet.has(id)) {
+      return;
+    }
+    setSelectedAdminIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    );
+  };
+
+  const cancelAdminMode = () => {
+    setIsAddAdminMode(false);
+    setSelectedAdminIds([]);
+  };
+
+  const cancelRemoveMode = () => {
+    setIsRemoveMode(false);
+    setSelectedMemberIds([]);
+  };
+
+  const startRemoveMode = () => {
+    setIsAddAdminMode(false);
+    setSelectedAdminIds([]);
+    setIsRemoveMode((prev) => !prev);
+    if (isRemoveMode) {
+      setSelectedMemberIds([]);
+    }
+  };
+
+  const startAddAdminMode = () => {
+    setIsRemoveMode(false);
+    setSelectedMemberIds([]);
+    setIsAddAdminMode((prev) => !prev);
+    if (isAddAdminMode) {
+      setSelectedAdminIds([]);
+    }
   };
 
   const handleNavigateToMemberChat = async (member: any) => {
@@ -192,11 +253,6 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   };
 
-  const handleCancelRemoveMode = () => {
-    setIsRemoveMode(false);
-    setSelectedMemberIds([]);
-  };
-
   const applyLocalMemberRemoval = (memberIds: string[]) => {
     setMembersProfiles((profiles) =>
       profiles ? profiles.filter((member) => !memberIds.includes(String(getMemberId(member)))) : profiles,
@@ -220,16 +276,23 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
             try {
               setIsRemovingMembers(true);
               const convId = (chat as any).conversationId || chat.id;
-              await groupsApi.updateGroup(convId, {
+              const updatedGroup = await groupsApi.updateGroup(convId, {
                 title: chat.title,
                 description: groupDescription,
                 addMembers: [],
                 removeMembers: selectedMemberIds,
               });
+              if (updatedGroup) {
+                updateChat(convId, updatedGroup);
+                setAdminIds(Array.isArray(updatedGroup.admins) && updatedGroup.admins.length
+                  ? updatedGroup.admins.map(String)
+                  : updatedGroup.ownerId
+                    ? [String(updatedGroup.ownerId)]
+                    : []);
+              }
               removeGroupMembers(convId, selectedMemberIds);
               applyLocalMemberRemoval(selectedMemberIds);
-              setSelectedMemberIds([]);
-              setIsRemoveMode(false);
+              cancelRemoveMode();
               showSuccessMessage('Members removed from group');
             } catch (error: any) {
               console.error('Error removing members:', error);
@@ -348,9 +411,17 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
         const match = convos.find((c) => String(c._id) === String(convId) || String(c.id) === String(convId));
         const participants = (match && match.participants) || chat.participants || [];
         const foundOwner = (match && (match.ownerId || match.createdBy || match.owner)) || chat.ownerId || null;
+        const foundAdmins = (match && Array.isArray(match.admins) && match.admins.length
+          ? match.admins
+          : Array.isArray((chat as any).admins) && (chat as any).admins.length
+            ? (chat as any).admins
+            : foundOwner
+              ? [foundOwner]
+              : []) || [];
         const foundDescription = (match && match.description) || chat.description || '';
         const foundGroupPhoto = (match && (match.groupProfilePicture || match.avatar)) || (chat as any).groupProfilePicture || (chat as any).avatar || null;
         if (!cancelled && foundOwner) setOwnerId(String(foundOwner));
+        if (!cancelled) setAdminIds(Array.from(new Set(foundAdmins.map((id: any) => String(id)).filter(Boolean))));
         if (!cancelled) setGroupDescription(foundDescription);
         if (!cancelled && foundGroupPhoto) setAvatarState(foundGroupPhoto);
         if (cancelled) return;
@@ -760,6 +831,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
             <View style={styles.membersHeader}>
               <Text style={[styles.membersCount, { color: theme.textSecondary }]}>
                 {groupMemberCount} members
+                {isAddAdminMode && selectedAdminIds.length > 0 ? `, ${selectedAdminIds.length} selected` : isRemoveMode && selectedMemberIds.length > 0 ? `, ${selectedMemberIds.length} selected` : ''}
               </Text>
               <View style={styles.memberHeaderButtons}>
                 <TouchableOpacity
@@ -773,7 +845,20 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                   <TouchableOpacity
                     style={styles.memberSearchButton}
                     activeOpacity={0.75}
-                    onPress={() => setIsRemoveMode((prev) => !prev)}
+                    onPress={startAddAdminMode}
+                  >
+                    <Icon
+                      name={isAddAdminMode ? 'person-add' : 'person-add-outline'}
+                      size={24}
+                      color={theme.textSecondary}
+                    />
+                  </TouchableOpacity>
+                )}
+                {isManageMembersEnabled && (
+                  <TouchableOpacity
+                    style={styles.memberSearchButton}
+                    activeOpacity={0.75}
+                    onPress={startRemoveMode}
                   >
                     <Icon
                       name={isRemoveMode ? 'close-outline' : 'person-remove-outline'}
@@ -812,21 +897,23 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
               </View>
             )}
 
-            <TouchableOpacity
-              style={styles.memberRow}
-              activeOpacity={0.75}
-              onPress={() =>
-                navigation.navigate('SelectContact', {
-                  mode: 'addMembers',
-                  groupChatId: chat.id,
-                })
-              }
-            >
-              <View style={[styles.addMemberAvatar, { backgroundColor: theme.success }]}> 
-                <Icon name="person-add" size={24} color={theme.background} />
-              </View>
-              <Text style={[styles.addMemberText, { color: theme.text }]}>Add members</Text>
-            </TouchableOpacity>
+            {isManageMembersEnabled && (
+              <TouchableOpacity
+                style={styles.memberRow}
+                activeOpacity={0.75}
+                onPress={() =>
+                  navigation.navigate('SelectContact', {
+                    mode: 'addMembers',
+                    groupChatId: chat.id,
+                  })
+                }
+              >
+                <View style={[styles.addMemberAvatar, { backgroundColor: theme.success }]}>
+                  <Icon name="person-add" size={24} color={theme.background} />
+                </View>
+                <Text style={[styles.addMemberText, { color: theme.text }]}>Add members</Text>
+              </TouchableOpacity>
+            )}
 
             {filteredGroupMembers.map((member: any, index: number) => {
               const id = member.id || member._id || member;
@@ -835,11 +922,13 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
               const isCurrentUser = String(memberId) === String(currentUserId);
               const name = isCurrentUser ? 'You' : rawName;
               const avatar = member.profilePictureUrl || member.avatar || (rawName ? rawName.charAt(0) : '');
-              const isSelected = selectedMemberIdSet.has(memberId);
-              const isAdminBadge =
-                (ownerId && String(memberId) === String(ownerId)) ||
-                (!ownerId && chat.ownerId && String(memberId) === String(chat.ownerId)) ||
-                (index === 0 && !ownerId && !chat.ownerId);
+              const isSelected = isAddAdminMode
+                ? selectedAdminIdSet.has(memberId)
+                : selectedMemberIdSet.has(memberId);
+              const isAdminBadge = adminIdSet.has(memberId);
+              const isSelectableForRemove = !isCurrentUser;
+              const isSelectableForAdmin = !isCurrentUser && !isAdminBadge;
+              const showSelection = (isRemoveMode && isSelectableForRemove) || (isAddAdminMode && isSelectableForAdmin);
 
               return (
                 <TouchableOpacity
@@ -847,10 +936,14 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                   style={styles.memberRow}
                   activeOpacity={0.75}
                   onPress={() => {
-                    if (isRemoveMode && !isCurrentUser) {
+                    if (isRemoveMode && isSelectableForRemove) {
                       handleToggleMemberSelection(member);
+                    } else if (isAddAdminMode && isSelectableForAdmin) {
+                      handleToggleAdminSelection(member);
                     } else if (!isRemoveMode) {
-                      handleNavigateToMemberChat(member);
+                      if (!isAddAdminMode) {
+                        handleNavigateToMemberChat(member);
+                      }
                     }
                   }}
                 >
@@ -885,7 +978,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                       {(member.phoneNumber || (member as any).phone) || 'Available'}
                     </Text>
                   </View>
-                  {isRemoveMode ? (
+                  {showSelection ? (
                     <View
                       style={[
                         styles.selectionIndicator,
@@ -911,7 +1004,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
           <View style={styles.removeActionBar}>
             <TouchableOpacity
               style={[styles.cancelRemoveButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
-              onPress={handleCancelRemoveMode}
+              onPress={cancelRemoveMode}
               activeOpacity={0.75}
             >
               <Text style={[styles.cancelRemoveButtonText, { color: theme.text }]}>Cancel</Text>
@@ -935,6 +1028,68 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                   ]}
                 >
                   Remove {selectedMemberIds.length} member{selectedMemberIds.length === 1 ? '' : 's'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {chat.isGroup && isAddAdminMode && (
+          <View style={styles.removeActionBar}>
+            <TouchableOpacity
+              style={[styles.cancelRemoveButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+              onPress={cancelAdminMode}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.cancelRemoveButtonText, { color: theme.text }]}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.confirmRemoveButton,
+                { backgroundColor: selectedAdminIds.length ? theme.primary : theme.surface },
+              ]}
+              onPress={async () => {
+                if (!selectedAdminIds.length) return;
+                try {
+                  setIsAddingAdmins(true);
+                  const convId = (chat as any).conversationId || chat.id;
+                  const updatedGroup = await groupsApi.updateGroup(convId, {
+                    addAdmins: selectedAdminIds,
+                    addedBy: user?.id,
+                    addedByName: (user as any)?.displayName || user?.name,
+                  });
+                  const nextAdmins = Array.from(
+                    new Set(
+                      [
+                        ...(Array.isArray(updatedGroup?.admins) ? updatedGroup.admins : adminIds),
+                        ...selectedAdminIds,
+                      ].map(String),
+                    ),
+                  );
+                  updateChat(convId, updatedGroup || { admins: nextAdmins });
+                  setAdminIds(nextAdmins);
+                  cancelAdminMode();
+                  showSuccessMessage('Admins updated');
+                } catch (error: any) {
+                  console.error('Error adding admins:', error);
+                  Alert.alert('Error', error.message || 'Unable to update group admins');
+                } finally {
+                  setIsAddingAdmins(false);
+                }
+              }}
+              disabled={!selectedAdminIds.length || isAddingAdmins}
+              activeOpacity={0.75}
+            >
+              {isAddingAdmins ? (
+                <ActivityIndicator color={theme.background} />
+              ) : (
+                <Text
+                  style={[
+                    styles.confirmRemoveButtonText,
+                    { color: selectedAdminIds.length ? theme.background : theme.textSecondary },
+                  ]}
+                >
+                  Add {selectedAdminIds.length} admin{selectedAdminIds.length === 1 ? '' : 's'}
                 </Text>
               )}
             </TouchableOpacity>

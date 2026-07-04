@@ -100,6 +100,7 @@ export interface Chat {
   messages: Message[];
   // optional fields returned by backend / used across screens
   ownerId?: string;
+  admins?: string[];
   description?: string;
   conversationId?: string;
   phoneNumber?: string;

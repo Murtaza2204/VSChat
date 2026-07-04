@@ -11,8 +11,8 @@ export const listGroups = async (userId) => {
   return res.data.groups;
 };
 
-export const updateGroup = async (groupId: any, { title, description, addMembers = [], removeMembers = [], groupProfilePicture }: any = {}) => {
-  const res = await api.patch(`/groups/${groupId}`, { title, description, addMembers, removeMembers, groupProfilePicture });
+export const updateGroup = async (groupId: any, { title, description, addMembers = [], removeMembers = [], addAdmins = [], removeAdmins = [], groupProfilePicture, addedBy, addedByName }: any = {}) => {
+  const res = await api.patch(`/groups/${groupId}`, { title, description, addMembers, removeMembers, addAdmins, removeAdmins, groupProfilePicture, addedBy, addedByName });
   return res.data.group;
 };
 

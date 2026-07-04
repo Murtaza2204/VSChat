@@ -360,6 +360,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       isGroup: true,
       participants: participantUsers,
       messages: [],
+      admins: participantUsers.length ? [String(participantUsers[0].id)] : [],
     };
 
     set({ chats: [newGroup, ...get().chats] });
