@@ -128,6 +128,10 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   })();
 
   const [about, setAbout] = useState<string>(initialAbout);
+  const mainGroupAdminId = ownerId || chat.ownerId || null;
+  const isMainGroupAdmin = Boolean(
+    currentUserId && mainGroupAdminId && String(currentUserId) === String(mainGroupAdminId),
+  );
 
   const resolvedAdminIds = useMemo(() => {
     const ids = adminIds.length
@@ -281,6 +285,8 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                 description: groupDescription,
                 addMembers: [],
                 removeMembers: selectedMemberIds,
+                addedBy: user?.id,
+                addedByName: (user as any)?.displayName || user?.name,
               });
               if (updatedGroup) {
                 updateChat(convId, updatedGroup);
@@ -299,6 +305,50 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
               Alert.alert('Error', error.message || 'Unable to remove members from group');
             } finally {
               setIsRemovingMembers(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleRemoveAdmin = async (member: any) => {
+    const memberId = String(getMemberId(member) || '');
+    if (!memberId || !isMainGroupAdmin || String(memberId) === String(mainGroupAdminId)) {
+      return;
+    }
+
+    Alert.alert(
+      'Remove admin?',
+      'This will revoke admin privileges but keep the member in the group.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove Admin',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsAddingAdmins(true);
+              const convId = (chat as any).conversationId || chat.id;
+              const updatedGroup = await groupsApi.updateGroup(convId, {
+                removeAdmins: [memberId],
+                addedBy: user?.id,
+                addedByName: (user as any)?.displayName || user?.name,
+              });
+              if (updatedGroup) {
+                updateChat(convId, updatedGroup);
+                setAdminIds(Array.isArray(updatedGroup.admins) && updatedGroup.admins.length
+                  ? updatedGroup.admins.map(String)
+                  : updatedGroup.ownerId
+                    ? [String(updatedGroup.ownerId)]
+                    : []);
+              }
+              showSuccessMessage('Admin privileges removed');
+            } catch (error: any) {
+              console.error('Error removing admin:', error);
+              Alert.alert('Error', error.message || 'Unable to remove admin privileges');
+            } finally {
+              setIsAddingAdmins(false);
             }
           },
         },
@@ -922,13 +972,15 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
               const isCurrentUser = String(memberId) === String(currentUserId);
               const name = isCurrentUser ? 'You' : rawName;
               const avatar = member.profilePictureUrl || member.avatar || (rawName ? rawName.charAt(0) : '');
+              const isMainAdminBadge = Boolean(mainGroupAdminId && String(memberId) === String(mainGroupAdminId));
               const isSelected = isAddAdminMode
                 ? selectedAdminIdSet.has(memberId)
                 : selectedMemberIdSet.has(memberId);
               const isAdminBadge = adminIdSet.has(memberId);
-              const isSelectableForRemove = !isCurrentUser;
+              const isSelectableForRemove = !isCurrentUser && (isMainGroupAdmin || !isAdminBadge);
               const isSelectableForAdmin = !isCurrentUser && !isAdminBadge;
               const showSelection = (isRemoveMode && isSelectableForRemove) || (isAddAdminMode && isSelectableForAdmin);
+              const showRemoveAdminAction = isMainGroupAdmin && isAdminBadge && !isMainAdminBadge && !isRemoveMode && !isAddAdminMode;
 
               return (
                 <TouchableOpacity
@@ -967,7 +1019,9 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                             { backgroundColor: theme.primary },
                           ]}
                         >
-                          <Text style={[styles.adminBadgeText, { color: theme.background }]}>Group Admin</Text>
+                          <Text style={[styles.adminBadgeText, { color: theme.background }]}>
+                            {isMainAdminBadge ? 'Main Group Admin' : 'Group Admin'}
+                          </Text>
                         </View>
                       ) : null}
                     </View>
@@ -978,7 +1032,15 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
                       {(member.phoneNumber || (member as any).phone) || 'Available'}
                     </Text>
                   </View>
-                  {showSelection ? (
+                  {showRemoveAdminAction ? (
+                    <TouchableOpacity
+                      style={[styles.removeAdminPill, { backgroundColor: theme.error }]}
+                      activeOpacity={0.8}
+                      onPress={() => handleRemoveAdmin(member)}
+                    >
+                      <Text style={[styles.removeAdminPillText, { color: theme.background }]}>Remove Admin</Text>
+                    </TouchableOpacity>
+                  ) : showSelection ? (
                     <View
                       style={[
                         styles.selectionIndicator,
@@ -1473,6 +1535,18 @@ const styles = StyleSheet.create({
     marginLeft: SPACING.sm,
   },
   adminBadgeText: {
+    fontSize: FONT_SIZES.xs,
+    fontWeight: '700',
+  },
+  removeAdminPill: {
+    minHeight: 32,
+    paddingHorizontal: SPACING.md,
+    borderRadius: BORDER_RADIUS.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: SPACING.md,
+  },
+  removeAdminPillText: {
     fontSize: FONT_SIZES.xs,
     fontWeight: '700',
   },
