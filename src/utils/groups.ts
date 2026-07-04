@@ -26,10 +26,16 @@ export const getGroup = async (groupId) => {
   return res.data.group;
 };
 
-export const uploadGroupProfilePicture = async (groupId, imageUri) => {
+export const uploadGroupProfilePicture = async (groupId, imageUri, addedBy?, addedByName?) => {
   const form = new FormData();
   // @ts-ignore
   form.append('image', { uri: imageUri, name: 'group.jpg', type: 'image/jpeg' });
+  if (addedBy) {
+    form.append('addedBy', String(addedBy));
+  }
+  if (addedByName) {
+    form.append('addedByName', String(addedByName));
+  }
   const res = await api.post(`/groups/${groupId}/profile-picture`, form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });

@@ -499,7 +499,12 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
       if (!asset?.uri) return;
       setIsAvatarUploading(true);
       const convId = (chat as any).conversationId || chat.id;
-      const uploaded = await groupsApi.uploadGroupProfilePicture(convId, asset.uri);
+      const uploaded = await groupsApi.uploadGroupProfilePicture(
+        convId,
+        asset.uri,
+        user?.id,
+        (user as any)?.displayName || user?.name,
+      );
       const nextAvatar = uploaded?.groupProfilePicture || null;
       setAvatarState(nextAvatar);
       useChatStore.getState().updateGroupAvatar(convId, nextAvatar);
@@ -522,6 +527,8 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
         description: newDescription,
         addMembers: [],
         removeMembers: [],
+        addedBy: user?.id,
+        addedByName: (user as any)?.displayName || user?.name,
       });
 
       // Update local state
@@ -551,6 +558,8 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
         title: nextTitle,
         addMembers: [],
         removeMembers: [],
+        addedBy: user?.id,
+        addedByName: (user as any)?.displayName || user?.name,
       });
       const savedTitle = updatedGroup?.title || nextTitle;
       updateGroupTitle(convId, savedTitle);

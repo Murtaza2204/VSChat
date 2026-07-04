@@ -29,12 +29,27 @@ const setupListeners = () => {
       delete updates.lastMessage;
       delete updates.lastMessageAt;
 
+      if (updates.lastMessageType === 'system') {
+        delete updates.lastMessageType;
+        delete updates.lastMessageRaw;
+        delete updates.lastMessageActorId;
+        delete updates.lastMessageSystemEventType;
+        delete updates.lastMessageSystemActorId;
+        delete updates.lastMessageSystemActorName;
+        delete updates.lastMessageSystemTargetIds;
+        delete updates.lastMessageSystemTargetNames;
+        delete updates.lastMessageSystemAudienceIds;
+        delete updates.lastMessageSystemData;
+      }
+
       if (Object.keys(updates).length > 0) {
         store.updateChat(conversationId, updates);
       }
 
       if (typeof lastMessage !== 'undefined' || typeof lastMessageAt !== 'undefined') {
-        store.updateChatLastMessage(conversationId, lastMessage, lastMessageAt ? new Date(lastMessageAt) : undefined);
+        if (updates.lastMessageType !== 'system') {
+          store.updateChatLastMessage(conversationId, lastMessage, lastMessageAt ? new Date(lastMessageAt) : undefined);
+        }
       }
     } catch (e) {
       console.warn('[socket] conversation:update error:', e);

@@ -275,13 +275,10 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
 
   // Render system messages as a centered, muted pill
   if (type === 'system') {
-    const display = (typeof message === 'string' && senderName && message.trim().startsWith('Someone'))
-      ? message.replace(/^Someone\b/, senderName)
-      : message;
     return (
       <View style={{ alignItems: 'center', marginVertical: SPACING.sm }}>
         <View style={[styles.systemContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}> 
-          <Text style={[styles.systemText, { color: theme.textSecondary }]}>{display}</Text>
+          <Text style={[styles.systemText, { color: theme.textSecondary }]}>{message}</Text>
         </View>
       </View>
     );

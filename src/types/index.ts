@@ -65,6 +65,13 @@ export interface Message {
     senderName: string;
     originalContent: string;
   } | null;
+  systemEventType?: string;
+  systemActorId?: string | null;
+  systemActorName?: string | null;
+  systemTargetIds?: string[];
+  systemTargetNames?: string[];
+  systemAudienceIds?: string[];
+  systemData?: Record<string, any>;
 }
 
 export interface MediaItem {

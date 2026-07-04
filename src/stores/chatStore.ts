@@ -3,6 +3,14 @@ import { useAuthStore } from './authStore';
 import { fetchDownloadUrl } from '../services/mediaService';
 import { Chat, Message } from '../types';
 
+const joinHumanList = (items: string[] = []) => {
+  const list = (Array.isArray(items) ? items : []).filter(Boolean);
+  if (!list.length) return '';
+  if (list.length === 1) return list[0];
+  if (list.length === 2) return `${list[0]} and ${list[1]}`;
+  return `${list.slice(0, -1).join(', ')}, and ${list[list.length - 1]}`;
+};
+
 interface ChatStore {
   chats: Chat[];
   currentChat: Chat | null;
@@ -76,6 +84,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           let finalLastMessage = '';
           try {
             if (lastMessage && typeof lastMessage === 'object') {
+              if (lastMessage.type === 'system' || lastMessage.systemEventType) {
+                finalLastMessage = String(c.lastMessage || '');
+              } else {
                 // Support reaction payloads: `reactedBy`, `reaction`, and `originalActorId`
                 const actorId = lastMessage.reactedBy || lastMessage.actorId || lastMessage.senderId || lastMessage.lastMessageActorId || lastMessage.originalActorId;
                 const raw = lastMessage.raw || lastMessage.content || lastMessage.text || '';
@@ -108,6 +119,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 }
               } else {
                 finalLastMessage = raw || String(lastMessage);
+              }
               }
             } else {
               finalLastMessage = String(lastMessage || '');
@@ -171,11 +183,20 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           );
         }
 
+        if (message.type === 'system') {
+          return {
+            ...chat,
+            messages: nextMessages,
+          };
+        }
+
         // For group chats, show sender prefix contextual to current user
         const currentUser = useAuthStore.getState().user;
         let displayLastMessage = rawPreview;
         try {
-          if (chat.isGroup) {
+          if (message.type === 'system') {
+            displayLastMessage = rawPreview;
+          } else if (chat.isGroup) {
             if (String(message.senderId) === String(currentUser?.id)) {
               displayLastMessage = `You: ${rawPreview}`;
             } else {

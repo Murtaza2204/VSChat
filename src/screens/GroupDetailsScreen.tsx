@@ -64,7 +64,11 @@ const GroupDetailsScreen = ({navigation, route}) => {
     }
     setLoading(true);
     try {
-      const updated = await groupsApi.updateGroup(groupId, { title: newTitle.trim() });
+      const updated = await groupsApi.updateGroup(groupId, {
+        title: newTitle.trim(),
+        addedBy: user?.id,
+        addedByName: (user as any)?.displayName || user?.name,
+      });
       setGroup(updated);
       setMembers(updated.participants || []);
       setEditing(false);

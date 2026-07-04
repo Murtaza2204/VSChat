@@ -49,7 +49,6 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
       setLoadingContacts(true);
       try {
         const matched2 = await contactSync.syncDeviceContacts();
-          console.warn('matched2', matched2);
         setContactsList(
           matched2.map((u: any) => ({
             id: u._id,

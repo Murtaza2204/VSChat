@@ -101,6 +101,13 @@ export const useAuthStore = create<AuthStore>((set) => {
                     type: msg.type || 'text',
                     timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
                     read: false,
+                    systemEventType: msg.systemEventType || msg.metadata?.systemEventType,
+                    systemActorId: msg.systemActorId || msg.metadata?.systemActorId,
+                    systemActorName: msg.systemActorName || msg.metadata?.systemActorName,
+                    systemTargetIds: msg.systemTargetIds || msg.metadata?.systemTargetIds,
+                    systemTargetNames: msg.systemTargetNames || msg.metadata?.systemTargetNames,
+                    systemAudienceIds: msg.systemAudienceIds || msg.metadata?.systemAudienceIds,
+                    systemData: msg.systemData || msg.metadata?.systemData,
                   };
                   if (msg.replyToId) message.replyToId = msg.replyToId;
                   if (msg.forwarded) {
@@ -110,24 +117,34 @@ export const useAuthStore = create<AuthStore>((set) => {
 
                   if (chatItem) {
                     chatState.addMessage(chatItem.id || convId, message);
-                    const updatedChats = chats.map((c) =>
-                      (String(c.conversationId) === convId || String(c.id) === convId)
-                        ? { ...c, lastMessage: message.content, lastMessageTime: message.timestamp, unreadCount: currentOpen ? 0 : ((c.unreadCount || 0) + 1), lastMessageReaction: undefined, lastMessageActorId: undefined, lastMessageRaw: undefined }
-                        : c,
-                    );
-                    chatState.setChats(updatedChats);
-                  } else {
+                    if (msg.type !== 'system') {
+                      const updatedChats = chats.map((c) =>
+                        (String(c.conversationId) === convId || String(c.id) === convId)
+                          ? {
+                            ...c,
+                            lastMessage: message.content,
+                            lastMessageTime: message.timestamp,
+                            unreadCount: currentOpen ? 0 : ((c.unreadCount || 0) + 1),
+                            lastMessageReaction: undefined,
+                            lastMessageActorId: undefined,
+                            lastMessageRaw: undefined,
+                          }
+                          : c,
+                      );
+                      chatState.setChats(updatedChats);
+                    }
+                  } else if (msg.type !== 'system') {
                     const newChat = {
                       id: convId,
                       conversationId: convId,
-                      title: msg.senderName || 'Unknown',
+                      title: msg.type === 'system' ? 'Group' : (msg.senderName || 'Unknown'),
                       avatar: undefined,
                       lastMessage: message.content,
                       lastMessageTime: message.timestamp,
-                      isGroup: false,
+                      isGroup: msg.type === 'system',
                       participants: [],
                       messages: [message],
-                      unreadCount: currentOpen ? 0 : 1,
+                      unreadCount: msg.type === 'system' ? 0 : (currentOpen ? 0 : 1),
                     };
                     chatState.setChats([newChat, ...chats]);
                   }
@@ -147,6 +164,13 @@ export const useAuthStore = create<AuthStore>((set) => {
                     type: msg.type || 'text',
                     timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
                     read: false,
+                    systemEventType: msg.systemEventType || msg.metadata?.systemEventType,
+                    systemActorId: msg.systemActorId || msg.metadata?.systemActorId,
+                    systemActorName: msg.systemActorName || msg.metadata?.systemActorName,
+                    systemTargetIds: msg.systemTargetIds || msg.metadata?.systemTargetIds,
+                    systemTargetNames: msg.systemTargetNames || msg.metadata?.systemTargetNames,
+                    systemAudienceIds: msg.systemAudienceIds || msg.metadata?.systemAudienceIds,
+                    systemData: msg.systemData || msg.metadata?.systemData,
                   };
                   if (msg.replyToId) message.replyToId = msg.replyToId;
                   if (msg.forwarded) {
@@ -158,13 +182,22 @@ export const useAuthStore = create<AuthStore>((set) => {
                     chatState.replaceMessageTempId(String(msg.clientTempId), message as any);
                   } else if (chatItem) {
                     chatState.addMessage(chatItem.id || convId, message);
-                    chatState.setChats(
-                      chats.map((c) =>
-                        (String(c.conversationId) === convId || String(c.id) === convId)
-                          ? { ...c, lastMessage: message.content, lastMessageTime: message.timestamp, lastMessageReaction: undefined, lastMessageActorId: undefined, lastMessageRaw: undefined }
-                          : c,
-                      ),
-                    );
+                    if (msg.type !== 'system') {
+                      chatState.setChats(
+                        chats.map((c) =>
+                          (String(c.conversationId) === convId || String(c.id) === convId)
+                            ? {
+                              ...c,
+                              lastMessage: message.content,
+                              lastMessageTime: message.timestamp,
+                              lastMessageReaction: undefined,
+                              lastMessageActorId: undefined,
+                              lastMessageRaw: undefined,
+                            }
+                            : c,
+                        ),
+                      );
+                    }
                   }
                 } catch (e) { console.warn('message:sent handler error', e); }
               });

@@ -61,6 +61,7 @@ import signaling from '../services/signaling';
 import { AGORA_APP_ID } from '../config/agora';
 import { markConversationNotificationsRead } from '../services/notifications';
 import { startConversationCall } from '../utils/calls';
+import { buildSystemMessageText } from '../utils/systemMessages';
 
 // Trigger Android MediaStore scan so Gallery app recognizes newly downloaded files
 const scanMediaFile = async (filePath: string, mediaType?: string | null) => {
@@ -113,6 +114,14 @@ const getInitialsFromName = (name?: string | null) =>
     .join('')
     .slice(0, 2)
     .toUpperCase();
+
+const joinHumanList = (items: string[] = []) => {
+  const list = (Array.isArray(items) ? items : []).filter(Boolean);
+  if (!list.length) return '';
+  if (list.length === 1) return list[0];
+  if (list.length === 2) return `${list[0]} and ${list[1]}`;
+  return `${list.slice(0, -1).join(', ')}, and ${list[list.length - 1]}`;
+};
 
 const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
@@ -1111,6 +1120,19 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       forwardedFrom: msg.forwardedFrom || null,
       reaction: msg.reaction || (myReactionObj ? myReactionObj.reaction : undefined),
       reactions: reactionsArr,
+      systemEventType: msg.systemEventType || msg.metadata?.systemEventType || undefined,
+      systemActorId: msg.systemActorId || msg.metadata?.systemActorId || undefined,
+      systemActorName: msg.systemActorName || msg.metadata?.systemActorName || undefined,
+      systemTargetIds: Array.isArray(msg.systemTargetIds || msg.metadata?.systemTargetIds)
+        ? (msg.systemTargetIds || msg.metadata?.systemTargetIds || [])
+        : undefined,
+      systemTargetNames: Array.isArray(msg.systemTargetNames || msg.metadata?.systemTargetNames)
+        ? (msg.systemTargetNames || msg.metadata?.systemTargetNames || [])
+        : undefined,
+      systemAudienceIds: Array.isArray(msg.systemAudienceIds || msg.metadata?.systemAudienceIds)
+        ? (msg.systemAudienceIds || msg.metadata?.systemAudienceIds || [])
+        : undefined,
+      systemData: msg.systemData || msg.metadata?.systemData || undefined,
     };
 
     // Add media fields if present
@@ -1265,6 +1287,79 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
 
     return message;
+  };
+
+  const getParticipantDisplayNameById = (participantId?: string | null) => {
+    if (!participantId) return '';
+    const normalizedId = String(participantId);
+    if (currentUserId && normalizedId === String(currentUserId)) {
+      return 'You';
+    }
+
+    const sourceLists = [membersProfiles || [], chat?.participants || []];
+    for (const list of sourceLists) {
+      const found = (list || []).find((participant: any) => String(getParticipantId(participant)) === normalizedId);
+      if (!found) continue;
+      return found.displayName || found.name || found.title || found.phoneNumber || found.phone || '';
+    }
+
+    return '';
+  };
+
+  const renderSystemMessageText = (message: Message) => {
+    if (!message) return '';
+
+    const primary = buildSystemMessageText({
+      message,
+      currentUserId,
+      getParticipantDisplayNameById,
+    });
+
+    if (primary) return primary;
+
+    // Fallback: if the formatter produced an empty string (e.g. missing actor info),
+    // attempt a local reconstruction using participant lookup so group-change
+    // events still show a deterministic actor or "You" like member add/remove.
+    const eventType = String(message.systemEventType || message.metadata?.systemEventType || '').toLowerCase();
+    const actorId = String(message.systemActorId || message.senderId || '');
+    const isSelf = currentUserId && actorId && String(actorId) === String(currentUserId);
+    const actorNameLocal = isSelf
+      ? 'You'
+      : (message.systemActorName || message.senderName || getParticipantDisplayNameById(actorId) || '').trim();
+
+    const actorPrefix = actorNameLocal ? `${actorNameLocal} ` : '';
+    const data = message.systemData || message.metadata?.systemData || {};
+
+    const genericRegex = /\b(someone|a member)\b/i;
+    switch (eventType) {
+      case 'group_description_changed':
+        return actorNameLocal ? `${actorPrefix}changed the group description.` : String(message.content || '');
+      case 'group_photo_changed':
+        return actorNameLocal ? `${actorPrefix}changed the group photo.` : String(message.content || '');
+      case 'group_name_changed': {
+        const newName = data.newName || data.title || data.groupName || '';
+        return actorNameLocal && newName
+          ? `${actorPrefix}changed the group name to "${newName}".`
+          : String(message.content || '');
+      }
+      default:
+        // Avoid rendering stale generic placeholders like "Someone"—log for diagnostics
+        if (typeof message.content === 'string' && genericRegex.test(message.content)) {
+          console.warn('[SystemMessage][generic-fallback] suppressed generic content', {
+            id: message.id,
+            eventType,
+            systemActorId: message.systemActorId,
+            systemActorName: message.systemActorName,
+            senderId: message.senderId,
+            senderName: message.senderName,
+            content: message.content,
+            membersProfilesSnapshot: (membersProfiles || []).map((p: any) => ({ id: p?.id || p?._id || p, name: p?.displayName || p?.name || p?.title })),
+          });
+          return '';
+        }
+
+        return String(message.content || '');
+    }
   };
 
   const hideMediaItemsLocally = (messageId: string, mediaItemIds: string[]) => {
@@ -3137,6 +3232,9 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
     const renderItem = getVisibleMessageForRender(item);
     if (!renderItem) return null;
+    const displayContent = renderItem.type === 'system'
+      ? renderSystemMessageText(renderItem)
+      : renderItem.content;
 
     const repliedMessage = item.replyToId
       ? sortedChatMessages.find((m) => m.id === item.replyToId)
@@ -3158,7 +3256,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
     return (
       <ChatBubble
-        message={renderItem.content}
+        message={displayContent}
         timestamp={renderItem.timestamp}
         isOwn={renderItem.senderId === currentUserId}
         theme={theme}
