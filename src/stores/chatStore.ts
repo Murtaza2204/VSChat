@@ -11,6 +11,20 @@ const joinHumanList = (items: string[] = []) => {
   return `${list.slice(0, -1).join(', ')}, and ${list[list.length - 1]}`;
 };
 
+const getChatActivityTime = (chat: Chat) => {
+  const value = chat?.lastMessageTime ? new Date(chat.lastMessageTime as any).getTime() : 0;
+  return Number.isFinite(value) ? value : 0;
+};
+
+const sortChatsByRecentActivity = (chats: Chat[]) =>
+  [...chats]
+    .map((chat, index) => ({ chat, index }))
+    .sort((a, b) => {
+      const diff = getChatActivityTime(b.chat) - getChatActivityTime(a.chat);
+      return diff !== 0 ? diff : a.index - b.index;
+    })
+    .map(({ chat }) => chat);
+
 interface ChatStore {
   chats: Chat[];
   currentChat: Chat | null;
@@ -69,7 +83,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         normalized.push(c);
       }
 
-      set({ chats: normalized });
+      set({ chats: sortChatsByRecentActivity(normalized) });
     } catch (e) {
       set({ chats });
     }
@@ -142,7 +156,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
         return c;
       });
-      set({ chats: updatedChats });
+      set({ chats: sortChatsByRecentActivity(updatedChats) });
     } catch (e) {
       console.warn('updateChatLastMessage error:', e);
     }
@@ -221,7 +235,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     });
 
     set({
-      chats: updatedChats,
+      chats: sortChatsByRecentActivity(updatedChats),
     });
   },
 
@@ -301,7 +315,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         return chat;
       });
 
-      set({ chats: updatedChats });
+      set({ chats: sortChatsByRecentActivity(updatedChats) });
     })();
   },
 
@@ -311,7 +325,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const remainingChats = chats.filter((c) => String(c.id) !== String(chatId) && String(c.conversationId || '') !== String(chatId));
     const activeChatMatches = currentChat && (String(currentChat.id) === String(chatId) || String(currentChat.conversationId || '') === String(chatId));
     set({
-      chats: remainingChats,
+      chats: sortChatsByRecentActivity(remainingChats),
       currentChat: activeChatMatches ? null : currentChat,
       messages: activeChatMatches ? [] : get().messages,
     });
@@ -321,7 +335,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const { chats, messages } = get();
 
     set({
-      chats: chats.map((chat) => {
+      chats: sortChatsByRecentActivity(chats.map((chat) => {
         const nextMessages = (chat.messages || []).map((message) =>
           message.id === messageId ? { ...message, ...updates } : message,
         );
@@ -332,7 +346,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           lastMessage: lastChatMessage ? lastChatMessage.content : chat.lastMessage,
           lastMessageTime: lastChatMessage ? lastChatMessage.timestamp : chat.lastMessageTime,
         };
-      }),
+      })),
       messages: messages.map((message) =>
         message.id === messageId ? { ...message, ...updates } : message,
       ),
@@ -342,7 +356,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   deleteMessage: (messageId) => {
     const { chats, messages } = get();
     set({
-      chats: chats.map((chat) => {
+      chats: sortChatsByRecentActivity(chats.map((chat) => {
         const nextMessages = (chat.messages || []).filter(
           (message) => message.id !== messageId,
         );
@@ -354,7 +368,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           lastMessage: lastChatMessage ? lastChatMessage.content : chat.lastMessage,
           lastMessageTime: lastChatMessage ? lastChatMessage.timestamp : chat.lastMessageTime,
         };
-      }),
+      })),
       messages: messages.filter((message) => message.id !== messageId),
     });
   },
@@ -574,7 +588,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
         return { ...chat, participants, avatar };
       });
-      set({ chats: updated });
+      set({ chats: sortChatsByRecentActivity(updated) });
     } catch (e) {
       console.warn('updateUserProfilePicture error', e);
     }
@@ -633,6 +647,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         lastMessageRaw: undefined,
       };
     });
-    set({ chats: updatedChats });
+    set({ chats: sortChatsByRecentActivity(updatedChats) });
   },
 }));
