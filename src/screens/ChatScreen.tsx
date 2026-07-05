@@ -49,7 +49,7 @@ import ChatBubble from '../components/ChatBubble';
 import MessageInput from '../components/MessageInput';
 import messagesApi from '../utils/messages';
 import api from '../config/api';
-import { connectSocket } from '../utils/socket';
+import { connectSocket, onMessageReceived } from '../utils/socket';
 import { completeUpload, getUploadUrl } from '../services/mediaUploadService';
 import { fetchDownloadUrl } from '../services/mediaService';
 import { buildMediaDownloadFileName, buildMediaDownloadUrl, getMediaStorageDirectory, extractMediaObjectKey } from '../utils/mediaDownload';
@@ -2739,6 +2739,25 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       const unsubscribe = navigation.addListener?.('focus', loadMessages);
       return unsubscribe;
     }, [navigation, loadMessages]);
+
+    // Listen for new messages and auto-refresh current conversation
+    useEffect(() => {
+      const unsubscribe = onMessageReceived((payload) => {
+        try {
+          const receivedConversationId = payload?.conversationId;
+          const currentConversationId = conversationId || chat?.conversationId || chat?.id;
+          
+          // Only refresh if the message is for the current conversation
+          if (receivedConversationId && currentConversationId && String(receivedConversationId) === String(currentConversationId)) {
+            console.log('[ChatScreen] new message in current conversation, reloading messages', payload);
+            loadMessages();
+          }
+        } catch (e) {
+          console.warn('[ChatScreen] error refreshing on new message:', e);
+        }
+      });
+      return unsubscribe;
+    }, [conversationId, chat?.conversationId, chat?.id, loadMessages]);
 
   const handleCurrentLocationPress = async () => {
     try {

@@ -3,7 +3,7 @@ import RtcEngineDefault, {
 } from 'react-native-agora';
 
 let engine: any = null;
-let remoteUidListener: ((uid: number | null) => void) | null = null;
+let remoteUidListener: ((uid: number | null, type?: 'joined' | 'left') => void) | null = null;
 let registeredEventHandler: any = null;
 
 const normalizeUid = (...values: any[]): number | null => {
@@ -128,7 +128,7 @@ export const joinChannel = async (
   }
 
   const notifyRemoteJoined = async (...args: any[]) => {
-    const remoteUid = normalizeUid(args[1], args[0]);
+    const remoteUid = normalizeUid(...args);
     console.log('[Agora] remote user/media event:', args, '->', remoteUid);
     if (!remoteUid) return;
 
@@ -141,14 +141,14 @@ export const joinChannel = async (
     }
 
     onUserJoined?.(remoteUid);
-    remoteUidListener?.(remoteUid);
+    remoteUidListener?.(remoteUid, 'joined');
   };
 
   const notifyRemoteLeft = (...args: any[]) => {
-    const remoteUid = normalizeUid(args[1], args[0]);
+    const remoteUid = normalizeUid(...args);
     console.log('[Agora] remote offline event:', args, '->', remoteUid);
     onUserLeft?.(remoteUid as any);
-    remoteUidListener?.(null);
+    remoteUidListener?.(remoteUid, 'left');
   };
 
   const notifyJoinSuccess = (...args: any[]) => {
@@ -221,7 +221,7 @@ export const leaveChannel = async () => {
   }
 };
 
-export const setRemoteUidListener = (cb: (uid: number | null) => void) => {
+export const setRemoteUidListener = (cb: (uid: number | null, type?: 'joined' | 'left') => void) => {
   remoteUidListener = cb;
 };
 

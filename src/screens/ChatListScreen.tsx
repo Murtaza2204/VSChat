@@ -25,7 +25,7 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonLoader } from '../components/SkeletonLoader';
 import contactSync from '../utils/contactSync';
 import conversationsApi from '../utils/conversations';
-import { connectSocket } from '../utils/socket';
+import { connectSocket, onMessageReceived } from '../utils/socket';
 
 type ChatFilter = 'all' | 'unread' | 'favourites' | 'groups';
 
@@ -193,6 +193,19 @@ const ChatListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       }
     })();
   }, []);
+
+  // Listen for new messages and auto-refresh chat list
+  useEffect(() => {
+    const unsubscribe = onMessageReceived((payload) => {
+      try {
+        console.log('[ChatListScreen] new message received, refreshing conversations', payload);
+        loadConversations();
+      } catch (e) {
+        console.warn('[ChatListScreen] error refreshing on new message:', e);
+      }
+    });
+    return unsubscribe;
+  }, [user?.id]);
 
   const handleChatPress = (chat: any) => {
     setCurrentChat(chat);

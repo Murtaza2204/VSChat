@@ -7,6 +7,15 @@ import { useChatStore } from '../stores/chatStore';
 
 let socket: any;
 let isListenersSetup = false;
+const messageReceivedListeners = new Set<(payload: any) => void>();
+
+// Register a callback to be called when a new message is received
+export const onMessageReceived = (callback: (payload: any) => void) => {
+  messageReceivedListeners.add(callback);
+  return () => {
+    messageReceivedListeners.delete(callback);
+  };
+};
 
 const setupListeners = () => {
   if (!socket) return;
@@ -15,6 +24,7 @@ const setupListeners = () => {
   socket.off('conversation:update');
   socket.off('conversation:updated');
   socket.off('message:reacted');
+  socket.off('message:receive');
   
   const handleConversationUpdate = (payload: any) => {
     try {
@@ -78,6 +88,23 @@ const setupListeners = () => {
       }
     } catch (e) {
       console.warn('[socket] message:reacted error:', e);
+    }
+  });
+
+  // Setup message receive listener - trigger callbacks for auto-refresh
+  socket.on('message:receive', (payload: any) => {
+    try {
+      console.log('[socket] message:receive received:', payload);
+      // Notify all registered listeners (ChatListScreen and ChatScreen)
+      messageReceivedListeners.forEach((callback) => {
+        try {
+          callback(payload);
+        } catch (e) {
+          console.warn('[socket] message:receive callback error:', e);
+        }
+      });
+    } catch (e) {
+      console.warn('[socket] message:receive error:', e);
     }
   });
   

@@ -70,6 +70,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const [cameraFacing, setCameraFacing] = React.useState<'front' | 'rear'>('front');
   const [localVideoReady, setLocalVideoReady] = React.useState(false);
   const [localRtcUid, setLocalRtcUid] = React.useState<number | null>(null);
+  const [activeRemoteVideoUids, setActiveRemoteVideoUids] = React.useState<Record<number, boolean>>({});
   const [sessionActive, setSessionActive] = React.useState(false);
   const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
   const [gridLayout, setGridLayout] = React.useState({ width: 0, height: 0 });
@@ -123,56 +124,61 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const mergeParticipants = React.useCallback((incomingList: any[], preferCurrentUser = true) => {
-    const map = new Map<string, GroupParticipant>();
-    const add = (participant: any) => {
-      const normalized = normalizeParticipant(participant);
-      if (!normalized) return;
-      const existing = map.get(normalized.userId);
-      map.set(normalized.userId, {
-        ...(existing || {}),
-        ...normalized,
-        rtcUid: normalized.rtcUid != null ? normalized.rtcUid : existing?.rtcUid ?? null,
-        videoEnabled: typeof normalized.videoEnabled === 'boolean'
-          ? normalized.videoEnabled
-          : existing?.videoEnabled ?? null,
-        cameraFacing: normalized.cameraFacing
-          || existing?.cameraFacing
-          || null,
+    const nextParticipants = (current: GroupParticipant[]) => {
+      const map = new Map<string, GroupParticipant>();
+      const add = (participant: any) => {
+        const normalized = normalizeParticipant(participant);
+        if (!normalized) return;
+        const existing = map.get(normalized.userId);
+        map.set(normalized.userId, {
+          ...(existing || {}),
+          ...normalized,
+          rtcUid: normalized.rtcUid != null ? normalized.rtcUid : existing?.rtcUid ?? null,
+          videoEnabled: typeof normalized.videoEnabled === 'boolean'
+            ? normalized.videoEnabled
+            : existing?.videoEnabled ?? null,
+          cameraFacing: normalized.cameraFacing
+            || existing?.cameraFacing
+            || null,
+        });
+      };
+
+      current.forEach(add);
+      parseParticipantsInput(incomingList).forEach(add);
+
+      if (preferCurrentUser && currentUser?.id) {
+        add({
+          userId: currentUser.id,
+          name: 'You',
+          avatar: currentUser.avatar || null,
+          status: 'joined',
+          rtcUid: localRtcUid,
+          videoEnabled: callType === 'video' ? isVideoOn : false,
+          cameraFacing,
+        });
+      }
+
+      const ordered = Array.from(map.values()).filter((participant) => {
+        const status = String(participant.status || 'joined').toLowerCase();
+        return status !== 'invited' && status !== 'declined' && !participant.leftAt;
       });
+
+      ordered.sort((a, b) => {
+        if (String(a.userId) === String(currentUser?.id)) return 1;
+        if (String(b.userId) === String(currentUser?.id)) return -1;
+        const aTime = a.joinedAt ? new Date(a.joinedAt).getTime() : 0;
+        const bTime = b.joinedAt ? new Date(b.joinedAt).getTime() : 0;
+        return aTime - bTime;
+      });
+
+      return ordered;
     };
-
-    parseParticipantsInput(incomingList).forEach(add);
-
-    if (preferCurrentUser && currentUser?.id) {
-      add({
-        userId: currentUser.id,
-        name: 'You',
-        avatar: currentUser.avatar || null,
-        status: 'joined',
-        rtcUid: localRtcUid,
-        videoEnabled: callType === 'video' ? isVideoOn : false,
-        cameraFacing,
-      });
-    }
-
-    const ordered = Array.from(map.values()).filter((participant) => {
-      const status = String(participant.status || 'joined').toLowerCase();
-      return status !== 'invited' && status !== 'declined' && !participant.leftAt;
-    });
-
-    ordered.sort((a, b) => {
-      if (String(a.userId) === String(currentUser?.id)) return 1;
-      if (String(b.userId) === String(currentUser?.id)) return -1;
-      const aTime = a.joinedAt ? new Date(a.joinedAt).getTime() : 0;
-      const bTime = b.joinedAt ? new Date(b.joinedAt).getTime() : 0;
-      return aTime - bTime;
-    });
 
     if (callType !== 'video') {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     }
-    setParticipants(ordered);
-  }, [cameraFacing, callType, currentUser?.avatar, currentUser?.id, isVideoOn, localRtcUid]);
+    setParticipants(nextParticipants);
+  }, [callType, cameraFacing, currentUser?.avatar, currentUser?.id, isVideoOn, localRtcUid]);
 
   const syncFromSessionState = React.useCallback((state: any) => {
     if (!state) return;
@@ -328,20 +334,14 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           }
         } catch {}
 
-        setRemoteUidListener((uid: number | null) => {
-          if (!mounted) return;
-          if (uid) {
-            setParticipants((current) => {
-              const selfId = String(currentUser?.id || '');
-              let assigned = false;
-              const next = current.map((participant) => {
-                if (String(participant.userId) === selfId) return participant;
-                if (!assigned && participant.rtcUid == null && participant.videoEnabled !== false) {
-                  assigned = true;
-                  return { ...participant, rtcUid: uid };
-                }
-                return participant;
-              });
+        setRemoteUidListener((uid: number | null, type?: 'joined' | 'left') => {
+          if (!mounted || uid == null || uid <= 0) return;
+          if (type === 'joined') {
+            setActiveRemoteVideoUids((current) => ({ ...current, [uid]: true }));
+          } else if (type === 'left') {
+            setActiveRemoteVideoUids((current) => {
+              const next = { ...current };
+              delete next[uid];
               return next;
             });
           }
@@ -433,7 +433,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
       mounted = false;
       try { if (unsubscribeCallCreated) unsubscribeCallCreated(); } catch {}
     };
-  }, [appIdParam, callId, callType, cameraFacing, channelParam, currentUser?.id, isCaller, localRtcUid, runVideoAction, tokenParam, syncFromSessionState]);
+  }, [appIdParam, callId, callType, channelParam, currentUser?.id, isCaller, runVideoAction, tokenParam, syncFromSessionState]);
 
   React.useEffect(() => {
     const unsubscribe = signaling.onCallSessionState((payload: any) => {
@@ -582,21 +582,28 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
         key={`grid-row-${rowIndex}`}
         style={[styles.gridRow, rowStyle]}
       >
-        {row.map((participant) => (
-          <ParticipantTile
-            key={participant.userId}
-            participant={participant}
-            currentUserId={currentUser?.id}
-            theme={theme}
-            width={tileWidth}
-            height={tileHeight}
-            spotlight={visibleCount === 1}
-            callType={callType}
-            showLocalVideo={isVideoOn && hasCameraAccess && localVideoReady}
-            onFlipCamera={handleFlipCamera}
-            cameraFacing={cameraFacing}
-          />
-        ))}
+        {row.map((participant) => {
+          const remoteUid = typeof participant.rtcUid === 'number' ? participant.rtcUid : null;
+          const showVideo = String(participant.userId) === String(currentUser?.id)
+            ? isVideoOn && hasCameraAccess && localVideoReady
+            : !!remoteUid && !!activeRemoteVideoUids[remoteUid];
+
+          return (
+            <ParticipantTile
+              key={participant.userId}
+              participant={participant}
+              currentUserId={currentUser?.id}
+              theme={theme}
+              width={tileWidth}
+              height={tileHeight}
+              spotlight={visibleCount === 1}
+              callType={callType}
+              showVideo={showVideo}
+              onFlipCamera={handleFlipCamera}
+              cameraFacing={cameraFacing}
+            />
+          );
+        })}
       </View>
     );
   }, [cameraFacing, callType, currentUser?.id, handleFlipCamera, hasCameraAccess, isVideoOn, localVideoReady, theme, tileHeight, tileWidth, visibleCount]);
@@ -889,7 +896,7 @@ const ParticipantTile = ({
   height,
   spotlight = false,
   callType,
-  showLocalVideo = false,
+  showVideo = false,
   onFlipCamera,
   cameraFacing = 'front',
 }: {
@@ -900,7 +907,7 @@ const ParticipantTile = ({
   height: number;
   spotlight?: boolean;
   callType?: string;
-  showLocalVideo?: boolean;
+  showVideo?: boolean;
   onFlipCamera?: () => void;
   cameraFacing?: 'front' | 'rear';
 }) => {
@@ -909,7 +916,9 @@ const ParticipantTile = ({
   const initials = getInitials(displayName);
   const remoteUid = typeof participant.rtcUid === 'number' ? participant.rtcUid : null;
   const shouldShowVideo = callType === 'video'
-    ? (isSelf ? showLocalVideo : participant.videoEnabled !== false && !!remoteUid)
+    ? (isSelf
+      ? showVideo
+      : participant.videoEnabled !== false && !!remoteUid && !!showVideo)
     : false;
   const streamUid = isSelf ? 0 : (remoteUid || 0);
   const avatarSize = spotlight
