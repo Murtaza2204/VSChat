@@ -339,11 +339,8 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           if (type === 'joined') {
             setActiveRemoteVideoUids((current) => ({ ...current, [uid]: true }));
           } else if (type === 'left') {
-            setActiveRemoteVideoUids((current) => {
-              const next = { ...current };
-              delete next[uid];
-              return next;
-            });
+            // Keep the stream mounted until the backend session state confirms the participant left.
+            // Agora can emit transient offline-style callbacks during stream negotiation or brief network loss.
           }
           signaling.requestCallSessionState(callId);
         });
@@ -586,7 +583,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           const remoteUid = typeof participant.rtcUid === 'number' ? participant.rtcUid : null;
           const showVideo = String(participant.userId) === String(currentUser?.id)
             ? isVideoOn && hasCameraAccess && localVideoReady
-            : !!remoteUid && !!activeRemoteVideoUids[remoteUid];
+            : participant.videoEnabled !== false && !!remoteUid;
 
           return (
             <ParticipantTile
@@ -950,7 +947,7 @@ const ParticipantTile = ({
           <>
             {RtcSurfaceView ? (
               <RtcSurfaceView
-                key={`participant-video-${participant.userId}-${streamUid}`}
+                key={`participant-video-${participant.userId}`}
                 canvas={{ uid: streamUid }}
                 style={StyleSheet.absoluteFill}
                 zOrderMediaOverlay={isSelf}
