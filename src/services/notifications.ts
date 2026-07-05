@@ -13,6 +13,27 @@ const READ_CONVERSATION_PREFIX = 'conversationReadAt:';
 const getNotificationId = (data: any) => String(data?.notificationId || data?.messageId || data?.callId || '');
 const getStringValue = (value: any, fallback = '') => (value === undefined || value === null ? fallback : String(value));
 
+const getNotificationReplyText = (input: any) => {
+  if (typeof input === 'string') return input;
+  if (!input || typeof input !== 'object') return getStringValue(input);
+
+  const candidates = [
+    (input as any).reply,
+    (input as any).text,
+    (input as any).value,
+    (input as any).input,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate !== undefined && candidate !== null) {
+      const text = String(candidate).trim();
+      if (text) return text;
+    }
+  }
+
+  return '';
+};
+
 const getStoredUser = async () => {
   const storeUser = useAuthStore.getState().user;
   if (storeUser) return storeUser;
@@ -123,16 +144,24 @@ const markNotificationMessageRead = async (data: any) => {
 };
 
 const replyFromNotification = async (data: any, input: any) => {
-  const replyText = getStringValue(input).trim();
+  const replyText = getNotificationReplyText(input).trim();
   if (!replyText || !data.conversationId || !data.senderId) return;
 
   const token = await AsyncStorage.getItem('accessToken');
-  await markNotificationMessageRead(data);
-  await fetch(`${API_BASE_URL}/messages`, {
+  const response = await fetch(`${API_BASE_URL}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify({ conversationId: data.conversationId, content: replyText, receiverId: data.senderId }),
   });
+
+  if (!response.ok) {
+    throw new Error(`Reply send failed with status ${response.status}`);
+  }
+
+  await markNotificationMessageRead(data);
 };
 
 const handleNotificationAction = async (actionId: string, data: any, input?: any, openUi = true) => {
@@ -271,7 +300,7 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
               channelId: 'default',
               smallIcon: 'ic_launcher',
               actions: [
-                { title: 'Accept', pressAction: { id: 'accept' } },
+                { title: 'Accept', pressAction: { id: 'accept', launchActivity: 'default' } },
                 { title: 'Decline', pressAction: { id: 'decline' } },
               ],
               importance: AndroidImportance.HIGH,

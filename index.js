@@ -37,7 +37,7 @@ messaging().setBackgroundMessageHandler(async (remoteMessage) => {
 					channelId,
 					smallIcon: 'ic_launcher',
 					actions: [
-						{ title: 'Accept', pressAction: { id: 'accept' } },
+						{ title: 'Accept', pressAction: { id: 'accept', launchActivity: 'default' } },
 						{ title: 'Decline', pressAction: { id: 'decline' } },
 					],
 					category: 'call',

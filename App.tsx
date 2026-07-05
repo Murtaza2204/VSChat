@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StatusBar, View } from 'react-native';
+import { AppState, StatusBar, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RootNavigator from './src/navigation/RootNavigator';
 import { useThemeStore } from './src/stores/themeStore';
@@ -15,6 +15,62 @@ try {
   // Fallback if gesture handler isn't available
   GestureHandlerRootView = View;
 }
+
+const consumePendingAcceptedCall = async () => {
+  const accepted = await AsyncStorage.getItem('pendingAcceptedCall');
+  if (!accepted) return false;
+
+  const data = JSON.parse(accepted);
+  await AsyncStorage.removeItem('pendingAcceptedCall');
+  let caller: any = {};
+  try {
+    caller = data.caller ? JSON.parse(String(data.caller)) : {};
+  } catch (e) {
+    caller = {};
+  }
+  const isGroupCall = String(data?.isGroupCall) === 'true';
+
+  setTimeout(() => {
+    try {
+      navigate('Main', {
+        screen: 'Calls',
+        params: {
+          screen: isGroupCall ? 'GroupActiveCall' : 'ActiveCall',
+          params: {
+            callType: data.callType || 'audio',
+            callerName: caller.name || caller.displayName || data.callerName || 'Unknown',
+            callerAvatar: caller.avatar || caller.profilePictureUrl || data.callerAvatar,
+            callerId: caller.id || data.callerId || data.fromUserId,
+            appId: data.appId,
+            channel: data.channel,
+            token: data.token,
+            callId: data.callId,
+            isReceiver: true,
+            isGroupCall,
+            groupId: data.groupId,
+            groupName: data.groupName || caller.name || data.callerName,
+            groupAvatar: data.groupAvatar || caller.avatar || data.callerAvatar,
+            groupParticipants: data.groupParticipants,
+          },
+        },
+      });
+    } catch (e) {}
+  }, 400);
+
+  return true;
+};
+
+const consumePendingIncomingCall = async () => {
+  const pending = await AsyncStorage.getItem('pendingIncomingCall');
+  if (!pending) return false;
+
+  const data = JSON.parse(pending);
+  await AsyncStorage.removeItem('pendingIncomingCall');
+  setTimeout(() => {
+    try { navigate('Main', { screen: 'Calls', params: { screen: 'IncomingCall', params: data } }); } catch (e) {}
+  }, 400);
+  return true;
+};
 
 function App(): React.JSX.Element {
   const { theme, isDark, initializeTheme } = useThemeStore();
@@ -33,58 +89,20 @@ function App(): React.JSX.Element {
 
       // if a background notification saved a pending incoming call, navigate to it now
       try {
-        const accepted = await AsyncStorage.getItem('pendingAcceptedCall');
-        if (accepted) {
-          const data = JSON.parse(accepted);
-          await AsyncStorage.removeItem('pendingAcceptedCall');
-          let caller: any = {};
-          try {
-            caller = data.caller ? JSON.parse(String(data.caller)) : {};
-          } catch (e) {
-            caller = {};
-          }
-          const isGroupCall = String(data?.isGroupCall) === 'true';
-          setTimeout(() => {
-            try {
-              navigate('Main', {
-                screen: 'Calls',
-                params: {
-                  screen: isGroupCall ? 'GroupActiveCall' : 'ActiveCall',
-                  params: {
-                    callType: data.callType || 'audio',
-                    callerName: caller.name || caller.displayName || data.callerName || 'Unknown',
-                    callerAvatar: caller.avatar || caller.profilePictureUrl || data.callerAvatar,
-                    callerId: caller.id || data.callerId || data.fromUserId,
-                    appId: data.appId,
-                    channel: data.channel,
-                    token: data.token,
-                    callId: data.callId,
-                    isReceiver: true,
-                    isGroupCall,
-                    groupId: data.groupId,
-                    groupName: data.groupName || caller.name || data.callerName,
-                    groupAvatar: data.groupAvatar || caller.avatar || data.callerAvatar,
-                    groupParticipants: data.groupParticipants,
-                  },
-                },
-              });
-            } catch (e) {}
-          }, 400);
-          return;
-        }
-
-        const pending = await AsyncStorage.getItem('pendingIncomingCall');
-        if (pending) {
-          const data = JSON.parse(pending);
-          await AsyncStorage.removeItem('pendingIncomingCall');
-          // navigate after a short delay to ensure navigation is ready
-          setTimeout(() => {
-            try { navigate('Main', { screen: 'Calls', params: { screen: 'IncomingCall', params: data } }); } catch (e) {}
-          }, 400);
-        }
+        if (await consumePendingAcceptedCall()) return;
+        await consumePendingIncomingCall();
       } catch (e) {}
     };
     initialize();
+  }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') return;
+      consumePendingAcceptedCall().catch(() => {});
+    });
+
+    return () => subscription.remove();
   }, []);
 
   return (
