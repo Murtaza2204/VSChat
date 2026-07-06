@@ -11,7 +11,7 @@ import {  ScrollView,
   ToastAndroid,
   TextInput,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '../stores/themeStore';
@@ -32,6 +32,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
 }) => {
   const { chat: routeChat } = route.params as { chat: Chat };
   const { theme } = useThemeStore();
+  const insets = useSafeAreaInsets();
   const { chats, updateGroupTitle, removeGroupMembers, updateChat } = useChatStore();
   const chat = chats.find((item) => item.id === routeChat.id) || routeChat;
   // derive display name, avatar and phone from possible shapes returned by backend
@@ -633,7 +634,7 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.topButton} onPress={() => navigation.goBack()}>
           <Icon name="arrow-back" size={28} color={theme.text} />
@@ -1193,7 +1194,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   scrollContent: {
-    paddingBottom: SPACING.xxxl,
+    paddingBottom: 0,
   },
   profileSection: {
     alignItems: 'center',

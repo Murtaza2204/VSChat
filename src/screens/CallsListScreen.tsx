@@ -160,7 +160,7 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={[styles.header, { backgroundColor: theme.background }]}>
         <Text style={[styles.headerTitle, { color: theme.text }]}>Calls</Text>
       </View>
@@ -192,7 +192,7 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           renderItem={renderCallItem}
           keyExtractor={(item) => item.id}
           scrollEnabled={true}
-          contentContainerStyle={[styles.callListContent, { paddingBottom: 96 + insets.bottom }]}
+          contentContainerStyle={styles.callListContent}
         />
       ) : (
         <EmptyState
@@ -236,7 +236,7 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.base,
   },
   callListContent: {
-    paddingBottom: 96,
+    paddingBottom: 0,
   },
   keypadButton: {
     position: 'absolute',

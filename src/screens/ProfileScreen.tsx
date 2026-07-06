@@ -6,7 +6,7 @@ import {
   TouchableOpacity,
   Switch,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useAuthStore } from '../stores/authStore';
 import { useThemeStore } from '../stores/themeStore';
@@ -18,6 +18,7 @@ import CustomButton from '../components/CustomButton';
 const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { user, logout } = useAuthStore();
   const { theme, isDark, toggleTheme } = useThemeStore();
+  const insets = useSafeAreaInsets();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
   const handleLogout = async () => {
@@ -29,7 +30,7 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.background }]}>
       <Header
         title="Profile"
         showBackButton={false}
@@ -37,7 +38,7 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       />
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom || 0 }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.profileSection}>
@@ -164,7 +165,8 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.lg,
+    paddingTop: SPACING.lg,
+    paddingBottom: 0,
   },
   profileSection: {
     alignItems: 'center',

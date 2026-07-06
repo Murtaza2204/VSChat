@@ -197,6 +197,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const { theme } = useThemeStore();
   const { user } = useAuthStore();
   const insets = useSafeAreaInsets();
+  const messageInputBottomPadding = Math.max(insets.bottom, SPACING.sm);
   const currentUserId = user?.id;
   const { chats, addMessage, updateMessage, deleteMessage } = useChatStore();
   const storeChat = useMemo(() => {
@@ -3762,10 +3763,10 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <KeyboardAvoidingView 
+    <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.background }]}>
+      <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
       >
       <View
@@ -4738,6 +4739,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         replyTo={replyMessage}
         onCancelReply={() => setReplyMessage(null)}
         disabled={false}
+        style={{ paddingBottom: messageInputBottomPadding }}
         onFocusChange={(focused) => {
           if (focused) return;
           requestAnimationFrame(() => {
