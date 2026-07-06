@@ -50,7 +50,7 @@ import ChatBubble from '../components/ChatBubble';
 import MessageInput from '../components/MessageInput';
 import messagesApi from '../utils/messages';
 import api from '../config/api';
-import { connectSocket, onMessageReceived } from '../utils/socket';
+import { connectSocket, onMessageReceived, onConversationRefreshRequested } from '../utils/socket';
 import { completeUpload, getUploadUrl } from '../services/mediaUploadService';
 import { fetchDownloadUrl } from '../services/mediaService';
 import { buildMediaDownloadFileName, buildMediaDownloadUrl, getMediaStorageDirectory, extractMediaObjectKey } from '../utils/mediaDownload';
@@ -60,7 +60,7 @@ import FullScreenImageViewer from '../components/FullScreenImageViewer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import signaling from '../services/signaling';
 import { AGORA_APP_ID } from '../config/agora';
-import { markConversationNotificationsRead } from '../services/notifications';
+import { consumePendingNotificationReplies, markConversationNotificationsRead } from '../services/notifications';
 import { startConversationCall } from '../utils/calls';
 import { buildSystemMessageText } from '../utils/systemMessages';
 
@@ -264,6 +264,42 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       .filter((message) => !clearedAt || new Date(message.timestamp || message.createdAt || 0) > clearedAt);
   }, []);
 
+  const mergePendingNotificationReplies = React.useCallback(async (targetConversationId?: string | null) => {
+    if (!targetConversationId) return;
+    const pendingReplies = await consumePendingNotificationReplies(String(targetConversationId));
+    if (!pendingReplies.length) return;
+
+    const normalizedReplies = pendingReplies
+      .map((message) => normalizeServerMessage(message))
+      .filter((message) => !!message?.id);
+
+    if (!normalizedReplies.length) return;
+
+    setLoadedMessages((prev) => {
+      const seenIds = new Set(prev.map((message) => String(message.id)));
+      const next = [...prev];
+
+      normalizedReplies.forEach((message) => {
+        if (seenIds.has(String(message.id))) return;
+        seenIds.add(String(message.id));
+        next.push(message);
+      });
+
+      return next;
+    });
+
+    try {
+      const target = useChatStore.getState().chats.find((c) => String(c.conversationId) === String(targetConversationId) || String(c.id) === String(chat?.id));
+      if (target) {
+        normalizedReplies.forEach((message) => {
+          try {
+            useChatStore.getState().addMessage(target.id, message as any);
+          } catch (e) {}
+        });
+      }
+    } catch (e) {}
+  }, [chat?.id, normalizeServerMessage]);
+
   const mergeOlderMessages = React.useCallback((incomingMessages: Message[] = []) => {
     if (!incomingMessages.length) return;
     const normalizedIncoming = sortMessagesChronologically(incomingMessages);
@@ -408,6 +444,8 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       messageHistoryQueueRef.current = olderMessages;
       messageHistoryPageRef.current = 2;
       messageHistoryCompleteRef.current = hasEntireHistoryInFirstPayload || normalizedMessages.length < INITIAL_MESSAGE_BATCH_SIZE;
+
+      void mergePendingNotificationReplies(String(conversationId));
 
       visibleMessages.forEach((message) => {
         void autoDownloadReceivedMedia(message);
@@ -2895,6 +2933,20 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
       });
       return unsubscribe;
     }, [conversationId, chat?.conversationId, chat?.id, loadOlderConversationMessages]);
+
+    useEffect(() => {
+      const unsubscribe = onConversationRefreshRequested((refreshedConversationId) => {
+        try {
+          const currentConversationId = conversationId || chat?.conversationId || chat?.id;
+          if (!refreshedConversationId || !currentConversationId) return;
+          if (String(refreshedConversationId) !== String(currentConversationId)) return;
+          void loadMessages();
+        } catch (e) {
+          console.warn('[ChatScreen] conversation refresh error:', e);
+        }
+      });
+      return unsubscribe;
+    }, [conversationId, chat?.conversationId, chat?.id, loadMessages]);
 
   const handleCurrentLocationPress = async () => {
     try {

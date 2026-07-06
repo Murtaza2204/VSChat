@@ -7,10 +7,13 @@ import { useChatStore } from '../stores/chatStore';
 import { API_BASE_URL } from '../config/api';
 import { navigate } from '../navigation/NavigationService';
 import { playIncomingRingtone, stopCallTone } from './callToneService';
+import { emitConversationRefreshRequested } from '../utils/socket';
+import messagesApi from '../utils/messages';
 
 const RECENTLY_READ_MESSAGES_KEY = 'recentlyReadMessageIds';
 const READ_CONVERSATION_PREFIX = 'conversationReadAt:';
 const NOTIFICATIONS_ENABLED_KEY = 'notificationsEnabled';
+const PENDING_NOTIFICATION_REPLY_PREFIX = 'pendingNotificationReplies:';
 
 const getNotificationId = (data: any) => String(data?.notificationId || data?.messageId || data?.callId || '');
 const getStringValue = (value: any, fallback = '') => (value === undefined || value === null ? fallback : String(value));
@@ -45,6 +48,35 @@ const getStoredUser = async () => {
   } catch (e) {
     return null;
   }
+};
+
+const getPendingNotificationReplyKey = (conversationId?: string) =>
+  conversationId ? `${PENDING_NOTIFICATION_REPLY_PREFIX}${conversationId}` : '';
+
+export const consumePendingNotificationReplies = async (conversationId?: string) => {
+  const key = getPendingNotificationReplyKey(conversationId);
+  if (!key) return [];
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    await AsyncStorage.removeItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+const queuePendingNotificationReply = async (conversationId: string, message: any) => {
+  const key = getPendingNotificationReplyKey(conversationId);
+  if (!key || !message) return;
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    const current = raw ? JSON.parse(raw) : [];
+    const next = Array.isArray(current) ? current : [];
+    next.push(message);
+    await AsyncStorage.setItem(key, JSON.stringify(next.slice(-20)));
+  } catch (e) {}
 };
 
 export const getNotificationsEnabled = async () => {
@@ -213,20 +245,23 @@ const replyFromNotification = async (data: any, input: any) => {
   const replyText = getNotificationReplyText(input).trim();
   if (!replyText || !data.conversationId || !data.senderId) return;
 
-  const token = await AsyncStorage.getItem('accessToken');
-  const response = await fetch(`${API_BASE_URL}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ conversationId: data.conversationId, content: replyText, receiverId: data.senderId }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Reply send failed with status ${response.status}`);
+  const currentUser = await getStoredUser();
+  if (!currentUser?.id) {
+    throw new Error('No authenticated user available for notification reply');
   }
 
+  const sent = await messagesApi.sendMessage(
+    String(data.conversationId),
+    String(currentUser.id),
+    replyText,
+    'text',
+    String(data.senderId),
+  );
+
+  if (sent) {
+    await queuePendingNotificationReply(String(data.conversationId), sent);
+    emitConversationRefreshRequested(data.conversationId);
+  }
   await markNotificationMessageRead(data);
 };
 

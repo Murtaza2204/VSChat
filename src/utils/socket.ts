@@ -8,6 +8,7 @@ import { useChatStore } from '../stores/chatStore';
 let socket: any;
 let isListenersSetup = false;
 const messageReceivedListeners = new Set<(payload: any) => void>();
+const conversationRefreshListeners = new Set<(conversationId: string) => void>();
 
 // Register a callback to be called when a new message is received
 export const onMessageReceived = (callback: (payload: any) => void) => {
@@ -15,6 +16,24 @@ export const onMessageReceived = (callback: (payload: any) => void) => {
   return () => {
     messageReceivedListeners.delete(callback);
   };
+};
+
+export const onConversationRefreshRequested = (callback: (conversationId: string) => void) => {
+  conversationRefreshListeners.add(callback);
+  return () => {
+    conversationRefreshListeners.delete(callback);
+  };
+};
+
+export const emitConversationRefreshRequested = (conversationId?: string) => {
+  if (!conversationId) return;
+  conversationRefreshListeners.forEach((callback) => {
+    try {
+      callback(String(conversationId));
+    } catch (e) {
+      console.warn('[socket] conversation refresh callback error:', e);
+    }
+  });
 };
 
 const setupListeners = () => {
