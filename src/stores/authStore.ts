@@ -6,6 +6,7 @@ import { User, AuthState } from '../types';
 import { connectSocket } from '../utils/socket';
 import { useChatStore } from './chatStore';
 import { API_BASE_URL } from '../config/api';
+import api from '../config/api';
 
 type AuthFlow = 'login' | 'register';
 
@@ -361,14 +362,12 @@ export const useAuthStore = create<AuthStore>((set) => {
                 // @ts-ignore
                 form.append('image', { uri, name: 'profile.jpg', type: 'image/jpeg' });
 
-                const uploadRes = await fetch(`${API_BASE_URL}/users/profile-picture`, {
-                  method: 'POST',
-                  headers: { Authorization: `Bearer ${token}` },
-                  body: form,
+                const uploadRes = await api.post('/users/profile-picture', form, {
+                  headers: { 'Content-Type': 'multipart/form-data' },
                 });
 
-                const uploadData = await uploadRes.json();
-                if (uploadRes.ok && uploadData && uploadData.success && uploadData.profilePicture) {
+                const uploadData = uploadRes.data;
+                if (uploadData && uploadData.success && uploadData.profilePicture) {
                   body.profilePictureUrl = uploadData.profilePicture;
                 } else {
                   console.warn('Profile image upload failed or returned no URL', uploadData);
@@ -380,38 +379,40 @@ export const useAuthStore = create<AuthStore>((set) => {
           }
 
           console.info('setupProfile PATCH body:', body);
-          const res = await fetch(`${API_BASE_URL}/users/me`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify(body),
-          });
-          console.info('setupProfile PATCH response status:', res.status);
-          const data = await res.json();
-          console.info('setupProfile PATCH response data:', data);
-          if (!res.ok || !data.success) {
-            const errorMsg = data.message || `Profile update failed (${res.status})`;
+          try {
+            const res = await api.patch('/users/me', body);
+            const data = res.data;
+            console.info('setupProfile PATCH response status:', res.status);
+            console.info('setupProfile PATCH response data:', data);
+            if (!data.success) {
+              const errorMsg = data.message || 'Profile update failed';
+              console.error('setupProfile PATCH error:', errorMsg);
+              throw new Error(errorMsg);
+            }
+
+            const updated = data.user;
+            const updatedUser: User = {
+              id: updated.id,
+              name: updated.displayName || '',
+              phone: updated.phoneNumber,
+              status: 'offline',
+              avatar: updated.profilePictureUrl || '👤',
+              profilePictureUrl: updated.profilePictureUrl || null,
+              profileCompleted: true,
+              bio: updated.bio || '',
+            };
+
+            try {
+              await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+            } catch (e) { console.warn('Could not save updated user to storage'); }
+            set({ user: updatedUser, isLoading: false });
+            try { useChatStore.getState().updateUserProfilePicture(updatedUser.id, updatedUser.profilePictureUrl); } catch (e) {}
+            return updatedUser;
+          } catch (error: any) {
+            const errorMsg = error.response?.data?.message || error.message || 'Profile update failed';
             console.error('setupProfile PATCH error:', errorMsg);
             throw new Error(errorMsg);
           }
-
-          const updated = data.user;
-          const updatedUser: User = {
-            id: updated.id,
-            name: updated.displayName || '',
-            phone: updated.phoneNumber,
-            status: 'offline',
-            avatar: updated.profilePictureUrl || '👤',
-            profilePictureUrl: updated.profilePictureUrl || null,
-            profileCompleted: true,
-            bio: updated.bio || '',
-          };
-
-          try {
-            await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
-          } catch (e) { console.warn('Could not save updated user to storage'); }
-          set({ user: updatedUser, isLoading: false });
-          try { useChatStore.getState().updateUserProfilePicture(updatedUser.id, updatedUser.profilePictureUrl); } catch (e) {}
-          return updatedUser;
         }
 
         // Registration flow (no access token present)

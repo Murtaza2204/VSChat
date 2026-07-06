@@ -4061,13 +4061,13 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         onEndReachedThreshold={0.1}
         ListEmptyComponent={() => (
           <View style={styles.emptyChatState}>
-            <Text style={[styles.emptyChatTitle, { color: theme.text }]}> 
-              {isChatCleared ? 'Chat cleared' : 'No messages yet'}
+            <Text style={[styles.emptyChatTitle, { color: theme.text, transform: [{ rotate: '180deg' }] }]}> 
+              {isChatCleared ? 'Chat cleared' : 'Start the conversation by sending a message.'}
             </Text>
-            <Text style={[styles.emptyChatSubtitle, { color: theme.textSecondary }]}> 
+            <Text style={[styles.emptyChatSubtitle, { color: theme.textSecondary, transform: [{ rotate: '180deg' }] }]}> 
               {isChatCleared
-                ? 'This conversation is empty on your device only.'
-                : 'Start the conversation by sending a message.'}
+                ? ''
+                : ''}
             </Text>
           </View>
         )}
