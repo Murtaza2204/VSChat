@@ -311,6 +311,11 @@ const cancelNotificationForPayload = async (data: any) => {
   try { await notifee.cancelDisplayedNotification(notificationId); } catch (e) {}
 };
 
+const handleCallEndedPayload = async (data: any) => {
+  await cancelNotificationForPayload(data);
+  stopCallTone();
+};
+
 const cancelConversationNotifications = async (conversationId?: string) => {
   if (!conversationId) return;
   try {
@@ -370,6 +375,10 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
     messaging().onMessage(async (remoteMessage) => {
       try {
         const data = remoteMessage.data || {};
+        if (data.type === 'call_ended') {
+          await handleCallEndedPayload(data);
+          return;
+        }
         if (await shouldSuppressNotification(data)) {
           await cancelNotificationForPayload(data);
           return;
@@ -433,6 +442,10 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
     // Notification opened while app in background
     messaging().onNotificationOpenedApp((remoteMessage) => {
       const data = remoteMessage?.data || {};
+      if (data.type === 'call_ended') {
+        handleCallEndedPayload(data).catch(() => {});
+        return;
+      }
       shouldSuppressNotification(data).then(async (suppress) => {
         if (suppress) {
           await cancelNotificationForPayload(data);
@@ -465,7 +478,9 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
     const initial = await messaging().getInitialNotification();
     if (initial) {
       const data = initial.data || {};
-      if (await shouldSuppressNotification(data)) {
+      if (data.type === 'call_ended') {
+        await handleCallEndedPayload(data);
+      } else if (await shouldSuppressNotification(data)) {
         await cancelNotificationForPayload(data);
       } else if (data.type === 'call') {
         // Parse caller info from JSON string
