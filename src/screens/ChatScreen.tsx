@@ -570,7 +570,6 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [forwardNote, setForwardNote] = useState('');
   const [nativeReactionInputVisible, setNativeReactionInputVisible] = useState(false);
   const [nativeReactionText, setNativeReactionText] = useState('');
-  const [menuVisible, setMenuVisible] = useState(false);
   const [selectionMenuVisible, setSelectionMenuVisible] = useState(false);
   const [locationMenuVisible, setLocationMenuVisible] = useState(false);
   const [liveDurationVisible, setLiveDurationVisible] = useState(false);
@@ -1258,16 +1257,6 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     { label: '8 hr', value: 8 * 60 * 60 * 1000 },
   ];
 
-  const menuOptions = [
-    'New group',
-    isGroupConversation ? 'View group info' : 'View contact',
-    'Search',
-    'Media, links, and docs',
-    'Mute notifications',
-    'Disappearing messages',
-    'Chat theme',
-    'More',
-  ];
   const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏', '😭'];
 
   const screenWidth = Dimensions.get('window').width;
@@ -3941,7 +3930,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
                 <TouchableOpacity
                   style={styles.headerIconButton}
                   activeOpacity={0.75}
-                  onPress={() => setMenuVisible(true)}
+                  onPress={() => {}}
                 >
                   <Icon name="ellipsis-vertical" size={22} color={theme.primary} />
                 </TouchableOpacity>
@@ -3992,45 +3981,6 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
             >
               <Text style={[styles.menuText, { color: theme.text }]}>Cancel Selection</Text>
             </TouchableOpacity>
-          </View>
-        </Pressable>
-      </Modal>
-
-      <Modal
-        visible={menuVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMenuVisible(false)}
-      >
-        <Pressable style={styles.menuBackdrop} onPress={() => setMenuVisible(false)}>
-          <View
-            style={[
-              styles.menuContainer,
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.border,
-                shadowColor: theme.text,
-              },
-            ]}
-          >
-            {menuOptions.map((option, index) => (
-              <TouchableOpacity
-                key={option}
-                style={[
-                  styles.menuItem,
-                  index === menuOptions.length - 1 && styles.menuItemWithArrow,
-                ]}
-                activeOpacity={0.75}
-                onPress={() => setMenuVisible(false)}
-              >
-                <Text style={[styles.menuText, { color: theme.text }]} numberOfLines={1}>
-                  {option}
-                </Text>
-                {option === 'More' && (
-                  <Icon name="chevron-forward" size={20} color={theme.textSecondary} />
-                )}
-              </TouchableOpacity>
-            ))}
           </View>
         </Pressable>
       </Modal>
