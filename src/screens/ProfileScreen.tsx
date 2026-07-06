@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,  ScrollView,
   TouchableOpacity,
   Switch,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -14,12 +15,24 @@ import { SPACING, FONT_SIZES, BORDER_RADIUS } from '../constants/colors';
 import Header from '../components/Header';
 import Avatar from '../components/Avatar';
 import CustomButton from '../components/CustomButton';
+import { getNotificationsEnabled, requestNotificationPermission, setNotificationsEnabled as persistNotificationsEnabled } from '../services/notifications';
 
 const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { user, logout } = useAuthStore();
   const { theme, isDark, toggleTheme } = useThemeStore();
   const insets = useSafeAreaInsets();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const enabled = await getNotificationsEnabled();
+      if (mounted) setNotificationsEnabled(enabled);
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -133,7 +146,29 @@ const ProfileScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             </View>
             <Switch
               value={notificationsEnabled}
-              onValueChange={setNotificationsEnabled}
+              onValueChange={async (value) => {
+                if (value) {
+                  const granted = await requestNotificationPermission();
+                  if (!granted) {
+                    setNotificationsEnabled(false);
+                    try {
+                      await persistNotificationsEnabled(false);
+                    } catch (e) {}
+                    Alert.alert(
+                      'Notifications disabled',
+                      'Please allow notification permission to turn this on.',
+                    );
+                    return;
+                  }
+                }
+
+                setNotificationsEnabled(value);
+                try {
+                  await persistNotificationsEnabled(value);
+                } catch (e) {
+                  setNotificationsEnabled(!value);
+                }
+              }}
               trackColor={{ false: theme.secondary, true: theme.primary }}
               thumbColor={theme.background}
             />

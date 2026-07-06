@@ -10,6 +10,7 @@ import { playIncomingRingtone, stopCallTone } from './callToneService';
 
 const RECENTLY_READ_MESSAGES_KEY = 'recentlyReadMessageIds';
 const READ_CONVERSATION_PREFIX = 'conversationReadAt:';
+const NOTIFICATIONS_ENABLED_KEY = 'notificationsEnabled';
 
 const getNotificationId = (data: any) => String(data?.notificationId || data?.messageId || data?.callId || '');
 const getStringValue = (value: any, fallback = '') => (value === undefined || value === null ? fallback : String(value));
@@ -44,6 +45,70 @@ const getStoredUser = async () => {
   } catch (e) {
     return null;
   }
+};
+
+export const getNotificationsEnabled = async () => {
+  try {
+    const raw = await AsyncStorage.getItem(NOTIFICATIONS_ENABLED_KEY);
+    if (raw === null) return true;
+    return raw === 'true';
+  } catch (e) {
+    return true;
+  }
+};
+
+export const requestNotificationPermission = async () => {
+  try {
+    const messagingStatus = await messaging().requestPermission();
+    let notifeeGranted = true;
+    try {
+      const settings = await notifee.requestPermission();
+      notifeeGranted = Number((settings as any)?.authorizationStatus ?? 0) > 0;
+    } catch (e) {}
+
+    const messagingGranted =
+      messagingStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+      messagingStatus === messaging.AuthorizationStatus.PROVISIONAL;
+
+    return messagingGranted && notifeeGranted;
+  } catch (e) {
+    return false;
+  }
+};
+
+const syncNotificationDeviceRegistration = async (enabled: boolean) => {
+  const currentUser = await getStoredUser();
+  if (!currentUser?.id) return;
+
+  try {
+    const fcmToken = await messaging().getToken();
+    await fetch(`${API_BASE_URL}/notifications/devices/${enabled ? 'register' : 'unregister'}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: currentUser.id,
+        deviceId: 'primary',
+        platform: 'react-native',
+        fcmToken,
+      }),
+    });
+  } catch (e) {
+    console.warn(`[notifications] Failed to ${enabled ? 'register' : 'unregister'} notification device`, e);
+  }
+};
+
+export const setNotificationsEnabled = async (enabled: boolean) => {
+  try {
+    await AsyncStorage.setItem(NOTIFICATIONS_ENABLED_KEY, enabled ? 'true' : 'false');
+  } catch (e) {}
+
+  if (!enabled) {
+    try {
+      await notifee.cancelAllNotifications();
+    } catch (e) {}
+  }
+
+  await syncNotificationDeviceRegistration(enabled);
 };
 
 const getCallerFromData = (data: any) => {
@@ -225,6 +290,8 @@ const cancelConversationNotifications = async (conversationId?: string) => {
 };
 
 const shouldSuppressNotification = async (data: any) => {
+  if (!(await getNotificationsEnabled())) return true;
+
   const currentUser = useAuthStore.getState().user;
   if (data.senderId && currentUser?.id && String(data.senderId) === String(currentUser.id)) return true;
 
@@ -259,11 +326,6 @@ export const clearCallNotification = async (callId?: string) => {
 
 export const initNotifications = async (onIncomingCall?: (payload: any) => void) => {
   try {
-    // request firebase messaging permission
-    const authStatus = await messaging().requestPermission();
-    const enabled = authStatus === messaging.AuthorizationStatus.AUTHORIZED || authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-    if (!enabled) return;
-
     // create default channel for Android
     try {
       await notifee.createChannel({ id: 'default', name: 'Default', importance: AndroidImportance.HIGH });

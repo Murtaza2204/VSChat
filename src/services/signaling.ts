@@ -3,6 +3,7 @@ import messaging from '@react-native-firebase/messaging';
 import { API_BASE_URL } from '../config/api';
 import { useAuthStore } from '../stores/authStore';
 import { playIncomingRingtone, playOutgoingRingback, stopCallTone } from './callToneService';
+import { getNotificationsEnabled } from './notifications';
 
 let socket: any = null;
 let onIncomingCallListener: ((payload: any) => void) | null = null;
@@ -21,13 +22,18 @@ export const initSignaling = async (onIncomingCall: (payload: any) => void) => {
 
   // register FCM token with backend
   try {
-    const fcmToken = await messaging().getToken();
-    await fetch(`${API_BASE_URL}/notifications/devices/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: user.id, deviceId: 'primary', platform: 'react-native', fcmToken }),
-    });
-    console.log('[Signaling] FCM token registered');
+    const notificationsEnabled = await getNotificationsEnabled();
+    if (notificationsEnabled) {
+      const fcmToken = await messaging().getToken();
+      await fetch(`${API_BASE_URL}/notifications/devices/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, deviceId: 'primary', platform: 'react-native', fcmToken }),
+      });
+      console.log('[Signaling] FCM token registered');
+    } else {
+      console.log('[Signaling] Notifications disabled, skipping FCM registration');
+    }
   } catch (e) {
     console.warn('[Signaling] Failed to register device token', e);
   }
