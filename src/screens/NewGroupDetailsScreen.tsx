@@ -6,9 +6,8 @@ import {  ScrollView,
   TouchableOpacity,
   View,
   Alert,
-  useSafeAreaInsets,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import Avatar from '../components/Avatar';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';

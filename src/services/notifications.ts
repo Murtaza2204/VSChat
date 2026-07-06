@@ -6,6 +6,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useChatStore } from '../stores/chatStore';
 import { API_BASE_URL } from '../config/api';
 import { navigate } from '../navigation/NavigationService';
+import { playIncomingRingtone, stopCallTone } from './callToneService';
 
 const RECENTLY_READ_MESSAGES_KEY = 'recentlyReadMessageIds';
 const READ_CONVERSATION_PREFIX = 'conversationReadAt:';
@@ -165,13 +166,15 @@ const replyFromNotification = async (data: any, input: any) => {
 };
 
 const handleNotificationAction = async (actionId: string, data: any, input?: any, openUi = true) => {
-    if (actionId === 'accept') {
-      await cancelNotificationForPayload(data);
-      await emitCallResponseFromNotification(data, 'accept');
-      if (openUi) navigateToActiveCall(data);
-      else await AsyncStorage.setItem('pendingAcceptedCall', JSON.stringify(data));
+  if (actionId === 'accept') {
+    await cancelNotificationForPayload(data);
+    stopCallTone();
+    await emitCallResponseFromNotification(data, 'accept');
+    if (openUi) navigateToActiveCall(data);
+    else await AsyncStorage.setItem('pendingAcceptedCall', JSON.stringify(data));
   } else if (actionId === 'decline') {
     await cancelNotificationForPayload(data);
+    stopCallTone();
     await emitCallResponseFromNotification(data, 'decline');
   } else if (actionId === 'mark_read') {
     await markNotificationMessageRead(data);
@@ -290,6 +293,7 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
           } catch (e) {
             console.warn('Failed to parse caller data', e);
           }
+          playIncomingRingtone();
           onIncomingCall && onIncomingCall(data);
           // also show actionable notification
           await notifee.displayNotification({
@@ -349,6 +353,7 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
         } catch (e) {
           console.warn('Failed to parse caller data', e);
         }
+        playIncomingRingtone();
         onIncomingCall && onIncomingCall(data);
         // navigate to incoming call screen
         navigate('Main', { screen: 'Calls', params: { screen: 'IncomingCall', params: data } });
@@ -377,6 +382,7 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
         } catch (e) {
           console.warn('Failed to parse caller data', e);
         }
+        playIncomingRingtone();
         onIncomingCall && onIncomingCall(data);
         navigate('Main', { screen: 'Calls', params: { screen: 'IncomingCall', params: data } });
       } else if (data.conversationId) {

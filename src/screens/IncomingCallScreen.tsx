@@ -11,6 +11,7 @@ import { useThemeStore } from '../stores/themeStore';
 import { SPACING, FONT_SIZES, BORDER_RADIUS } from '../constants/colors';
 import Avatar from '../components/Avatar';
 import { AGORA_APP_ID, AGORA_CHANNEL, AGORA_TOKEN } from '../config/agora';
+import { stopCallTone } from '../services/callToneService';
 
 const IncomingCallScreen: React.FC<{ navigation: any; route: any }> = ({
   navigation,
@@ -45,6 +46,7 @@ const IncomingCallScreen: React.FC<{ navigation: any; route: any }> = ({
   }, [scaleAnim]);
 
   const handleAccept = () => {
+    stopCallTone();
     const appId = route?.params?.appId || AGORA_APP_ID;
     const channel = route?.params?.channel || AGORA_CHANNEL;
     const token = route?.params?.token || AGORA_TOKEN;
@@ -58,6 +60,7 @@ const IncomingCallScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const handleReject = () => {
+    stopCallTone();
     navigation.goBack();
   };
 

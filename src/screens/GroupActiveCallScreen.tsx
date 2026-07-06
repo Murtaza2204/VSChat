@@ -9,9 +9,8 @@ import {  StyleSheet,
   LayoutAnimation,
   Platform,
   UIManager,
-  useSafeAreaInsets,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { ensureAudioVideoPermissions } from '../services/permissions';
 import {
@@ -26,6 +25,7 @@ import { useThemeStore } from '../stores/themeStore';
 import { useAuthStore } from '../stores/authStore';
 import signaling from '../services/signaling';
 import { clearCallNotification } from '../services/notifications';
+import { stopCallTone } from '../services/callToneService';
 import { RtcSurfaceView } from 'react-native-agora';
 
 type GroupParticipant = {
@@ -186,6 +186,9 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     const nextParticipants = Array.isArray(state.participants) ? state.participants : [];
     mergeParticipants(nextParticipants, true);
     const nextActive = state.active || state.callStatus === 'active' || state.activeParticipantCount > 1;
+    if (nextActive) {
+      stopCallTone();
+    }
     setSessionActive(nextActive);
     if (nextActive && !startedAtRef.current) {
       startedAtRef.current = state.startedAt ? Date.parse(String(state.startedAt)) : Date.now();
@@ -443,10 +446,11 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   }, [callId, syncFromSessionState]);
 
   React.useEffect(() => {
-    const unsubscribe = signaling.onCallEnded(async (payload: any) => {
-      if (payload?.callId && callId && String(payload.callId) !== String(callId)) return;
-      await leaveAndDismissCall();
-    });
+      const unsubscribe = signaling.onCallEnded(async (payload: any) => {
+        if (payload?.callId && callId && String(payload.callId) !== String(callId)) return;
+        stopCallTone();
+        await leaveAndDismissCall();
+      });
 
     return unsubscribe;
   }, [callId, leaveAndDismissCall]);
@@ -459,6 +463,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const handleEndCall = async () => {
     clearCallNotification(callId).catch(() => {});
+    stopCallTone();
     try {
       const currentUserId = currentUser?.id;
       if (callId && currentUserId) {

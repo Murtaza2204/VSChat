@@ -5,6 +5,7 @@ import RootNavigator from './src/navigation/RootNavigator';
 import { useThemeStore } from './src/stores/themeStore';
 import { useAuthStore } from './src/stores/authStore';
 import { initNotifications } from './src/services/notifications';
+import { CallTonePlayerHost } from './src/services/callToneService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { navigate } from './src/navigation/NavigationService';
 
@@ -114,6 +115,7 @@ function App(): React.JSX.Element {
           translucent={false}
         />
         <RootNavigator />
+        <CallTonePlayerHost />
       </GestureHandlerRootView>
     </SafeAreaProvider>
   );

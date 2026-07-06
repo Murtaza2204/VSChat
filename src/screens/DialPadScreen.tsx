@@ -3,9 +3,8 @@ import {  StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  useSafeAreaInsets,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
 import { useCallStore } from '../stores/callStore';

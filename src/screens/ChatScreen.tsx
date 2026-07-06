@@ -421,6 +421,17 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const liveLocationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const sub = Keyboard.addListener(hideEvent, () => {
+      requestAnimationFrame(() => {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+      });
+    });
+
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
     activeGroupCallRef.current = activeGroupCall;
   }, [activeGroupCall]);
 
@@ -3620,7 +3631,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <KeyboardAvoidingView 
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
       >
       <View

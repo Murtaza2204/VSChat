@@ -5,9 +5,8 @@ import {  StyleSheet,
   View,
   useWindowDimensions,
   Image,
-  useSafeAreaInsets,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { RtcSurfaceView } from 'react-native-agora';
 import { ensureAudioVideoPermissions } from '../services/permissions';
@@ -16,6 +15,7 @@ import { BORDER_RADIUS, FONT_SIZES, SHADOWS, SPACING } from '../constants/colors
 import { useChatStore } from '../stores/chatStore';
 import { useThemeStore } from '../stores/themeStore';
 import { clearCallNotification } from '../services/notifications';
+import { stopCallTone } from '../services/callToneService';
 import { Message } from '../types';
 
 const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
@@ -96,9 +96,11 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
         if (payload?.callId && route.params?.callId && String(payload.callId) !== String(route.params.callId)) return;
 
         if (payload?.response === 'accept') {
+          stopCallTone();
           setCallAccepted(true);
           if (!startedAtRef.current) startedAtRef.current = Date.now();
         } else if (payload?.response === 'decline') {
+          stopCallTone();
           setCallAccepted(false);
           leaveAndDismissCall();
         }
@@ -229,6 +231,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
       const handler = async (payload: any) => {
         if (payload?.callId && route.params?.callId && String(payload.callId) !== String(route.params.callId)) return;
         console.log('[ActiveCall] Received remote call:ended', payload);
+        stopCallTone();
         leaveAndDismissCall();
       };
       return signaling.onCallEnded(handler);
@@ -244,6 +247,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const handleEndCall = async () => {
     clearCallNotification(route.params?.callId).catch(() => {});
+    stopCallTone();
     if (chatId && !didLogCallRef.current) {
       didLogCallRef.current = true;
       const durationSeconds = Math.max(1, elapsedSeconds);

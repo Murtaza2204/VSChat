@@ -5,9 +5,8 @@ import {  StyleSheet,
   View,
   useWindowDimensions,
   Image,
-  useSafeAreaInsets,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { BORDER_RADIUS, FONT_SIZES, SHADOWS, SPACING } from '../constants/colors';
 import { useChatStore } from '../stores/chatStore';
@@ -17,6 +16,7 @@ import signaling from '../services/signaling';
 import { muteLocalAudio, setSpeakerphone } from '../services/agoraService';
 import { clearCallNotification } from '../services/notifications';
 import { Message } from '../types';
+import { stopCallTone } from '../services/callToneService';
 
 type CallStatus = NonNullable<Message['call']>['status'];
 
@@ -158,6 +158,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const handleReject = () => {
     clearCallNotification(route.params?.callId).catch(() => {});
+    stopCallTone();
     try {
       const authUser = useAuthStore.getState().user;
       const callId = route.params?.callId;
@@ -174,6 +175,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const handleAccept = async () => {
     clearCallNotification(route.params?.callId).catch(() => {});
+    stopCallTone();
     setAccepted(true);
     // Send acceptance response to caller
     try {
@@ -217,6 +219,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const handleEnd = () => {
     clearCallNotification(route.params?.callId).catch(() => {});
+    stopCallTone();
     try {
       const authUser = useAuthStore.getState().user;
       const callId = route.params?.callId;

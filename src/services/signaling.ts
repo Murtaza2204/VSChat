@@ -2,6 +2,7 @@ import io from 'socket.io-client';
 import messaging from '@react-native-firebase/messaging';
 import { API_BASE_URL } from '../config/api';
 import { useAuthStore } from '../stores/authStore';
+import { playIncomingRingtone, playOutgoingRingback, stopCallTone } from './callToneService';
 
 let socket: any = null;
 let onIncomingCallListener: ((payload: any) => void) | null = null;
@@ -64,11 +65,13 @@ export const initSignaling = async (onIncomingCall: (payload: any) => void) => {
 
   socket.on('call:incoming', (payload: any) => {
     console.log('[Signaling] Received call:incoming:', payload);
+    playIncomingRingtone();
     onIncomingCallListener && onIncomingCallListener(payload);
   });
 
   socket.on('call:response', (payload: any) => {
     console.log('[Signaling] Received call:response:', payload);
+    stopCallTone();
     callResponseListeners.forEach((listener) => {
       try { listener(payload); } catch (e) {}
     });
@@ -93,6 +96,7 @@ export const initSignaling = async (onIncomingCall: (payload: any) => void) => {
 
   socket.on('call:ended', (payload: any) => {
     console.log('[Signaling] Received call:ended:', payload);
+    stopCallTone();
     callEndedListeners.forEach((listener) => {
       try { listener(payload); } catch (e) {}
     });
@@ -120,6 +124,7 @@ export const inviteCall = (toUserIdOrUserIds: string | string[], callType = 'aud
   };
   console.log('[Signaling] Sending call:invite to:', recipientIds, 'type:', callType);
   socket.emit('call:invite', invite);
+  playOutgoingRingback();
 };
 
 export const respondToCall = (toUserId: string, fromUserId: string, response: 'accept' | 'decline', callId?: string) => {
@@ -130,6 +135,7 @@ export const respondToCall = (toUserId: string, fromUserId: string, response: 'a
   const payload = { toUserId, fromUserId, response, callId };
   console.log('[Signaling] Sending call:response:', payload);
   socket.emit('call:response', payload);
+  stopCallTone();
 };
 
 export const endCall = async (callId: string, userId: string, reason = 'hangup') => {
@@ -139,6 +145,7 @@ export const endCall = async (callId: string, userId: string, reason = 'hangup')
   if (socket && socket.connected) {
     console.log('[Signaling] Sending call:ended:', payload);
     socket.emit('call:ended', payload);
+    stopCallTone();
     return;
   }
 
@@ -151,6 +158,7 @@ export const endCall = async (callId: string, userId: string, reason = 'hangup')
   if (!res.ok) {
     throw new Error(`Failed to end call (${res.status})`);
   }
+  stopCallTone();
 };
 
 export const onCallResponse = (listener: (payload: any) => void) => {
