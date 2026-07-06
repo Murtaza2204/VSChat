@@ -4,7 +4,7 @@ import {  StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
 import { useCallStore } from '../stores/callStore';
@@ -28,7 +28,6 @@ const DIAL_KEYS = [
 const DialPadScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { theme } = useThemeStore();
   const { addCall } = useCallStore();
-  const insets = useSafeAreaInsets();
   const [phoneNumber, setPhoneNumber] = useState('');
 
   const formattedNumber = useMemo(
@@ -82,7 +81,7 @@ const DialPadScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         <Text style={[styles.headerTitle, { color: theme.text }]}>Dial number</Text>
       </View>
 
-      <View style={[styles.content, { paddingBottom: Math.max(insets.bottom, SPACING.xxxl) }]}>
+      <View style={[styles.content, { paddingBottom: SPACING.xxxl }]}>
         <View style={styles.numberRow}>
           <Text
             style={[

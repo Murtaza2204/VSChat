@@ -6,7 +6,7 @@ import {  StyleSheet,
   useWindowDimensions,
   Image,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { BORDER_RADIUS, FONT_SIZES, SHADOWS, SPACING } from '../constants/colors';
 import { useChatStore } from '../stores/chatStore';
@@ -28,7 +28,6 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const { addMessage } = useChatStore();
   const currentUser = useAuthStore((state) => state.user);
   const { width } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
   const callerFromPayload = React.useMemo(() => {
     try {
       if (route.params?.caller && typeof route.params.caller === 'string') {
@@ -308,7 +307,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
               <AcceptedControl icon="call" danger theme={theme} onPress={handleEnd} />
             </View>
           ) : (
-            <View style={[styles.videoIncomingActions, { bottom: SPACING.xxl + insets.bottom }]}>
+            <View style={[styles.videoIncomingActions, { bottom: SPACING.xxl }]}>
               <IncomingAction
                 icon="call"
                 label="Decline"
@@ -357,7 +356,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
           />
         )}
 
-        <View style={[styles.avatarSection, accepted && styles.acceptedAvatarSection, { paddingBottom: (accepted ? 110 : 128) + insets.bottom }]}>
+        <View style={[styles.avatarSection, accepted && styles.acceptedAvatarSection, { paddingBottom: accepted ? 110 : 128 }]}>
           <View
             style={[
               styles.avatar,
@@ -739,40 +738,40 @@ const styles = StyleSheet.create({
   },
   acceptedTray: {
     position: 'absolute',
-    left: SPACING.lg,
-    right: SPACING.lg,
+    left: SPACING.md,
+    right: SPACING.md,
     bottom: SPACING.xxl,
-    minHeight: 70,
+    minHeight: 74,
     borderRadius: BORDER_RADIUS.full,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.xs,
+    justifyContent: 'space-evenly',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
   },
   videoAcceptedTray: {
     position: 'absolute',
-    left: SPACING.lg,
-    right: SPACING.lg,
+    left: SPACING.md,
+    right: SPACING.md,
     bottom: SPACING.xxl,
-    minHeight: 70,
+    minHeight: 74,
     borderRadius: BORDER_RADIUS.full,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.xs,
+    justifyContent: 'space-evenly',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
   },
   headerButtonPlaceholder: {
     width: 54,
     height: 54,
   },
   acceptedControl: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
   },

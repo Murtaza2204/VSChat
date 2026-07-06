@@ -10,7 +10,7 @@ import {  StyleSheet,
   Platform,
   UIManager,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { ensureAudioVideoPermissions } from '../services/permissions';
 import {
@@ -52,7 +52,6 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const { theme } = useThemeStore();
   const currentUser = useAuthStore.getState().user;
   const { width, height } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
 
   const callType = route.params?.callType || 'audio';
   const callId = route.params?.callId;
@@ -647,7 +646,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               </View>
             </View>
 
-            <OutgoingVideoControlTray theme={theme} bottomInset={insets.bottom}>
+            <OutgoingVideoControlTray theme={theme} bottomInset={SPACING.lg}>
               <OutgoingTrayButton
                 icon={isSpeakerOn ? 'volume-high' : 'volume-medium'}
                 active={isSpeakerOn}
@@ -734,7 +733,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               {
                 backgroundColor: theme.surface,
                 borderColor: theme.border,
-                bottom: SPACING.xxl + insets.bottom,
+                bottom: SPACING.xxl,
               },
               SHADOWS.md,
             ]}
@@ -811,7 +810,6 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             {
               backgroundColor: theme.surface,
               borderColor: theme.border,
-              paddingBottom: insets.bottom,
             },
             SHADOWS.md,
           ]}
@@ -1313,24 +1311,24 @@ const styles = StyleSheet.create({
   },
   outgoingVideoTray: {
     position: 'absolute',
-    alignSelf: 'center',
-    minWidth: 300,
-    maxWidth: 420,
-    width: 'auto',
-    height: 64,
+    left: SPACING.lg,
+    right: SPACING.lg,
+    minHeight: 76,
     borderRadius: BORDER_RADIUS.full,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
+    justifyContent: 'space-evenly',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
   },
   outgoingTrayButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
+    marginHorizontal: SPACING.xs,
   },
   outgoingHeader: {
     minHeight: 104,
@@ -1536,21 +1534,23 @@ const styles = StyleSheet.create({
     minWidth: 300,
     maxWidth: 420,
     width: 'auto',
-    height: 64,
+    minHeight: 78,
     borderRadius: BORDER_RADIUS.full,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
+    justifyContent: 'space-evenly',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
     zIndex: 5,
   },
   trayButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
+    marginHorizontal: SPACING.xs,
   },
 });
 

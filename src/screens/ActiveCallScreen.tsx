@@ -6,7 +6,7 @@ import {  StyleSheet,
   useWindowDimensions,
   Image,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { RtcSurfaceView } from 'react-native-agora';
 import { ensureAudioVideoPermissions } from '../services/permissions';
@@ -25,7 +25,6 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const { theme } = useThemeStore();
   const { addMessage } = useChatStore();
   const { width } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
   const callType = route.params?.callType || 'audio';
   const isCallerRoute = !!route.params?.isCaller;
   const callerName = route.params?.callerName || 'Ammi';
@@ -350,7 +349,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             </View>
           )}
 
-          <VideoControlTray theme={theme} bottomInset={insets.bottom}>
+          <VideoControlTray theme={theme} bottomInset={SPACING.lg}>
             <TrayButton
               icon={isVideoOn ? 'videocam' : 'videocam-off'}
               active={isVideoOn}
@@ -447,7 +446,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             {
               backgroundColor: theme.surface,
               borderColor: theme.border,
-              bottom: SPACING.xxl + insets.bottom,
+              bottom: SPACING.xxl,
             },
             SHADOWS.md,
           ]}
@@ -839,24 +838,24 @@ const styles = StyleSheet.create({
   },
   videoTray: {
     position: 'absolute',
-    alignSelf: 'center',
-    minWidth: 220,
-    maxWidth: 320,
-    width: 'auto',
-    height: 58,
+    left: SPACING.lg,
+    right: SPACING.lg,
+    minHeight: 72,
     borderRadius: BORDER_RADIUS.full,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: SPACING.sm,
+    justifyContent: 'space-evenly',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
   },
   trayButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
+    marginHorizontal: SPACING.xs,
   },
   header: {
     minHeight: 96,
