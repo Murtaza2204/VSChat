@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { launchImageLibrary } from 'react-native-image-picker';
-import {
-  SafeAreaView,
-  ScrollView,
+import {  ScrollView,
   StyleSheet,
   Text,
   ActivityIndicator,
@@ -13,6 +11,7 @@ import {
   ToastAndroid,
   TextInput,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '../stores/themeStore';
@@ -1514,3 +1513,4 @@ const styles = StyleSheet.create({
 });
 
 export default ContactInfoScreen;
+

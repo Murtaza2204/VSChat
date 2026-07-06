@@ -2,11 +2,10 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
-  SafeAreaView,
-  TouchableOpacity,
+  StyleSheet,  TouchableOpacity,
   Animated,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '../stores/themeStore';
 import { SPACING, FONT_SIZES, BORDER_RADIUS } from '../constants/colors';
@@ -179,3 +178,4 @@ const styles = StyleSheet.create({
 });
 
 export default IncomingCallScreen;
+

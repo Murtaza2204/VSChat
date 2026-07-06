@@ -3,13 +3,12 @@ import {
   View,
   Text,
   TextInput,
-  StyleSheet,
-  SafeAreaView,
-  ScrollView,
+  StyleSheet,  ScrollView,
   KeyboardAvoidingView,
   Platform,
   TouchableOpacity,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../stores/authStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore } from '../stores/themeStore';
@@ -287,3 +286,4 @@ const styles = StyleSheet.create({
 });
 
 export default OTPVerificationScreen;
+

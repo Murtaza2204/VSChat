@@ -1,14 +1,13 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  FlatList,
-  SafeAreaView,
-  SectionList,
+  FlatList,  SectionList,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useThemeStore } from '../stores/themeStore';
 import { useChatStore } from '../stores/chatStore';
@@ -330,3 +329,4 @@ const styles = StyleSheet.create({
 });
 
 export default NewGroupScreen;
+

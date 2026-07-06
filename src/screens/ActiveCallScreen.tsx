@@ -1,13 +1,13 @@
 import React from 'react';
-import {
-  SafeAreaView,
-  StyleSheet,
+import {  StyleSheet,
   Text,
   TouchableOpacity,
   View,
   useWindowDimensions,
   Image,
+  useSafeAreaInsets,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { RtcSurfaceView } from 'react-native-agora';
 import { ensureAudioVideoPermissions } from '../services/permissions';
@@ -25,6 +25,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const { theme } = useThemeStore();
   const { addMessage } = useChatStore();
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const callType = route.params?.callType || 'audio';
   const isCallerRoute = !!route.params?.isCaller;
   const callerName = route.params?.callerName || 'Ammi';
@@ -345,7 +346,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             </View>
           )}
 
-          <VideoControlTray theme={theme}>
+          <VideoControlTray theme={theme} bottomInset={insets.bottom}>
             <TrayButton
               icon={isVideoOn ? 'videocam' : 'videocam-off'}
               active={isVideoOn}
@@ -442,6 +443,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             {
               backgroundColor: theme.surface,
               borderColor: theme.border,
+              bottom: SPACING.xxl + insets.bottom,
             },
             SHADOWS.md,
           ]}
@@ -520,9 +522,11 @@ const VideoSurface = ({
 const VideoControlTray = ({
   children,
   theme,
+  bottomInset = 0,
 }: {
   children: React.ReactNode;
   theme: any;
+  bottomInset?: number;
 }) => (
   <View
     style={[
@@ -530,6 +534,7 @@ const VideoControlTray = ({
       {
         backgroundColor: theme.surface,
         borderColor: theme.border,
+        bottom: SPACING.xxl + bottomInset,
       },
       SHADOWS.md,
     ]}
@@ -830,7 +835,6 @@ const styles = StyleSheet.create({
   },
   videoTray: {
     position: 'absolute',
-    bottom: SPACING.xxl,
     alignSelf: 'center',
     minWidth: 220,
     maxWidth: 320,
@@ -894,7 +898,6 @@ const styles = StyleSheet.create({
   },
   controlPanel: {
     position: 'absolute',
-    bottom: SPACING.xxl,
     alignSelf: 'center',
     minWidth: 300,
     maxWidth: 420,
@@ -924,3 +927,4 @@ const styles = StyleSheet.create({
 });
 
 export default ActiveCallScreen;
+

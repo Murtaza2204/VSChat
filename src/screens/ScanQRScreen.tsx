@@ -8,10 +8,9 @@ import {
   Alert,
   ActivityIndicator,
   TextInput,
-  Platform,
-  SafeAreaView,
-  ScrollView,
+  Platform,  ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Camera } from 'react-native-camera-kit';
 import { check, request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import api from '../config/api';
@@ -197,3 +196,4 @@ const styles = StyleSheet.create({
 });
 
 export default ScanQRScreen;
+

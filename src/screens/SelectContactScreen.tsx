@@ -1,13 +1,12 @@
 // @ts-nocheck
 import React, { useMemo, useEffect, useState } from 'react';
 import {
-  FlatList,
-  SafeAreaView,
-  StyleSheet,
+  FlatList,  StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 const Icon = require('react-native-vector-icons/Ionicons').default;
 import { useThemeStore } from '../stores/themeStore';
 import contactSync from '../utils/contactSync';
@@ -399,3 +398,4 @@ const styles = StyleSheet.create({
 });
 
 export default SelectContactScreen;
+

@@ -5,7 +5,6 @@ import {
   Text,
   FlatList,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   Modal,
   Pressable,
@@ -20,7 +19,9 @@ import {
   Linking,
   Keyboard,
   NativeModules,
+  KeyboardAvoidingView,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { ToastAndroid } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -195,6 +196,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     const { chat: routeChat, conversationId: routeConversationId, participant, searchMode: routeSearchMode = false, searchQuery: routeSearchQuery = '' } = route.params || {};
   const { theme } = useThemeStore();
   const { user } = useAuthStore();
+  const insets = useSafeAreaInsets();
   const currentUserId = user?.id;
   const { chats, addMessage, updateMessage, deleteMessage } = useChatStore();
   const storeChat = useMemo(() => {
@@ -3616,6 +3618,11 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+      >
       <View
         style={[
           styles.chatHeader,
@@ -4580,7 +4587,14 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         replyTo={replyMessage}
         onCancelReply={() => setReplyMessage(null)}
         disabled={false}
+        onFocusChange={(focused) => {
+          if (focused) return;
+          requestAnimationFrame(() => {
+            flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+          });
+        }}
       />
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
@@ -5313,3 +5327,4 @@ const styles = StyleSheet.create({
 });
 
 export default ChatScreen;
+

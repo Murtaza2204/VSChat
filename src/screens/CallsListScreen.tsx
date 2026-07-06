@@ -3,10 +3,10 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   FlatList,
   TouchableOpacity,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useCallStore } from '../stores/callStore';
 import { useAuthStore } from '../stores/authStore';
@@ -22,6 +22,7 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { getSearchedCalls, setCalls } = useCallStore();
   const { user } = useAuthStore();
   const { theme } = useThemeStore();
+  const insets = useSafeAreaInsets();
   const [searchQuery, setSearchQuery] = React.useState('');
 
   const searchedCalls = getSearchedCalls(searchQuery);
@@ -191,7 +192,7 @@ const CallsListScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           renderItem={renderCallItem}
           keyExtractor={(item) => item.id}
           scrollEnabled={true}
-          contentContainerStyle={styles.callListContent}
+          contentContainerStyle={[styles.callListContent, { paddingBottom: 96 + insets.bottom }]}
         />
       ) : (
         <EmptyState
@@ -255,3 +256,4 @@ const styles = StyleSheet.create({
 });
 
 export default CallsListScreen;
+

@@ -1,13 +1,13 @@
 import React from 'react';
-import {
-  SafeAreaView,
-  StyleSheet,
+import {  StyleSheet,
   Text,
   TouchableOpacity,
   View,
   useWindowDimensions,
   Image,
+  useSafeAreaInsets,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { BORDER_RADIUS, FONT_SIZES, SHADOWS, SPACING } from '../constants/colors';
 import { useChatStore } from '../stores/chatStore';
@@ -28,6 +28,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const { addMessage } = useChatStore();
   const currentUser = useAuthStore((state) => state.user);
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const callerFromPayload = React.useMemo(() => {
     try {
       if (route.params?.caller && typeof route.params.caller === 'string') {
@@ -304,7 +305,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
               <AcceptedControl icon="call" danger theme={theme} onPress={handleEnd} />
             </View>
           ) : (
-            <View style={styles.videoIncomingActions}>
+            <View style={[styles.videoIncomingActions, { bottom: SPACING.xxl + insets.bottom }]}>
               <IncomingAction
                 icon="call"
                 label="Decline"
@@ -353,7 +354,7 @@ const ReceiverCallScreen: React.FC<{ navigation: any; route: any }> = ({
           />
         )}
 
-        <View style={[styles.avatarSection, accepted && styles.acceptedAvatarSection]}>
+        <View style={[styles.avatarSection, accepted && styles.acceptedAvatarSection, { paddingBottom: (accepted ? 110 : 128) + insets.bottom }]}>
           <View
             style={[
               styles.avatar,
@@ -876,7 +877,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: SPACING.lg,
     right: SPACING.lg,
-    bottom: SPACING.xxl,
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
@@ -939,3 +939,4 @@ const styles = StyleSheet.create({
 });
 
 export default ReceiverCallScreen;
+

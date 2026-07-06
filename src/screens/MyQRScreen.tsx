@@ -9,11 +9,10 @@ import {
   ActivityIndicator,
   Alert,
   Share,
-  TextInput,
-  SafeAreaView,
-  ScrollView,
+  TextInput,  ScrollView,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import QRCode from 'react-native-qrcode-svg';
 import ViewShot from 'react-native-view-shot';
 import RNShare from 'react-native-share';
@@ -193,3 +192,4 @@ const styles = StyleSheet.create({
 });
 
 export default MyQRScreen;
+

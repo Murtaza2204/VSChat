@@ -3,9 +3,8 @@ import {
   View,
   Text,
   StyleSheet,
-  Animated,
-  SafeAreaView,
-} from 'react-native';
+  Animated,} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../stores/authStore';
 import { useThemeStore } from '../stores/themeStore';
 import { FONT_SIZES, SPACING } from '../constants/colors';
@@ -129,3 +128,4 @@ const styles = StyleSheet.create({
 });
 
 export default SplashScreen;
+

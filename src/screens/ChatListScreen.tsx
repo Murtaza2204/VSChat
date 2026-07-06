@@ -4,7 +4,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   FlatList,
   TextInput,
   RefreshControl,
@@ -13,6 +12,7 @@ import {
   Pressable,
   ScrollView,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 const Icon = require('react-native-vector-icons/Ionicons').default;
 import { useChatStore } from '../stores/chatStore';
@@ -722,3 +722,4 @@ const styles = StyleSheet.create({
 });
 
 export default ChatListScreen;
+

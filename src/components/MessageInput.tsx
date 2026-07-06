@@ -20,6 +20,7 @@ interface MessageInputProps {
   onEmojiPress?: () => void;
   onCameraPress?: () => void;
   onAttachmentOptionSelect?: (option: string) => void;
+  onFocusChange?: (focused: boolean) => void;
   style?: ViewStyle;
   theme: any;
   placeholder?: string;
@@ -36,6 +37,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   onEmojiPress,
   onCameraPress,
   onAttachmentOptionSelect,
+  onFocusChange,
   style,
   theme,
   placeholder = 'Type a message...',
@@ -131,8 +133,14 @@ const MessageInput: React.FC<MessageInputProps> = ({
             placeholderTextColor={theme.textSecondary}
             value={value}
             onChangeText={onChangeText}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
+            onFocus={() => {
+              setFocused(true);
+              onFocusChange?.(true);
+            }}
+            onBlur={() => {
+              setFocused(false);
+              onFocusChange?.(false);
+            }}
             style={[
               styles.input,
               {
@@ -188,6 +196,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
             {
               backgroundColor: theme.surface,
               borderTopColor: theme.border,
+              paddingBottom: SPACING.lg,
             },
           ]}
         >
@@ -270,7 +279,7 @@ const styles = StyleSheet.create({
   attachmentTray: {
     borderTopWidth: 1,
     paddingTop: SPACING.lg,
-    paddingBottom: SPACING.xl,
+    paddingBottom: SPACING.lg,
   },
   attachmentGridContent: {
     flexDirection: 'row',

@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ViewStyle,
   TextStyle,
-  SafeAreaView,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { SPACING, FONT_SIZES, BORDER_RADIUS } from '../constants/colors';
@@ -39,7 +38,7 @@ const Header: React.FC<HeaderProps> = ({
   titleStyle,
 }) => {
   return (
-    <SafeAreaView
+    <View
       style={[
         styles.container,
         {
@@ -96,7 +95,7 @@ const Header: React.FC<HeaderProps> = ({
           ) : null}
         </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -137,3 +136,4 @@ const styles = StyleSheet.create({
 });
 
 export default Header;
+

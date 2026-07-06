@@ -2,9 +2,7 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
-  SafeAreaView,
-  ScrollView,
+  StyleSheet,  ScrollView,
   KeyboardAvoidingView,
   Platform,
   TouchableOpacity,
@@ -12,6 +10,7 @@ import {
   PermissionsAndroid,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { useAuthStore } from '../stores/authStore';
@@ -504,3 +503,4 @@ const styles = StyleSheet.create({
 });
 
 export default EditProfileScreen;
+

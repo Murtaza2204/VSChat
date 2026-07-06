@@ -1,14 +1,14 @@
 import React, { useMemo, useState } from 'react';
-import {
-  SafeAreaView,
-  ScrollView,
+import {  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
   Alert,
+  useSafeAreaInsets,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import Avatar from '../components/Avatar';
 import { BORDER_RADIUS, FONT_SIZES, SPACING } from '../constants/colors';
@@ -25,6 +25,7 @@ const NewGroupDetailsScreen: React.FC<{ navigation: any; route: any }> = ({
   const { theme } = useThemeStore();
   const { createGroup } = useChatStore();
   const { user } = useAuthStore();
+  const insets = useSafeAreaInsets();
   const [groupName, setGroupName] = useState('');
   const selectedMembers = useMemo<any[]>(
     () => route.params?.selectedContacts || [],
@@ -167,6 +168,7 @@ const NewGroupDetailsScreen: React.FC<{ navigation: any; route: any }> = ({
           {
             backgroundColor: selectedMembers.length ? theme.success : theme.border,
             opacity: selectedMembers.length ? 1 : 0.65,
+            bottom: SPACING.xl + insets.bottom,
           },
         ]}
         activeOpacity={selectedMembers.length ? 0.85 : 1}
@@ -285,7 +287,6 @@ const styles = StyleSheet.create({
   createButton: {
     position: 'absolute',
     right: SPACING.lg,
-    bottom: SPACING.xl,
     width: 64,
     height: 64,
     borderRadius: BORDER_RADIUS.lg,
@@ -296,3 +297,4 @@ const styles = StyleSheet.create({
 });
 
 export default NewGroupDetailsScreen;
+

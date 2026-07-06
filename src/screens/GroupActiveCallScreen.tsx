@@ -1,7 +1,5 @@
 import React from 'react';
-import {
-  SafeAreaView,
-  StyleSheet,
+import {  StyleSheet,
   Text,
   TouchableOpacity,
   View,
@@ -11,7 +9,9 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
+  useSafeAreaInsets,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { ensureAudioVideoPermissions } from '../services/permissions';
 import {
@@ -52,6 +52,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const { theme } = useThemeStore();
   const currentUser = useAuthStore.getState().user;
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   const callType = route.params?.callType || 'audio';
   const callId = route.params?.callId;
@@ -641,7 +642,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               </View>
             </View>
 
-            <OutgoingVideoControlTray theme={theme}>
+            <OutgoingVideoControlTray theme={theme} bottomInset={insets.bottom}>
               <OutgoingTrayButton
                 icon={isSpeakerOn ? 'volume-high' : 'volume-medium'}
                 active={isSpeakerOn}
@@ -728,6 +729,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               {
                 backgroundColor: theme.surface,
                 borderColor: theme.border,
+                bottom: SPACING.xxl + insets.bottom,
               },
               SHADOWS.md,
             ]}
@@ -804,6 +806,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             {
               backgroundColor: theme.surface,
               borderColor: theme.border,
+              paddingBottom: insets.bottom,
             },
             SHADOWS.md,
           ]}
@@ -1153,9 +1156,11 @@ const OutgoingTrayButton = ({
 const OutgoingVideoControlTray = ({
   theme,
   children,
+  bottomInset = 0,
 }: {
   theme: any;
   children: React.ReactNode;
+  bottomInset?: number;
 }) => (
   <View
     style={[
@@ -1163,6 +1168,7 @@ const OutgoingVideoControlTray = ({
       {
         backgroundColor: theme.surface,
         borderColor: theme.border,
+        bottom: SPACING.xxl + bottomInset,
       },
       SHADOWS.md,
     ]}
@@ -1302,7 +1308,6 @@ const styles = StyleSheet.create({
   },
   outgoingVideoTray: {
     position: 'absolute',
-    bottom: SPACING.xl,
     alignSelf: 'center',
     minWidth: 300,
     maxWidth: 420,
@@ -1522,8 +1527,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   tray: {
-    position: 'absolute',
-    bottom: SPACING.xl,
     alignSelf: 'center',
     minWidth: 300,
     maxWidth: 420,
@@ -1547,3 +1550,4 @@ const styles = StyleSheet.create({
 });
 
 export default GroupActiveCallScreen;
+
