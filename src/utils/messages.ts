@@ -1,9 +1,35 @@
 import api from '../config/api';
 
-export const getMessages = async (conversationId) => {
-  const res = await api.get('/messages', { params: { conversationId } });
-  return res.data.messages;
+export const getMessages = async (
+  conversationId: string,
+  options: {
+    limit?: number;
+    before?: string | Date | null;
+    after?: string | Date | null;
+    page?: number;
+    sort?: 'asc' | 'desc';
+  } = {},
+) => {
+  const params: Record<string, any> = { conversationId };
+  if (typeof options.limit === 'number') params.limit = options.limit;
+  if (typeof options.page === 'number') params.page = options.page;
+  if (options.before) params.before = options.before instanceof Date ? options.before.toISOString() : options.before;
+  if (options.after) params.after = options.after instanceof Date ? options.after.toISOString() : options.after;
+  if (options.sort) params.sort = options.sort;
+  const res = await api.get('/messages', { params });
+  return res?.data?.messages || [];
 };
+
+export const getMessagesForConversation = async (
+  conversationId: string,
+  options: {
+    limit?: number;
+    before?: string | Date | null;
+    after?: string | Date | null;
+    page?: number;
+    sort?: 'asc' | 'desc';
+  } = {},
+) => getMessages(conversationId, options);
 
 export const sendMessage = async (
   conversationId,
@@ -124,4 +150,4 @@ export const removeMessageMedia = async (messageId: string, mediaItemIds: string
   }
 };
 
-export default { getMessages, sendMessage, markConversationRead, deleteMessageForMe, deleteMessageForEveryone, deleteMessagesForMeBulk, deleteMessagesForEveryoneBulk, forwardMessagesBulk, reactMessage, reactMediaMessage, removeMessageMedia };
+export default { getMessages, getMessagesForConversation, sendMessage, markConversationRead, deleteMessageForMe, deleteMessageForEveryone, deleteMessagesForMeBulk, deleteMessagesForEveryoneBulk, forwardMessagesBulk, reactMessage, reactMediaMessage, removeMessageMedia };

@@ -233,19 +233,193 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const [membersProfiles, setMembersProfiles] = useState<any[] | null>(null);
   const { state: uploadState, upload: uploadUsingHook, reset: resetUpload } = useMediaUpload();
   const chatMessages = useMemo(() => (conversationId ? loadedMessages : (chat?.messages || [])), [conversationId, loadedMessages, chat]);
-  const sortedChatMessages = useMemo(() => {
+  const INITIAL_MESSAGE_BATCH_SIZE = 50;
+  const BACKGROUND_MESSAGE_BATCH_SIZE = 50;
+  const messageHistoryRequestIdRef = useRef(0);
+  const messageHistoryPageRef = useRef(1);
+  const messageHistoryQueueRef = useRef<Message[]>([]);
+  const messageHistoryLoadingRef = useRef(false);
+  const messageHistoryCompleteRef = useRef(false);
+  const messageHistoryPriorityRef = useRef(false);
+  const clearedAtRef = useRef<Date | null>(null);
+
+  const sortMessagesChronologically = React.useCallback((messages: Message[] = []) => {
     const toTime = (message: any) => {
       const value = message?.timestamp || message?.createdAt || 0;
       const time = new Date(value).getTime();
       return Number.isFinite(time) ? time : 0;
     };
 
-    return [...(chatMessages || [])].sort((a: any, b: any) => {
+    return [...messages].sort((a: any, b: any) => {
       const timeDelta = toTime(a) - toTime(b);
       if (timeDelta !== 0) return timeDelta;
       return String(a?.id || '').localeCompare(String(b?.id || ''));
     });
-  }, [chatMessages]);
+  }, []);
+
+  const normalizeConversationMessages = React.useCallback((messages: any[] = [], clearedAt: Date | null = null) => {
+    return (messages || [])
+      .map(normalizeServerMessage)
+      .filter((message) => !clearedAt || new Date(message.timestamp || message.createdAt || 0) > clearedAt);
+  }, []);
+
+  const mergeOlderMessages = React.useCallback((incomingMessages: Message[] = []) => {
+    if (!incomingMessages.length) return;
+    const normalizedIncoming = sortMessagesChronologically(incomingMessages);
+    setLoadedMessages((prev) => {
+      const existingIds = new Set(prev.map((message) => String(message.id)));
+      const uniqueIncoming = normalizedIncoming.filter((message) => !existingIds.has(String(message.id)));
+      if (!uniqueIncoming.length) return prev;
+      return [...uniqueIncoming, ...prev];
+    });
+  }, [sortMessagesChronologically]);
+
+  const loadOlderConversationMessages = React.useCallback(async (priority = false) => {
+    if (!conversationId) return;
+    if (messageHistoryCompleteRef.current && !messageHistoryQueueRef.current.length) return;
+
+    if (messageHistoryLoadingRef.current) {
+      if (priority) messageHistoryPriorityRef.current = true;
+      return;
+    }
+
+    const requestId = messageHistoryRequestIdRef.current;
+    messageHistoryLoadingRef.current = true;
+    if (priority) messageHistoryPriorityRef.current = true;
+
+    try {
+      while (
+        requestId === messageHistoryRequestIdRef.current &&
+        (!messageHistoryCompleteRef.current || messageHistoryQueueRef.current.length)
+      ) {
+        if (messageHistoryQueueRef.current.length) {
+          const nextBatch = messageHistoryQueueRef.current.splice(0, BACKGROUND_MESSAGE_BATCH_SIZE);
+          mergeOlderMessages(nextBatch);
+          if (!messageHistoryPriorityRef.current && messageHistoryQueueRef.current.length) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          }
+          messageHistoryPriorityRef.current = false;
+          continue;
+        }
+
+        const page = messageHistoryPageRef.current;
+        const msgs = await messagesApi.getMessages(conversationId, {
+          page,
+          limit: BACKGROUND_MESSAGE_BATCH_SIZE,
+          sort: 'desc',
+        });
+
+        if (requestId !== messageHistoryRequestIdRef.current) return;
+
+        const normalizedMessages = normalizeConversationMessages(msgs || [], clearedAtRef.current);
+        if (!normalizedMessages.length) {
+          messageHistoryCompleteRef.current = true;
+          break;
+        }
+
+        const sortedMessages = sortMessagesChronologically(normalizedMessages);
+        mergeOlderMessages(sortedMessages);
+
+        if (sortedMessages.length < BACKGROUND_MESSAGE_BATCH_SIZE) {
+          messageHistoryCompleteRef.current = true;
+          break;
+        }
+
+        messageHistoryPageRef.current += 1;
+        if (!messageHistoryPriorityRef.current) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        messageHistoryPriorityRef.current = false;
+      }
+    } catch (error) {
+      console.warn('Failed to load older messages', (error as any)?.message || String(error));
+    } finally {
+      messageHistoryLoadingRef.current = false;
+      messageHistoryPriorityRef.current = false;
+    }
+  }, [conversationId, mergeOlderMessages, normalizeConversationMessages, sortMessagesChronologically]);
+
+  const loadMessages = React.useCallback(async () => {
+    if (!conversationId) {
+      messageHistoryRequestIdRef.current += 1;
+      messageHistoryPageRef.current = 1;
+      messageHistoryQueueRef.current = [];
+      messageHistoryLoadingRef.current = false;
+      messageHistoryCompleteRef.current = true;
+      messageHistoryPriorityRef.current = false;
+      clearedAtRef.current = null;
+      setLoadedMessages([]);
+      setIsChatCleared(false);
+      return;
+    }
+
+    const requestId = ++messageHistoryRequestIdRef.current;
+    messageHistoryPageRef.current = 1;
+    messageHistoryQueueRef.current = [];
+    messageHistoryLoadingRef.current = false;
+    messageHistoryCompleteRef.current = false;
+    messageHistoryPriorityRef.current = false;
+
+    try {
+      let clearedAt: Date | null = null;
+      try {
+        const rawClearedChats = await AsyncStorage.getItem('clearedChats');
+        const clearedChatMap = rawClearedChats ? JSON.parse(rawClearedChats) : {};
+        const clearedAtRaw = clearedChatMap && typeof clearedChatMap === 'object'
+          ? clearedChatMap[String(conversationId)] || clearedChatMap[String(chat?.id || '')]
+          : null;
+        clearedAt = clearedAtRaw ? new Date(clearedAtRaw) : null;
+
+        const storageKey = `hiddenMediaItems:${String(conversationId || chat?.id || '')}`;
+        const rawHidden = await AsyncStorage.getItem(storageKey);
+        const parsedHidden = rawHidden ? JSON.parse(rawHidden) : {};
+        const nextHiddenMap = new Map<string, Set<string>>();
+        Object.entries(parsedHidden || {}).forEach(([messageId, ids]) => {
+          if (!Array.isArray(ids) || !ids.length) return;
+          nextHiddenMap.set(String(messageId), new Set(ids.map((id) => String(id))));
+        });
+        hiddenMediaItemIdsRef.current = nextHiddenMap;
+      } catch (e) {}
+
+      clearedAtRef.current = clearedAt;
+      const msgs = await messagesApi.getMessages(conversationId, {
+        page: 1,
+        limit: INITIAL_MESSAGE_BATCH_SIZE,
+        sort: 'desc',
+      });
+
+      if (requestId !== messageHistoryRequestIdRef.current) return;
+
+      const normalizedMessages = sortMessagesChronologically(
+        normalizeConversationMessages(msgs || [], clearedAt),
+      );
+
+      const hasEntireHistoryInFirstPayload = normalizedMessages.length > INITIAL_MESSAGE_BATCH_SIZE;
+      const visibleMessages = hasEntireHistoryInFirstPayload
+        ? normalizedMessages.slice(-INITIAL_MESSAGE_BATCH_SIZE)
+        : normalizedMessages;
+      const olderMessages = hasEntireHistoryInFirstPayload
+        ? normalizedMessages.slice(0, -INITIAL_MESSAGE_BATCH_SIZE)
+        : [];
+
+      setLoadedMessages(visibleMessages);
+      setIsChatCleared(!!clearedAt && normalizedMessages.length === 0);
+      messageHistoryQueueRef.current = olderMessages;
+      messageHistoryPageRef.current = 2;
+      messageHistoryCompleteRef.current = hasEntireHistoryInFirstPayload || normalizedMessages.length < INITIAL_MESSAGE_BATCH_SIZE;
+
+      visibleMessages.forEach((message) => {
+        void autoDownloadReceivedMedia(message);
+      });
+
+      if (olderMessages.length || !messageHistoryCompleteRef.current) {
+        void loadOlderConversationMessages(olderMessages.length > 0);
+      }
+    } catch (e) {
+      console.warn('Failed to load messages', (e as any)?.message || String(e));
+    }
+  }, [conversationId, loadOlderConversationMessages, normalizeConversationMessages, sortMessagesChronologically, chat?.id]);
+  const sortedChatMessages = useMemo(() => sortMessagesChronologically(chatMessages || []), [chatMessages, sortMessagesChronologically]);
   // format date label according to rules
   const getDateLabel = (d: Date) => {
     if (!d) return '';
@@ -2672,48 +2846,6 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   };
 
-    const loadMessages = React.useCallback(async () => {
-      if (!conversationId) {
-        setLoadedMessages([]);
-        setIsChatCleared(false);
-        return;
-      }
-
-    try {
-      let clearedAt: Date | null = null;
-      try {
-        const rawClearedChats = await AsyncStorage.getItem('clearedChats');
-        const clearedChatMap = rawClearedChats ? JSON.parse(rawClearedChats) : {};
-        const clearedAtRaw = clearedChatMap && typeof clearedChatMap === 'object'
-          ? clearedChatMap[String(conversationId)] || clearedChatMap[String(chat?.id || '')]
-          : null;
-        clearedAt = clearedAtRaw ? new Date(clearedAtRaw) : null;
-
-        const storageKey = `hiddenMediaItems:${String(conversationId || chat?.id || '')}`;
-        const rawHidden = await AsyncStorage.getItem(storageKey);
-        const parsedHidden = rawHidden ? JSON.parse(rawHidden) : {};
-        const nextHiddenMap = new Map<string, Set<string>>();
-        Object.entries(parsedHidden || {}).forEach(([messageId, ids]) => {
-          if (!Array.isArray(ids) || !ids.length) return;
-          nextHiddenMap.set(String(messageId), new Set(ids.map((id) => String(id))));
-        });
-        hiddenMediaItemIdsRef.current = nextHiddenMap;
-      } catch (e) {}
-
-      const msgs = await messagesApi.getMessages(conversationId);
-      const normalizedMessages = (msgs || [])
-        .map(normalizeServerMessage)
-        .filter((message) => !clearedAt || new Date(message.timestamp || message.createdAt || 0) > clearedAt);
-      setLoadedMessages(normalizedMessages);
-      setIsChatCleared(!!clearedAt && normalizedMessages.length === 0);
-      normalizedMessages.forEach((message) => {
-        void autoDownloadReceivedMedia(message);
-      });
-      } catch (e) {
-        console.warn('Failed to load messages', (e as any)?.message || String(e));
-      }
-    }, [conversationId, currentUserId]);
-
     useEffect(() => {
       loadMessages();
     }, [loadMessages]);
@@ -2762,15 +2894,17 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
           
           // Only refresh if the message is for the current conversation
           if (receivedConversationId && currentConversationId && String(receivedConversationId) === String(currentConversationId)) {
-            console.log('[ChatScreen] new message in current conversation, reloading messages', payload);
-            loadMessages();
+            console.log('[ChatScreen] new message in current conversation, keeping staged history load active', payload);
+            if (!messageHistoryCompleteRef.current || messageHistoryQueueRef.current.length) {
+              void loadOlderConversationMessages(false);
+            }
           }
         } catch (e) {
           console.warn('[ChatScreen] error refreshing on new message:', e);
         }
       });
       return unsubscribe;
-    }, [conversationId, chat?.conversationId, chat?.id, loadMessages]);
+    }, [conversationId, chat?.conversationId, chat?.id, loadOlderConversationMessages]);
 
   const handleCurrentLocationPress = async () => {
     try {
@@ -4076,7 +4210,13 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         contentContainerStyle={styles.messageList}
         inverted
         style={styles.chatList}
-        onEndReachedThreshold={0.1}
+        maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 20 }}
+        onEndReachedThreshold={0.2}
+        onEndReached={() => {
+          if (!messageHistoryCompleteRef.current || messageHistoryQueueRef.current.length) {
+            void loadOlderConversationMessages(true);
+          }
+        }}
         ListEmptyComponent={() => (
           <View style={styles.emptyChatState}>
             <Text style={[styles.emptyChatTitle, { color: theme.text, transform: [{ rotate: '180deg' }] }]}> 
