@@ -14,6 +14,7 @@ const RECENTLY_READ_MESSAGES_KEY = 'recentlyReadMessageIds';
 const READ_CONVERSATION_PREFIX = 'conversationReadAt:';
 const NOTIFICATIONS_ENABLED_KEY = 'notificationsEnabled';
 const PENDING_NOTIFICATION_REPLY_PREFIX = 'pendingNotificationReplies:';
+const MESSAGE_NOTIFICATION_CHANNEL_ID = 'message_notifications_v1';
 
 const getNotificationId = (data: any) => String(data?.notificationId || data?.messageId || data?.callId || '');
 const getStringValue = (value: any, fallback = '') => (value === undefined || value === null ? fallback : String(value));
@@ -371,6 +372,15 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
       await notifee.createChannel({ id: 'default', name: 'Default', importance: AndroidImportance.HIGH });
     } catch (e) {}
 
+    try {
+      await notifee.createChannel({
+        id: MESSAGE_NOTIFICATION_CHANNEL_ID,
+        name: 'Messages',
+        importance: AndroidImportance.DEFAULT,
+        sound: 'message_notification',
+      });
+    } catch (e) {}
+
     // Foreground messages: display a local notification with actions
     messaging().onMessage(async (remoteMessage) => {
       try {
@@ -423,13 +433,14 @@ export const initNotifications = async (onIncomingCall?: (payload: any) => void)
             title,
             body,
             android: {
-              channelId: 'default',
+              channelId: MESSAGE_NOTIFICATION_CHANNEL_ID,
               smallIcon: 'ic_launcher',
               actions: [
                 { title: 'Reply', pressAction: { id: 'reply' }, input: { allowFreeFormInput: true, placeholder: 'Type a reply' } },
                 { title: 'Mark as read', pressAction: { id: 'mark_read' } },
               ],
               importance: AndroidImportance.DEFAULT,
+              sound: 'message_notification',
             },
             data,
           });

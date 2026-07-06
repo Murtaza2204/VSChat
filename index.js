@@ -10,6 +10,7 @@ import messaging from '@react-native-firebase/messaging';
 import notifee, { AndroidImportance } from '@notifee/react-native';
 
 const CALL_NOTIFICATION_CHANNEL_ID = 'incoming_call_ringtone';
+const MESSAGE_NOTIFICATION_CHANNEL_ID = 'message_notifications_v1';
 
 const cancelIncomingCallNotification = async (notificationId) => {
 	if (!notificationId) return;
@@ -60,6 +61,35 @@ const displayIncomingCallNotification = async (remoteMessage) => {
 	});
 };
 
+const displayMessageNotification = async (remoteMessage) => {
+	const data = remoteMessage?.data || {};
+	const notificationId = String(data.notificationId || data.messageId || data.callId || '');
+
+	const channelId = await notifee.createChannel({
+		id: MESSAGE_NOTIFICATION_CHANNEL_ID,
+		name: 'Messages',
+		importance: AndroidImportance.DEFAULT,
+		sound: 'message_notification',
+	});
+
+	await notifee.displayNotification({
+		id: notificationId || undefined,
+		title: data.title || remoteMessage.notification?.title || 'New message',
+		body: data.body || remoteMessage.notification?.body || '',
+		android: {
+			channelId,
+			smallIcon: 'ic_launcher',
+			actions: [
+				{ title: 'Reply', pressAction: { id: 'reply' }, input: { allowFreeFormInput: true, placeholder: 'Type a reply' } },
+				{ title: 'Mark as read', pressAction: { id: 'mark_read' } },
+			],
+			importance: AndroidImportance.DEFAULT,
+			sound: 'message_notification',
+		},
+		data,
+	});
+};
+
 // Background handler for FCM messages
 messaging().setBackgroundMessageHandler(async (remoteMessage) => {
 	console.log('FCM background message received', remoteMessage);
@@ -83,24 +113,7 @@ messaging().setBackgroundMessageHandler(async (remoteMessage) => {
 			return;
 		}
 
-		const channelId = await notifee.createChannel({ id: 'default', name: 'Default', importance: AndroidImportance.HIGH });
-
-		// message: include reply and mark as read actions
-		await notifee.displayNotification({
-			id: notificationId || undefined,
-			title: data.title || remoteMessage.notification?.title || 'New message',
-			body: data.body || remoteMessage.notification?.body || '',
-			android: {
-				channelId,
-				smallIcon: 'ic_launcher',
-				actions: [
-					{ title: 'Reply', pressAction: { id: 'reply' }, input: { allowFreeFormInput: true, placeholder: 'Type a reply' } },
-					{ title: 'Mark as read', pressAction: { id: 'mark_read' } },
-				],
-				importance: AndroidImportance.DEFAULT,
-			},
-			data,
-		});
+		await displayMessageNotification(remoteMessage);
 	} catch (e) {
 		console.warn('Background notifee display failed', e);
 	}
