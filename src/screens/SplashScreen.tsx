@@ -10,7 +10,7 @@ import { useThemeStore } from '../stores/themeStore';
 import { FONT_SIZES, SPACING } from '../constants/colors';
 
 const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { isAuthenticated, phoneVerified, user } = useAuthStore();
+  const { isAuthenticated, phoneVerified, user, isHydrated } = useAuthStore();
   const { theme } = useThemeStore();
   const scaleAnim = new Animated.Value(0.5);
   const opacityAnim = new Animated.Value(0);
@@ -29,8 +29,18 @@ const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       }),
     ]).start();
 
+    if (!isHydrated) {
+      return () => {};
+    }
+
     const timer = setTimeout(() => {
-      if (isAuthenticated && user?.profileCompleted) {
+      const approvalStatus = user?.approvalStatus || (isAuthenticated ? 'approved' : undefined);
+
+      if (approvalStatus === 'pending' || approvalStatus === 'rejected') {
+        return;
+      }
+
+      if (isAuthenticated && user?.profileCompleted && approvalStatus === 'approved') {
         // User is logged in and profile is complete → Go to Main (Messages)
         navigation.reset({
           index: 0,
@@ -52,7 +62,7 @@ const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     }, 2500);
 
     return () => clearTimeout(timer);
-  }, [isAuthenticated, phoneVerified, navigation, user]);
+  }, [isAuthenticated, phoneVerified, navigation, user, isHydrated]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>

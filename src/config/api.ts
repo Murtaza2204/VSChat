@@ -28,7 +28,7 @@ const host = Platform.select({
   default: 'localhost',
 });
 
-export const API_BASE_URL = `http://${host}:5000/api`;
+export const API_BASE_URL = 'https://vschat-backend.onrender.com/api'; // `http://${host}:5000/api` for local dev
 
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';

@@ -10,6 +10,52 @@ import api from '../config/api';
 
 type AuthFlow = 'login' | 'register';
 
+type ApprovalStatus = 'approved' | 'pending' | 'rejected';
+
+const normalizeApprovalStatus = (value: any, fallback: ApprovalStatus = 'approved'): ApprovalStatus => {
+  if (value === 'approved' || value === 'pending' || value === 'rejected') {
+    return value;
+  }
+  return fallback;
+};
+
+const buildUserFromApi = (data: any, fallback: Partial<User> = {}): User => {
+  const approvalStatus = normalizeApprovalStatus(
+    data?.approvalStatus,
+    normalizeApprovalStatus((fallback as any)?.approvalStatus, 'approved'),
+  );
+
+  return {
+    id: String(data?.id || data?._id || fallback.id || ''),
+    name: data?.displayName || data?.name || fallback.name || '',
+    phone: data?.phoneNumber || data?.phone || fallback.phone || '',
+    status: (fallback.status as User['status']) || 'offline',
+    avatar: data?.profilePictureUrl || fallback.avatar || '👤',
+    profilePictureUrl: data?.profilePictureUrl || fallback.profilePictureUrl || null,
+    profileCompleted: true,
+    bio: data?.bio || fallback.bio || '',
+    approvalStatus,
+    approvalRequestedAt: data?.approvalRequestedAt || fallback.approvalRequestedAt || data?.createdAt || null,
+    approvalReviewedAt: data?.approvalReviewedAt || fallback.approvalReviewedAt || null,
+  };
+};
+
+const buildSessionUser = (data: any, fallback: Partial<User> = {}) =>
+  buildUserFromApi(data, fallback);
+
+const fetchApprovalSnapshot = async () => {
+  try {
+    const response = await api.get('/users/me/approval-status');
+    if (response.data?.success && response.data?.user) {
+      return response.data.user;
+    }
+  } catch (error) {
+    // fall back to the cached user if the status endpoint is unavailable
+  }
+
+  return null;
+};
+
 interface AuthStore extends AuthState {
   authFlow: AuthFlow | null;
   login: (countryCode: string, phoneNumber: string) => Promise<AuthFlow>;
@@ -22,13 +68,14 @@ interface AuthStore extends AuthState {
   clearAuth: () => void;
 }
 
-export const useAuthStore = create<AuthStore>((set) => {
+export const useAuthStore = create<AuthStore>((set, get) => {
   return {
     user: null,
     isAuthenticated: false,
     phoneVerified: false,
     isLoading: false,
     error: null,
+    isHydrated: false,
     authFlow: null,
 
     initializeAuth: async () => {
@@ -38,9 +85,16 @@ export const useAuthStore = create<AuthStore>((set) => {
         const token = await AsyncStorage.getItem('accessToken');
         if (storedUser) {
           const parsedUser = JSON.parse(storedUser);
+          const normalizedStoredUser: User = {
+            ...parsedUser,
+            approvalStatus: normalizeApprovalStatus(
+              parsedUser.approvalStatus,
+              parsedUser.profileCompleted ? 'approved' : 'pending',
+            ),
+          };
           set({
-            user: parsedUser,
-            isAuthenticated: !!parsedUser.profileCompleted,
+            user: normalizedStoredUser,
+            isAuthenticated: normalizedStoredUser.approvalStatus === 'approved' && !!normalizedStoredUser.profileCompleted,
             phoneVerified: true,
             isLoading: false,
             error: null,
@@ -48,7 +102,7 @@ export const useAuthStore = create<AuthStore>((set) => {
           });
 
           // If we have a token, fetch the latest user profile from backend to avoid stale cache
-          if (token && parsedUser && parsedUser.id) {
+          if (false && token && parsedUser && parsedUser.id) {
             try {
               const res = await fetch(`${API_BASE_URL}/users/${parsedUser.id}`, {
                 method: 'GET',
@@ -57,24 +111,48 @@ export const useAuthStore = create<AuthStore>((set) => {
               if (res.ok) {
                 const data = await res.json();
                 if (data) {
-                  const latest = {
+                  const latest: any = {
                     id: data._id || data.id || parsedUser.id,
                     name: data.name || data.displayName || parsedUser.name,
                     phone: data.phoneNumber || parsedUser.phone,
+                    status: 'offline',
                     avatar: data.profilePictureUrl || parsedUser.avatar || '👤',
                     profileCompleted: true,
                     bio: data.bio || parsedUser.bio || '',
                     profilePictureUrl: data.profilePictureUrl || parsedUser.profilePictureUrl || null,
+                    approvalStatus: normalizedStoredUser.approvalStatus,
                   };
                   try {
                     await AsyncStorage.setItem('user', JSON.stringify(latest));
                   } catch (e) { console.warn('Could not save refreshed user to storage', e); }
                   set({ user: latest });
                   // propagate to chat store
-                  try { useChatStore.getState().updateUserProfilePicture(latest.id, latest.profilePictureUrl); } catch (e) {}
+                  try { (useChatStore.getState() as any).updateUserProfilePicture(latest.id, latest.profilePictureUrl); } catch (e) {}
                 }
               }
             } catch (e) { console.warn('Failed to refresh user profile on startup', e); }
+          }
+
+          try {
+            if (token && normalizedStoredUser.id) {
+              const statusPayload = await fetchApprovalSnapshot();
+              if (statusPayload) {
+                const latest = buildSessionUser(statusPayload, normalizedStoredUser);
+                try {
+                  await AsyncStorage.setItem('user', JSON.stringify(latest));
+                } catch (e) { console.warn('Could not save refreshed approval state to storage', e); }
+
+                const isApproved = latest.approvalStatus === 'approved' && !!latest.profileCompleted;
+                set({
+                  user: latest,
+                  isAuthenticated: isApproved,
+                  phoneVerified: true,
+                });
+                try { (useChatStore.getState() as any).updateUserProfilePicture(latest.id, latest.profilePictureUrl); } catch (e) {}
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to refresh approval status on startup', e);
           }
 
           try {
@@ -87,7 +165,7 @@ export const useAuthStore = create<AuthStore>((set) => {
               const socket = connectSocket(token);
               socket.on('connect', () => console.info('Socket connected'));
 
-              socket.on('message:receive', (msg) => {
+              socket.on('message:receive', (msg: any) => {
                 try {
                   const chatState = useChatStore.getState();
                   const chats = chatState.chats || [];
@@ -152,7 +230,7 @@ export const useAuthStore = create<AuthStore>((set) => {
                 } catch (e) { console.warn('message:receive handler error', e); }
               });
 
-              socket.on('message:sent', (msg) => {
+              socket.on('message:sent', (msg: any) => {
                 try {
                   const chatState = useChatStore.getState();
                   const chats = chatState.chats || [];
@@ -203,7 +281,7 @@ export const useAuthStore = create<AuthStore>((set) => {
                 } catch (e) { console.warn('message:sent handler error', e); }
               });
 
-              socket.on('message:status', (status) => {
+              socket.on('message:status', (status: any) => {
                 try {
                   const chatState = useChatStore.getState();
                   const updates: any = {};
@@ -221,7 +299,7 @@ export const useAuthStore = create<AuthStore>((set) => {
                 } catch (e) {}
               });
 
-              socket.on('conversation:left', (payload) => {
+              socket.on('conversation:left', (payload: any) => {
                 try {
                   const chatState = useChatStore.getState();
                   const groupId = payload && payload.groupId;
@@ -238,7 +316,7 @@ export const useAuthStore = create<AuthStore>((set) => {
             }
           } catch (e) { console.warn('Socket init failed', e); }
         }
-      } catch (error) { console.warn('Failed to load user from storage:', error); }
+      } catch (error) { console.warn('Failed to load user from storage:', error); } finally { set({ isHydrated: true }); }
     },
 
     login: async (countryCode: string, phoneNumber: string) => {
@@ -289,7 +367,7 @@ export const useAuthStore = create<AuthStore>((set) => {
         if (!response.ok || !data.success) throw new Error(data.message || 'Firebase verification failed');
 
         if (data.flow === 'login' && data.user && data.accessToken && data.refreshToken) {
-          const backendUser: User = {
+          let backendUser: User = {
             id: data.user.id,
             name: data.user.displayName || '',
             phone: data.user.phoneNumber,
@@ -298,6 +376,9 @@ export const useAuthStore = create<AuthStore>((set) => {
             profilePictureUrl: data.user.profilePictureUrl || null,
             profileCompleted: true,
             bio: data.user.bio || '',
+            approvalStatus: normalizeApprovalStatus(data.user.approvalStatus, 'approved'),
+            approvalRequestedAt: data.user.approvalRequestedAt || data.user.createdAt || null,
+            approvalReviewedAt: data.user.approvalReviewedAt || null,
           };
 
           try {
@@ -307,13 +388,29 @@ export const useAuthStore = create<AuthStore>((set) => {
           } catch (e) { console.warn('Could not save user or tokens to storage'); }
 
           try {
+            const approvalPayload = await fetchApprovalSnapshot();
+            if (approvalPayload) {
+              backendUser = buildSessionUser(approvalPayload, backendUser);
+              await AsyncStorage.setItem('user', JSON.stringify(backendUser));
+            }
+          } catch (e) {
+            console.warn('Could not refresh approval status after login', e);
+          }
+
+          try {
             // @ts-ignore
             delete (global as any).__pendingPhoneConfirmation;
             await AsyncStorage.removeItem('verificationId');
           } catch (e) {}
 
-          set({ user: backendUser, isAuthenticated: true, phoneVerified: true, isLoading: false, authFlow: 'login' });
-          try { useChatStore.getState().updateUserProfilePicture(backendUser.id, backendUser.profilePictureUrl); } catch (e) {}
+          set({
+            user: backendUser,
+            isAuthenticated: backendUser.approvalStatus === 'approved',
+            phoneVerified: true,
+            isLoading: false,
+            authFlow: 'login',
+          });
+          try { (useChatStore.getState() as any).updateUserProfilePicture(backendUser.id, backendUser.profilePictureUrl); } catch (e) {}
           return 'login';
         }
 
@@ -400,13 +497,20 @@ export const useAuthStore = create<AuthStore>((set) => {
               profilePictureUrl: updated.profilePictureUrl || null,
               profileCompleted: true,
               bio: updated.bio || '',
+              approvalStatus: normalizeApprovalStatus(get().user?.approvalStatus, 'approved'),
+              approvalRequestedAt: get().user?.approvalRequestedAt || null,
+              approvalReviewedAt: get().user?.approvalReviewedAt || null,
             };
 
             try {
               await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
             } catch (e) { console.warn('Could not save updated user to storage'); }
-            set({ user: updatedUser, isLoading: false });
-            try { useChatStore.getState().updateUserProfilePicture(updatedUser.id, updatedUser.profilePictureUrl); } catch (e) {}
+            set({
+              user: updatedUser,
+              isLoading: false,
+              isAuthenticated: normalizeApprovalStatus(get().user?.approvalStatus, 'approved') === 'approved',
+            });
+            try { (useChatStore.getState() as any).updateUserProfilePicture(updatedUser.id, updatedUser.profilePictureUrl); } catch (e) {}
             return updatedUser;
           } catch (error: any) {
             const errorMsg = error.response?.data?.message || error.message || 'Profile update failed';
@@ -458,7 +562,7 @@ export const useAuthStore = create<AuthStore>((set) => {
         const data = await response.json();
         if (!response.ok || !data.success) throw new Error(data.message || 'Registration failed');
 
-        const newUser: User = {
+        let newUser: User = {
           id: data.user.id,
           name: data.user.displayName || '',
           phone: data.user.phoneNumber,
@@ -467,6 +571,9 @@ export const useAuthStore = create<AuthStore>((set) => {
           profilePictureUrl: data.user.profilePictureUrl || null,
           profileCompleted: true,
           bio: data.user.bio || '',
+          approvalStatus: normalizeApprovalStatus(data.user.approvalStatus, 'pending'),
+          approvalRequestedAt: data.user.approvalRequestedAt || data.user.createdAt || null,
+          approvalReviewedAt: data.user.approvalReviewedAt || null,
         };
 
         try {
@@ -475,8 +582,24 @@ export const useAuthStore = create<AuthStore>((set) => {
           await AsyncStorage.setItem('refreshToken', data.refreshToken);
         } catch (e) { console.warn('Could not save registered user or tokens to storage'); }
 
-        set({ user: newUser, isAuthenticated: true, isLoading: false, authFlow: null });
-        try { useChatStore.getState().updateUserProfilePicture(newUser.id, newUser.profilePictureUrl); } catch (e) {}
+        try {
+          const approvalPayload = await fetchApprovalSnapshot();
+          if (approvalPayload) {
+            newUser = buildSessionUser(approvalPayload, newUser);
+            await AsyncStorage.setItem('user', JSON.stringify(newUser));
+          }
+        } catch (e) {
+          console.warn('Could not refresh approval status after registration', e);
+        }
+
+        set({
+          user: newUser,
+          isAuthenticated: newUser.approvalStatus === 'approved',
+          isLoading: false,
+          authFlow: null,
+          phoneVerified: true,
+        });
+        try { (useChatStore.getState() as any).updateUserProfilePicture(newUser.id, newUser.profilePictureUrl); } catch (e) {}
         return newUser;
       } catch (error: any) {
         set({ isLoading: false, error: error.message || 'Profile setup failed' });

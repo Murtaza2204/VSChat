@@ -3,10 +3,14 @@ export interface User {
   name: string;
   phone: string;
   avatar?: string;
+  profilePictureUrl?: string | null;
   bio?: string;
   status: 'online' | 'offline' | 'away';
   lastSeen?: Date;
   profileCompleted?: boolean;
+  approvalStatus?: 'approved' | 'pending' | 'rejected';
+  approvalRequestedAt?: string | Date | null;
+  approvalReviewedAt?: string | Date | null;
   permissions?: {
     contacts?: string;
     notifications?: string;
@@ -131,6 +135,7 @@ export interface AuthState {
   phoneVerified: boolean;
   isLoading: boolean;
   error: string | null;
+  isHydrated?: boolean;
 }
 
 export interface ThemeColors {

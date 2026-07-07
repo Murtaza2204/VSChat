@@ -3,6 +3,8 @@ export { default as WelcomeScreen } from './WelcomeScreen';
 export { default as LoginScreen } from './LoginScreen';
 export { default as OTPVerificationScreen } from './OTPVerificationScreen';
 export { default as UserSetupScreen } from './UserSetupScreen';
+export { default as ApprovalPendingScreen } from './ApprovalPendingScreen';
+export { default as ApprovalRejectedScreen } from './ApprovalRejectedScreen';
 export { default as ChatListScreen } from './ChatListScreen';
 export { default as ChatScreen } from './ChatScreen';
 export { default as ContactInfoScreen } from './ContactInfoScreen';

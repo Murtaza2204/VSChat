@@ -16,6 +16,8 @@ import WelcomeScreen from '../screens/WelcomeScreen';
 import LoginScreen from '../screens/LoginScreen';
 import OTPVerificationScreen from '../screens/OTPVerificationScreen';
 import UserSetupScreen from '../screens/UserSetupScreen';
+import ApprovalPendingScreen from '../screens/ApprovalPendingScreen';
+import ApprovalRejectedScreen from '../screens/ApprovalRejectedScreen';
 import ChatListScreen from '../screens/ChatListScreen';
 import ChatScreen from '../screens/ChatScreen';
 import ContactInfoScreen from '../screens/ContactInfoScreen';
@@ -208,8 +210,9 @@ const MainTabs = () => {
 };
 
 const RootNavigator = () => {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user, isHydrated } = useAuthStore();
   const { theme } = useThemeStore();
+  const approvalStatus = user?.approvalStatus || (isAuthenticated ? 'approved' : undefined);
 
   return (
     <NavigationContainer
@@ -232,13 +235,25 @@ const RootNavigator = () => {
           headerShown: false,
         }}
       >
-        {!isAuthenticated ? (
+        {!isHydrated ? (
           <Stack.Group>
             <Stack.Screen name="Auth" component={AuthStack} />
           </Stack.Group>
-        ) : (
+        ) : approvalStatus === 'pending' ? (
+          <Stack.Group>
+            <Stack.Screen name="ApprovalPending" component={ApprovalPendingScreen} />
+          </Stack.Group>
+        ) : approvalStatus === 'rejected' ? (
+          <Stack.Group>
+            <Stack.Screen name="ApprovalRejected" component={ApprovalRejectedScreen} />
+          </Stack.Group>
+        ) : isAuthenticated ? (
           <Stack.Group>
             <Stack.Screen name="Main" component={MainTabs} />
+          </Stack.Group>
+        ) : (
+          <Stack.Group>
+            <Stack.Screen name="Auth" component={AuthStack} />
           </Stack.Group>
         )}
       </Stack.Navigator>
