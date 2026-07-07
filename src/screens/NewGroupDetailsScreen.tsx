@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
+import { launchImageLibrary } from 'react-native-image-picker';
 import {  ScrollView,
   StyleSheet,
+  Image,
   Text,
   TextInput,
   TouchableOpacity,
@@ -22,10 +24,10 @@ const NewGroupDetailsScreen: React.FC<{ navigation: any; route: any }> = ({
   route,
 }) => {
   const { theme } = useThemeStore();
-  const { createGroup } = useChatStore();
   const { user } = useAuthStore();
   const insets = useSafeAreaInsets();
   const [groupName, setGroupName] = useState('');
+  const [groupPhotoUri, setGroupPhotoUri] = useState<string | null>(null);
   const selectedMembers = useMemo<any[]>(
     () => route.params?.selectedContacts || [],
     [route.params],
@@ -38,6 +40,25 @@ const NewGroupDetailsScreen: React.FC<{ navigation: any; route: any }> = ({
       const ownerId = user?.id;
       const participantIds = selectedMembers.map((m) => m.userId || m.id);
       const created = await groupsApi.createGroup(groupName || 'Group', participantIds, ownerId || null);
+
+      if (groupPhotoUri) {
+        try {
+          await groupsApi.uploadGroupProfilePicture(
+            created._id,
+            groupPhotoUri,
+            user?.id,
+            (user as any)?.displayName || user?.name,
+            'group.jpg',
+            'image/jpeg',
+          );
+        } catch (uploadError: any) {
+          console.error('Failed to upload group profile picture', uploadError);
+          Alert.alert(
+            'Group created',
+            'The group was created, but the profile picture could not be uploaded.',
+          );
+        }
+      }
       
       // add to local chat store
       useChatStore.getState().createGroup(
@@ -90,6 +111,22 @@ const NewGroupDetailsScreen: React.FC<{ navigation: any; route: any }> = ({
     }
   };
 
+  const handlePickGroupPhoto = async () => {
+    try {
+      const result = await launchImageLibrary({
+        mediaType: 'photo',
+        quality: 0.85 as any,
+        selectionLimit: 1,
+      });
+      const asset = result.assets?.[0];
+      if (!asset?.uri) return;
+      setGroupPhotoUri(asset.uri);
+    } catch (error) {
+      console.error('Failed to pick group profile picture', error);
+      Alert.alert('Error', 'Unable to choose a group profile picture');
+    }
+  };
+
   const renderMember = (member: any) => (
     <View key={member.id || member.userId} style={styles.memberItem}>
       <Avatar
@@ -121,14 +158,21 @@ const NewGroupDetailsScreen: React.FC<{ navigation: any; route: any }> = ({
           <TouchableOpacity
             style={[styles.groupPhotoButton, { backgroundColor: theme.secondary }]}
             activeOpacity={0.8}
+            onPress={handlePickGroupPhoto}
           >
-            <Icon name="camera-outline" size={24} color={theme.textSecondary} />
-            <Icon
-              name="add"
-              size={14}
-              color={theme.textSecondary}
-              style={styles.photoAddIcon}
-            />
+            {groupPhotoUri ? (
+              <Image source={{ uri: groupPhotoUri }} style={styles.groupPhotoPreview} />
+            ) : (
+              <>
+                <Icon name="camera-outline" size={24} color={theme.textSecondary} />
+                <Icon
+                  name="add"
+                  size={14}
+                  color={theme.textSecondary}
+                  style={styles.photoAddIcon}
+                />
+              </>
+            )}
           </TouchableOpacity>
 
           <View
@@ -147,9 +191,6 @@ const NewGroupDetailsScreen: React.FC<{ navigation: any; route: any }> = ({
             />
           </View>
 
-          <TouchableOpacity style={styles.emojiButton} activeOpacity={0.75}>
-            <Icon name="happy-outline" size={24} color={theme.textSecondary} />
-          </TouchableOpacity>
         </View>
 
 
@@ -222,6 +263,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: SPACING.lg,
+    overflow: 'hidden',
+  },
+  groupPhotoPreview: {
+    width: '100%',
+    height: '100%',
   },
   photoAddIcon: {
     position: 'absolute',
@@ -239,13 +285,6 @@ const styles = StyleSheet.create({
   nameInput: {
     fontSize: FONT_SIZES.lg,
     padding: 0,
-  },
-  emojiButton: {
-    width: 40,
-    height: 56,
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    marginLeft: SPACING.md,
   },
   settingRow: {
     minHeight: 82,

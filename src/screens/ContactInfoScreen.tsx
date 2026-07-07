@@ -470,6 +470,8 @@ const ContactInfoScreen: React.FC<{ navigation: any; route: any }> = ({
         asset.uri,
         user?.id,
         (user as any)?.displayName || user?.name,
+        asset.fileName || 'group.jpg',
+        asset.type || 'image/jpeg',
       );
       const nextAvatar = uploaded?.groupProfilePicture || null;
       setAvatarState(nextAvatar);
