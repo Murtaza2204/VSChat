@@ -14,6 +14,7 @@ const RECENTLY_READ_MESSAGES_KEY = 'recentlyReadMessageIds';
 const READ_CONVERSATION_PREFIX = 'conversationReadAt:';
 const NOTIFICATIONS_ENABLED_KEY = 'notificationsEnabled';
 const PENDING_NOTIFICATION_REPLY_PREFIX = 'pendingNotificationReplies:';
+const ENDED_CALL_NOTIFICATION_IDS_KEY = 'endedCallNotificationIds';
 const MESSAGE_NOTIFICATION_CHANNEL_ID = 'message_notifications_v1';
 
 const getNotificationId = (data: any) => String(data?.notificationId || data?.messageId || data?.callId || '');
@@ -312,9 +313,34 @@ const cancelNotificationForPayload = async (data: any) => {
   try { await notifee.cancelDisplayedNotification(notificationId); } catch (e) {}
 };
 
+const rememberEndedCall = async (callId?: string) => {
+  if (!callId) return;
+  try {
+    const raw = await AsyncStorage.getItem(ENDED_CALL_NOTIFICATION_IDS_KEY);
+    const ids = raw ? JSON.parse(raw) : [];
+    const next = [String(callId), ...(Array.isArray(ids) ? ids : []).filter((id: string) => String(id) !== String(callId))].slice(0, 200);
+    await AsyncStorage.setItem(ENDED_CALL_NOTIFICATION_IDS_KEY, JSON.stringify(next));
+  } catch (e) {}
+};
+
+const wasCallEnded = async (callId?: string) => {
+  if (!callId) return false;
+  try {
+    const raw = await AsyncStorage.getItem(ENDED_CALL_NOTIFICATION_IDS_KEY);
+    const ids = raw ? JSON.parse(raw) : [];
+    return Array.isArray(ids) && ids.map(String).includes(String(callId));
+  } catch (e) {
+    return false;
+  }
+};
+
 const handleCallEndedPayload = async (data: any) => {
+  await rememberEndedCall(data?.callId || data?.notificationId || data?.id);
   await cancelNotificationForPayload(data);
   stopCallTone();
+  try {
+    await AsyncStorage.removeItem('pendingAcceptedCall');
+  } catch (e) {}
 };
 
 const cancelConversationNotifications = async (conversationId?: string) => {
@@ -335,6 +361,8 @@ const shouldSuppressNotification = async (data: any) => {
 
   const currentUser = useAuthStore.getState().user;
   if (data.senderId && currentUser?.id && String(data.senderId) === String(currentUser.id)) return true;
+
+  if (data.type === 'call' && (await wasCallEnded(data.callId || data.notificationId || data.id))) return true;
 
   if (data.type === 'call' && data.expiresAt && Date.parse(String(data.expiresAt)) <= Date.now()) return true;
 
