@@ -27,6 +27,7 @@ import signaling from '../services/signaling';
 import { clearCallNotification } from '../services/notifications';
 import { stopCallTone } from '../services/callToneService';
 import { RtcSurfaceView } from 'react-native-agora';
+import { resolveGroupRtcUid } from '../utils/calls';
 
 type GroupParticipant = {
   userId: string;
@@ -50,7 +51,8 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   route,
 }) => {
   const { theme } = useThemeStore();
-  const currentUser = useAuthStore.getState().user;
+  const currentUser = useAuthStore((state) => state.user);
+  const authHydrated = useAuthStore((state) => state.isHydrated);
   const { width, height } = useWindowDimensions();
 
   const callType = route.params?.callType || 'audio';
@@ -79,6 +81,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const videoActionChainRef = React.useRef<Promise<void>>(Promise.resolve());
   const desiredVideoOnRef = React.useRef(callType === 'video');
   const didDismissCallRef = React.useRef(false);
+  const localRtcUidRef = React.useRef<number | null>(null);
 
   const parseParticipantsInput = (value: any): any[] => {
     if (Array.isArray(value)) return value;
@@ -98,6 +101,42 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     videoActionChainRef.current = next.catch(() => {});
     return next;
   }, []);
+
+  const currentUserId = currentUser?.id ? String(currentUser.id) : null;
+  const stableRtcUid = React.useMemo(() => resolveGroupRtcUid(callId, currentUserId), [callId, currentUserId]);
+
+  const publishParticipantState = React.useCallback(async (patch: {
+    rtcUid?: number | null;
+    videoEnabled?: boolean;
+    cameraFacing?: 'front' | 'rear';
+    joinedAt?: string | Date;
+    reason: string;
+  }) => {
+    if (!callId || !currentUserId) {
+      console.log('[GroupActiveCall] Skipping participant state publish', {
+        callId,
+        currentUserId,
+        reason: patch.reason,
+      });
+      return;
+    }
+
+    const resolvedRtcUid = patch.rtcUid ?? localRtcUidRef.current ?? stableRtcUid;
+    const payload = {
+      callId,
+      userId: currentUserId,
+      rtcUid: resolvedRtcUid || undefined,
+      videoEnabled: patch.videoEnabled,
+      cameraFacing: patch.cameraFacing,
+      joinedAt: patch.joinedAt,
+    };
+
+    console.log('[GroupActiveCall] Publishing participant state:', {
+      reason: patch.reason,
+      payload,
+    });
+    signaling.updateCallParticipantState(payload);
+  }, [callId, currentUserId, stableRtcUid]);
 
   const normalizeParticipant = (participant: any): GroupParticipant | null => {
     if (!participant) return null;
@@ -183,6 +222,13 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const syncFromSessionState = React.useCallback((state: any) => {
     if (!state) return;
     const nextParticipants = Array.isArray(state.participants) ? state.participants : [];
+    console.log('[GroupActiveCall] Received session state:', {
+      callId: state.callId,
+      callStatus: state.callStatus,
+      active: state.active,
+      activeParticipantCount: state.activeParticipantCount,
+      participantCount: nextParticipants.length,
+    });
     mergeParticipants(nextParticipants, true);
     const nextActive = state.active || state.callStatus === 'active' || state.activeParticipantCount > 1;
     if (nextActive) {
@@ -262,6 +308,20 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     let unsubscribeCallCreated: (() => void) | null = null;
 
     const setupAgora = async () => {
+      console.log('[GroupActiveCall] setupAgora start:', {
+        callId,
+        callType,
+        channelParam,
+        hasAuthHydrated: authHydrated,
+        currentUserId,
+        stableRtcUid,
+      });
+
+      if (!authHydrated || !currentUserId) {
+        console.log('[GroupActiveCall] Waiting for authenticated user before joining Agora');
+        return;
+      }
+
       const ok = await ensureAudioVideoPermissions();
       if (!ok) {
         if (callType === 'video') {
@@ -269,15 +329,12 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           setHasCameraAccess(false);
           setLocalVideoReady(false);
           setIsVideoOn(false);
-          if (callId && currentUser?.id) {
-            signaling.updateCallParticipantState({
-              callId,
-              userId: currentUser.id,
-              rtcUid: localRtcUid || undefined,
-              videoEnabled: false,
-              cameraFacing,
-            });
-          }
+          await publishParticipantState({
+            reason: 'permissions-denied',
+            rtcUid: localRtcUidRef.current,
+            videoEnabled: false,
+            cameraFacing,
+          });
         }
         return;
       }
@@ -297,11 +354,10 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           console.error('[GroupActiveCall] Agora initialization failed:', initError);
           desiredVideoOnRef.current = false;
           setLocalVideoReady(false);
-          if (callType === 'video' && callId && currentUser?.id) {
-            signaling.updateCallParticipantState({
-              callId,
-              userId: currentUser.id,
-              rtcUid: localRtcUid || undefined,
+          if (callType === 'video') {
+            await publishParticipantState({
+              reason: 'agora-init-failed',
+              rtcUid: localRtcUidRef.current,
               videoEnabled: false,
               cameraFacing,
             });
@@ -324,21 +380,19 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               setIsVideoOn(enabled);
               setLocalVideoReady(enabled);
               if (!enabled) setHasCameraAccess(false);
-              if (callId && currentUser?.id) {
-                signaling.updateCallParticipantState({
-                  callId,
-                  userId: currentUser.id,
-                  rtcUid: localRtcUid || undefined,
-                  videoEnabled: enabled,
-                  cameraFacing: 'front',
-                });
-              }
+              await publishParticipantState({
+                reason: 'initial-camera-enable',
+                rtcUid: localRtcUidRef.current,
+                videoEnabled: enabled,
+                cameraFacing: 'front',
+              });
             });
           }
         } catch {}
 
         setRemoteUidListener((uid: number | null, type?: 'joined' | 'left') => {
           if (!mounted || uid == null || uid <= 0) return;
+          console.log('[GroupActiveCall] Remote Agora event:', { uid, type });
           if (type === 'joined') {
             setActiveRemoteVideoUids((current) => ({ ...current, [uid]: true }));
           } else if (type === 'left') {
@@ -353,7 +407,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           await joinChannel(
             token,
             resolvedChannel,
-            0,
+            stableRtcUid || 0,
             async () => {
               if (mounted) signaling.requestCallSessionState(callId);
             },
@@ -362,7 +416,15 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             },
             async (channelName: string, uid: number) => {
               if (!mounted) return;
+              const resolvedLocalUid = stableRtcUid || uid || null;
+              localRtcUidRef.current = resolvedLocalUid;
               let localVideoEnabled = callType === 'video';
+              console.log('[GroupActiveCall] Agora join success:', {
+                channelName,
+                requestedUid: stableRtcUid,
+                reportedUid: uid,
+                resolvedLocalUid,
+              });
               try { await setSpeakerphone(true); setIsSpeakerOn(true); } catch {}
               try { await muteLocalAudio(false); setIsMuted(false); } catch {}
               if (callType === 'video') {
@@ -386,17 +448,14 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
                 }
               }
               try {
-                setLocalRtcUid(uid);
-                if (currentUser?.id) {
-                  signaling.updateCallParticipantState({
-                    callId,
-                    userId: currentUser.id,
-                    rtcUid: uid,
-                    videoEnabled: localVideoEnabled,
-                    cameraFacing: 'front',
-                    joinedAt: new Date(),
-                  });
-                }
+                setLocalRtcUid(resolvedLocalUid);
+                await publishParticipantState({
+                  reason: 'join-success',
+                  rtcUid: resolvedLocalUid,
+                  videoEnabled: localVideoEnabled,
+                  cameraFacing: 'front',
+                  joinedAt: new Date(),
+                });
               } catch {}
               signaling.requestCallSessionState(callId);
             },
@@ -407,6 +466,12 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           callCreatedHandler = async (payload: any) => {
             if (!mounted) return;
             if (payload?.callId && callId && String(payload.callId) !== String(callId)) return;
+            console.log('[GroupActiveCall] Received call:created payload:', {
+              callId: payload?.callId,
+              channel: payload?.channel,
+              hasToken: !!payload?.token,
+              participantCount: Array.isArray(payload?.groupParticipants) ? payload.groupParticipants.length : 0,
+            });
             await joinAgora(payload?.token || null, payload?.channel || channel);
             syncFromSessionState(payload);
           };
@@ -433,7 +498,20 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
       mounted = false;
       try { if (unsubscribeCallCreated) unsubscribeCallCreated(); } catch {}
     };
-  }, [appIdParam, callId, callType, channelParam, currentUser?.id, isCaller, runVideoAction, tokenParam, syncFromSessionState]);
+  }, [
+    appIdParam,
+    authHydrated,
+    callId,
+    callType,
+    channelParam,
+    currentUserId,
+    isCaller,
+    publishParticipantState,
+    runVideoAction,
+    stableRtcUid,
+    tokenParam,
+    syncFromSessionState,
+  ]);
 
   React.useEffect(() => {
     const unsubscribe = signaling.onCallSessionState((payload: any) => {
@@ -466,6 +544,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     try {
       const currentUserId = currentUser?.id;
       if (callId && currentUserId) {
+        console.log('[GroupActiveCall] Ending call:', { callId, userId: currentUserId, reason: isCaller ? 'hangup' : 'leave' });
         await signaling.endCall(callId, currentUserId, isCaller ? 'hangup' : 'leave');
       }
     } catch {}
@@ -483,15 +562,12 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           const nextFacing = cameraFacing === 'front' ? 'rear' : 'front';
           setCameraFacing(nextFacing);
           setLocalVideoReady(true);
-          if (callId && currentUser?.id) {
-            signaling.updateCallParticipantState({
-              callId,
-              userId: currentUser.id,
-              rtcUid: localRtcUid || undefined,
-              videoEnabled: true,
-              cameraFacing: nextFacing,
-            });
-          }
+          await publishParticipantState({
+            reason: 'camera-flip',
+            rtcUid: localRtcUidRef.current,
+            videoEnabled: true,
+            cameraFacing: nextFacing,
+          });
           return;
         }
 
@@ -500,7 +576,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     } catch (error) {
       console.warn('[GroupActiveCall] Camera flip failed:', error);
     }
-  }, [callId, callType, cameraFacing, currentUser?.id, hasCameraAccess, isVideoOn, localRtcUid, runVideoAction]);
+  }, [callType, cameraFacing, hasCameraAccess, isVideoOn, publishParticipantState, runVideoAction]);
 
   const visibleParticipants = React.useMemo(() => {
     if (participants.length) return participants;
@@ -584,11 +660,20 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
         key={`grid-row-${rowIndex}`}
         style={[styles.gridRow, rowStyle]}
       >
-        {row.map((participant) => {
+          {row.map((participant) => {
           const remoteUid = typeof participant.rtcUid === 'number' ? participant.rtcUid : null;
           const showVideo = String(participant.userId) === String(currentUser?.id)
             ? isVideoOn && hasCameraAccess && localVideoReady
             : participant.videoEnabled !== false && !!remoteUid;
+
+          if (showVideo) {
+            console.log('[GroupActiveCall] Rendering video tile:', {
+              userId: participant.userId,
+              isSelf: String(participant.userId) === String(currentUser?.id),
+              remoteUid,
+              videoEnabled: participant.videoEnabled,
+            });
+          }
 
           return (
             <ParticipantTile
@@ -832,15 +917,12 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
                     setIsVideoOn(enabled);
                     if (!enabled) setHasCameraAccess(false);
                     setLocalVideoReady(enabled);
-                    if (callId && currentUser?.id) {
-                      signaling.updateCallParticipantState({
-                        callId,
-                        userId: currentUser.id,
-                        rtcUid: localRtcUid || undefined,
-                        videoEnabled: enabled,
-                        cameraFacing,
-                      });
-                    }
+                    await publishParticipantState({
+                      reason: enabled ? 'video-enabled' : 'video-enable-failed',
+                      rtcUid: localRtcUidRef.current,
+                      videoEnabled: enabled,
+                      cameraFacing,
+                    });
                   });
                 } else {
                   await runVideoAction(async () => {
@@ -852,15 +934,12 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
                     if (!disabled) {
                       console.warn('[GroupActiveCall] Camera disable request was rejected by the engine');
                     }
-                    if (callId && currentUser?.id) {
-                      signaling.updateCallParticipantState({
-                        callId,
-                        userId: currentUser.id,
-                        rtcUid: localRtcUid || undefined,
-                        videoEnabled: false,
-                        cameraFacing,
-                      });
-                    }
+                    await publishParticipantState({
+                      reason: disabled ? 'video-disabled' : 'video-disable-failed',
+                      rtcUid: localRtcUidRef.current,
+                      videoEnabled: false,
+                      cameraFacing,
+                    });
                   });
                 }
               }}

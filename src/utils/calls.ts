@@ -35,6 +35,22 @@ export const fetchUsersByIds = async (ids: string[]) => {
   return res.data.users || [];
 };
 
+const fnv1a = (input: string) => {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+};
+
+export const resolveGroupRtcUid = (callId?: string | null, userId?: string | null) => {
+  if (!callId || !userId) return null;
+  const raw = fnv1a(`${String(callId)}:${String(userId)}`);
+  const uid = raw % 2147483646;
+  return uid > 0 ? uid : 1;
+};
+
 const getParticipantId = (participant: any) =>
   typeof participant === 'string'
     ? participant
@@ -78,7 +94,7 @@ export const startConversationCall = ({
     ? (resolvedChat?.participants || [])
         .map(getParticipantId)
         .filter(Boolean)
-        .filter((participantId) => String(participantId) !== String(currentUserId))
+        .filter((participantId: string | number) => String(participantId) !== String(currentUserId))
         .map(String)
     : [];
   const targetRecipientIds = groupRecipientIds.length

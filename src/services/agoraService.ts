@@ -127,6 +127,8 @@ export const joinChannel = async (
     throw new Error('Engine not initialized');
   }
 
+  console.log('[Agora] joinChannel requested:', { channel, uid, hasToken: !!token });
+
   const notifyRemoteJoined = async (...args: any[]) => {
     const remoteUid = normalizeUid(...args);
     console.log('[Agora] remote user/media event:', args, '->', remoteUid);
@@ -204,7 +206,7 @@ export const joinChannel = async (
 
   await configureMedia();
   await callEngine('updateChannelMediaOptions', mediaOptions);
-  console.log('[Agora] joinChannel returned:', joinResult);
+  console.log('[Agora] joinChannel returned:', { joinResult, channel, requestedUid: uid });
 };
 
 export const leaveChannel = async () => {
