@@ -19,7 +19,8 @@ import {
   Linking,
   Keyboard,
   NativeModules,
-  KeyboardAvoidingView,
+  Animated,
+  Easing,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -631,17 +632,62 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
   const MAX_DOCUMENT_SIZE = 20 * 1024 * 1024; // 20 MB
   const liveLocationWatchRef = useRef<number | null>(null);
   const liveLocationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const keyboardOffset = useRef(new Animated.Value(0)).current;
+  const keyboardAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const bottomAreaRef = useRef<View | null>(null);
+
+  const animateKeyboardOffset = React.useCallback((toValue: number, duration?: number) => {
+    keyboardAnimationRef.current?.stop();
+    keyboardAnimationRef.current = Animated.timing(keyboardOffset, {
+      toValue,
+      duration: typeof duration === 'number' ? duration : 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    keyboardAnimationRef.current.start();
+  }, [keyboardOffset]);
 
   useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const sub = Keyboard.addListener(hideEvent, () => {
+
+    const scrollToLatest = () => {
       requestAnimationFrame(() => {
         flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
       });
+    };
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      const nextHeight = e?.endCoordinates?.height ?? 0;
+
+      if (Platform.OS === 'android') {
+        requestAnimationFrame(() => {
+          bottomAreaRef.current?.measureInWindow((x, y, width, height) => {
+            const keyboardTop = e?.endCoordinates?.screenY
+              ?? Math.max(0, Dimensions.get('window').height - nextHeight);
+            const composerBottom = y + height;
+            const overlap = Math.max(0, composerBottom - keyboardTop);
+            animateKeyboardOffset(overlap, e?.duration);
+            scrollToLatest();
+          });
+        });
+        return;
+      }
+
+      animateKeyboardOffset(nextHeight, e?.duration);
+      scrollToLatest();
     });
 
-    return () => sub.remove();
-  }, []);
+    const hideSub = Keyboard.addListener(hideEvent, (e) => {
+      animateKeyboardOffset(0, e?.duration);
+      scrollToLatest();
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [animateKeyboardOffset]);
 
   useEffect(() => {
     activeGroupCallRef.current = activeGroupCall;
@@ -3805,11 +3851,7 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
 
   return (
     <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.background }]}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
-      >
+      <View style={{ flex: 1, position: 'relative' }}>
       <View
         style={[
           styles.chatHeader,
@@ -4729,27 +4771,38 @@ const ChatScreen: React.FC<{ navigation: any; route: any }> = ({
         onReactPress={handleReactToViewerMedia}
       />
 
-      <MessageInput
-        value={messageText}
-        onChangeText={setMessageText}
-        onSend={handleSendMessage}
-        onEmojiPress={() => {}}
-        onAttachmentPress={() => {}}
-        onAttachmentOptionSelect={handleAttachmentOption}
-        onCameraPress={handleCameraPress}
-        theme={theme}
-        replyTo={replyMessage}
-        onCancelReply={() => setReplyMessage(null)}
-        disabled={false}
-        style={{ paddingBottom: messageInputBottomPadding }}
-        onFocusChange={(focused) => {
-          if (focused) return;
-          requestAnimationFrame(() => {
-            flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
-          });
-        }}
-      />
-      </KeyboardAvoidingView>
+      <Animated.View
+        ref={bottomAreaRef}
+        collapsable={false}
+        style={[
+          styles.bottomArea,
+          {
+            transform: [{ translateY: Animated.multiply(keyboardOffset, -1) }],
+          },
+        ]}
+      >
+        <MessageInput
+          value={messageText}
+          onChangeText={setMessageText}
+          onSend={handleSendMessage}
+          onEmojiPress={() => {}}
+          onAttachmentPress={() => {}}
+          onAttachmentOptionSelect={handleAttachmentOption}
+          onCameraPress={handleCameraPress}
+          theme={theme}
+          replyTo={replyMessage}
+          onCancelReply={() => setReplyMessage(null)}
+          disabled={false}
+          style={{ paddingBottom: messageInputBottomPadding }}
+          onFocusChange={(focused) => {
+            if (focused) return;
+            requestAnimationFrame(() => {
+              flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+            });
+          }}
+        />
+      </Animated.View>
+      </View>
     </SafeAreaView>
   );
 };
@@ -4977,6 +5030,9 @@ const styles = StyleSheet.create({
   },
   chatList: {
     flex: 1,
+  },
+  bottomArea: {
+    flexShrink: 0,
   },
   emptyChatState: {
     flex: 1,

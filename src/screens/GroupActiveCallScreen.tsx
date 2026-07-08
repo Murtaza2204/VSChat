@@ -82,6 +82,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const desiredVideoOnRef = React.useRef(callType === 'video');
   const didDismissCallRef = React.useRef(false);
   const localRtcUidRef = React.useRef<number | null>(null);
+  const cameraFacingRef = React.useRef<'front' | 'rear'>('front');
 
   const parseParticipantsInput = (value: any): any[] => {
     if (Array.isArray(value)) return value;
@@ -218,6 +219,10 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     }
     setParticipants(nextParticipants);
   }, [callType, cameraFacing, currentUser?.avatar, currentUser?.id, isVideoOn, localRtcUid]);
+
+  React.useEffect(() => {
+    cameraFacingRef.current = cameraFacing;
+  }, [cameraFacing]);
 
   const syncFromSessionState = React.useCallback((state: any) => {
     if (!state) return;
@@ -557,9 +562,10 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
       await runVideoAction(async () => {
         if (!desiredVideoOnRef.current) return;
         const requestId = ++videoActionIdRef.current;
+        const nextFacing = cameraFacingRef.current === 'front' ? 'rear' : 'front';
         const switched = await switchCamera();
         if (switched && requestId === videoActionIdRef.current && desiredVideoOnRef.current) {
-          const nextFacing = cameraFacing === 'front' ? 'rear' : 'front';
+          cameraFacingRef.current = nextFacing;
           setCameraFacing(nextFacing);
           setLocalVideoReady(true);
           await publishParticipantState({
@@ -576,7 +582,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     } catch (error) {
       console.warn('[GroupActiveCall] Camera flip failed:', error);
     }
-  }, [callType, cameraFacing, hasCameraAccess, isVideoOn, publishParticipantState, runVideoAction]);
+  }, [callType, hasCameraAccess, isVideoOn, publishParticipantState, runVideoAction]);
 
   const visibleParticipants = React.useMemo(() => {
     if (participants.length) return participants;
@@ -1030,9 +1036,9 @@ const ParticipantTile = ({
       >
         {shouldShowVideo ? (
           <>
-            {RtcSurfaceView ? (
-              <RtcSurfaceView
-                key={`participant-video-${participant.userId}`}
+              {RtcSurfaceView ? (
+                <RtcSurfaceView
+                key={`participant-video-${participant.userId}-${isSelf ? cameraFacing : 'remote'}`}
                 canvas={{ uid: streamUid }}
                 style={StyleSheet.absoluteFill}
                 zOrderMediaOverlay={isSelf}

@@ -239,6 +239,23 @@ export const switchCamera = async (): Promise<boolean> => {
   }
 };
 
+export const setCameraFacing = async (facing: 'front' | 'rear'): Promise<boolean> => {
+  try {
+    if (!engine) return false;
+
+    const cameraDirection = facing === 'rear' ? 0 : 1;
+
+    await callEngine('enableLocalVideo', true);
+    await callEngine('stopPreview');
+    const result = await callEngine('setCameraCapturerConfiguration', { cameraDirection });
+    await callEngine('startPreview');
+    await callEngine('updateChannelMediaOptions', mediaOptions);
+    return isSuccessCode(result);
+  } catch (e) {
+    return false;
+  }
+};
+
 export const setFrontCamera = async (): Promise<boolean> => {
   try {
     if (!engine) return false;
@@ -303,6 +320,7 @@ export default {
   leaveChannel,
   setRemoteUidListener,
   switchCamera,
+  setCameraFacing,
   setFrontCamera,
   muteLocalAudio,
   muteLocalVideo,
