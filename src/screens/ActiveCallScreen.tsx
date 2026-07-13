@@ -53,6 +53,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const [callAccepted, setCallAccepted] = React.useState(!route.params?.isCaller);
   const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
   const [isViewSwapped, setIsViewSwapped] = React.useState(false);
+  const [controlTrayTop, setControlTrayTop] = React.useState<number | null>(null);
   const startedAtRef = React.useRef<number | null>(null);
   const didLogCallRef = React.useRef(false);
   const didDismissCallRef = React.useRef(false);
@@ -85,6 +86,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const dragTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragOffsetRef = React.useRef({ x: 0, y: 0 });
   const isDraggingRef = React.useRef(false);
+  const hasUserPlacedPipRef = React.useRef(false);
 
   React.useEffect(() => {
     const nextPosition = clampPipPosition(pipPositionRef.current);
@@ -92,6 +94,29 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     pipTranslateX.setValue(nextPosition.x);
     pipTranslateY.setValue(nextPosition.y);
   }, [clampPipPosition, pipTranslateX, pipTranslateY]);
+
+  React.useEffect(() => {
+    if (controlTrayTop == null || hasUserPlacedPipRef.current) {
+      return;
+    }
+
+    const nextPosition = clampPipPosition({
+      x: width - pipWidth - SPACING.lg,
+      y: controlTrayTop - pipHeight - SPACING.md,
+    });
+
+    pipPositionRef.current = nextPosition;
+    pipTranslateX.setValue(nextPosition.x);
+    pipTranslateY.setValue(nextPosition.y);
+  }, [
+    clampPipPosition,
+    controlTrayTop,
+    pipTranslateX,
+    pipTranslateY,
+    pipHeight,
+    pipWidth,
+    width,
+  ]);
 
   const resetAfterCall = React.useCallback(() => {
     const returnRoute = route.params?.returnRoute;
@@ -408,6 +433,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
                     pipTranslateX.setValue(nextPosition.x);
                     pipTranslateY.setValue(nextPosition.y);
                     isDraggingRef.current = false;
+                    hasUserPlacedPipRef.current = true;
                   }}
                   onResponderTerminate={(event) => {
                     if (dragTimeoutRef.current) {
@@ -425,6 +451,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
                     pipTranslateX.setValue(nextPosition.x);
                     pipTranslateY.setValue(nextPosition.y);
                     isDraggingRef.current = false;
+                    hasUserPlacedPipRef.current = true;
                   }}
                 />
                 <VideoStage
@@ -479,7 +506,16 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             ) : null}
           </View>
 
-          <VideoControlTray theme={theme} bottomInset={SPACING.lg}>
+          <VideoControlTray
+            theme={theme}
+            bottomInset={SPACING.lg}
+            onLayout={(event) => {
+              const trayTop = event.nativeEvent.layout.y;
+              if (typeof trayTop === 'number') {
+                setControlTrayTop(trayTop);
+              }
+            }}
+          >
             <TrayButton
               icon={isVideoOn ? 'videocam' : 'videocam-off'}
               active={isVideoOn}
@@ -696,12 +732,15 @@ const VideoControlTray = ({
   children,
   theme,
   bottomInset = 0,
+  onLayout,
 }: {
   children: React.ReactNode;
   theme: any;
   bottomInset?: number;
+  onLayout?: (event: any) => void;
 }) => (
   <View
+    onLayout={onLayout}
     style={[
       styles.videoTray,
       {
