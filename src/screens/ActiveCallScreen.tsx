@@ -1,5 +1,6 @@
 import React from 'react';
-import {  StyleSheet,
+import {  Animated,
+  StyleSheet,
   Text,
   TouchableOpacity,
   View,
@@ -7,6 +8,7 @@ import {  StyleSheet,
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { RtcSurfaceView } from 'react-native-agora';
 import { ensureAudioVideoPermissions } from '../services/permissions';
@@ -24,7 +26,8 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
 }) => {
   const { theme } = useThemeStore();
   const { addMessage } = useChatStore();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const callType = route.params?.callType || 'audio';
   const isCallerRoute = !!route.params?.isCaller;
   const callerName = route.params?.callerName || 'Ammi';
@@ -49,9 +52,46 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const [joined, setJoined] = React.useState(false);
   const [callAccepted, setCallAccepted] = React.useState(!route.params?.isCaller);
   const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
+  const [isViewSwapped, setIsViewSwapped] = React.useState(false);
   const startedAtRef = React.useRef<number | null>(null);
   const didLogCallRef = React.useRef(false);
   const didDismissCallRef = React.useRef(false);
+  const pipWidth = 140;
+  const pipHeight = 200;
+
+  const clampPipPosition = React.useCallback(
+    (position: { x: number; y: number }) => {
+      const minX = insets.left + SPACING.sm;
+      const minY = insets.top + SPACING.sm;
+      const maxX = Math.max(minX, width - insets.right - pipWidth - SPACING.sm);
+      const maxY = Math.max(minY, height - insets.bottom - pipHeight - SPACING.sm);
+
+      return {
+        x: Math.min(Math.max(position.x, minX), maxX),
+        y: Math.min(Math.max(position.y, minY), maxY),
+      };
+    },
+    [height, insets.bottom, insets.left, insets.right, insets.top, pipHeight, pipWidth, width],
+  );
+
+  const initialPipPosition = clampPipPosition({
+    x: width - pipWidth - SPACING.lg,
+    y: height - pipHeight - SPACING.xxl - 88,
+  });
+
+  const pipPositionRef = React.useRef(initialPipPosition);
+  const pipTranslateX = React.useRef(new Animated.Value(initialPipPosition.x)).current;
+  const pipTranslateY = React.useRef(new Animated.Value(initialPipPosition.y)).current;
+  const dragTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragOffsetRef = React.useRef({ x: 0, y: 0 });
+  const isDraggingRef = React.useRef(false);
+
+  React.useEffect(() => {
+    const nextPosition = clampPipPosition(pipPositionRef.current);
+    pipPositionRef.current = nextPosition;
+    pipTranslateX.setValue(nextPosition.x);
+    pipTranslateY.setValue(nextPosition.y);
+  }, [clampPipPosition, pipTranslateX, pipTranslateY]);
 
   const resetAfterCall = React.useCallback(() => {
     const returnRoute = route.params?.returnRoute;
@@ -283,6 +323,18 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   if (callType === 'video') {
+    const floatingVideoStyle = [
+      styles.localPreviewPiP,
+      {
+        backgroundColor: theme.surface,
+        borderColor: theme.border,
+        transform: [
+          { translateX: pipTranslateX },
+          { translateY: pipTranslateY },
+        ],
+      },
+    ];
+
     return (
       <SafeAreaView style={styles.videoSafeArea}>
         <View style={styles.videoContainer}>
@@ -294,32 +346,88 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           </View>
 
           {/* BEFORE ACCEPTED (Ringing): Show local selfie camera full screen */}
-          {!accepted ? (
+          {accepted ? (
             <>
-              {/* Main video: Local camera (full screen) - caller's selfie */}
-              {RtcSurfaceView ? (
-                <RtcSurfaceView canvas={{ uid: 0 }} style={StyleSheet.absoluteFill} />
-              ) : (
-                <VideoSurface theme={theme} variant="local" />
-              )}
-            </>
-          ) : (
-            <>
-              {/* AFTER ACCEPTED: Main video - Remote participant (full screen) */}
-              {RtcSurfaceView && remoteUid ? (
-                <RtcSurfaceView key={`remote-${remoteUid}`} canvas={{ uid: remoteUid }} style={StyleSheet.absoluteFill} />
-              ) : (
-                <VideoSurface theme={theme} variant="remote" />
-              )}
+              <View style={StyleSheet.absoluteFill}>
+                <VideoStage
+                  theme={theme}
+                  role={isViewSwapped ? 'local' : 'remote'}
+                  remoteUid={remoteUid}
+                  isVideoOn={isVideoOn}
+                  compact={false}
+                />
+              </View>
 
-              {/* Small PiP: Local preview (bottom-right) - shown after call accepted */}
-              <View style={[styles.localPreviewPiP, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                {RtcSurfaceView ? (
-                  <RtcSurfaceView canvas={{ uid: 0 }} style={StyleSheet.absoluteFill} zOrderMediaOverlay={true} />
-                ) : (
-                  <VideoSurface theme={theme} variant="local" compact />
-                )}
-                {/* Camera switch button on local preview */}
+              <Animated.View
+                style={floatingVideoStyle}
+              >
+                <View
+                  style={styles.pipDragArea}
+                  onStartShouldSetResponder={() => true}
+                  onResponderGrant={(event) => {
+                    if (dragTimeoutRef.current) clearTimeout(dragTimeoutRef.current);
+                    const { pageX, pageY } = event.nativeEvent;
+                    dragOffsetRef.current = {
+                      x: pageX - pipPositionRef.current.x,
+                      y: pageY - pipPositionRef.current.y,
+                    };
+                    dragTimeoutRef.current = setTimeout(() => {
+                      isDraggingRef.current = true;
+                    }, 250);
+                  }}
+                  onResponderMove={(event) => {
+                    if (!isDraggingRef.current) return;
+                    const { pageX, pageY } = event.nativeEvent;
+                    const nextPosition = clampPipPosition({
+                      x: pageX - dragOffsetRef.current.x,
+                      y: pageY - dragOffsetRef.current.y,
+                    });
+
+                    pipTranslateX.setValue(nextPosition.x);
+                    pipTranslateY.setValue(nextPosition.y);
+                  }}
+                  onResponderRelease={(event) => {
+                    if (dragTimeoutRef.current) {
+                      clearTimeout(dragTimeoutRef.current);
+                      dragTimeoutRef.current = null;
+                    }
+                    if (!isDraggingRef.current) return;
+                    const { pageX, pageY } = event.nativeEvent;
+                    const nextPosition = clampPipPosition({
+                      x: pageX - dragOffsetRef.current.x,
+                      y: pageY - dragOffsetRef.current.y,
+                    });
+
+                    pipPositionRef.current = nextPosition;
+                    pipTranslateX.setValue(nextPosition.x);
+                    pipTranslateY.setValue(nextPosition.y);
+                    isDraggingRef.current = false;
+                  }}
+                  onResponderTerminate={(event) => {
+                    if (dragTimeoutRef.current) {
+                      clearTimeout(dragTimeoutRef.current);
+                      dragTimeoutRef.current = null;
+                    }
+                    if (!isDraggingRef.current) return;
+                    const { pageX, pageY } = event.nativeEvent;
+                    const nextPosition = clampPipPosition({
+                      x: pageX - dragOffsetRef.current.x,
+                      y: pageY - dragOffsetRef.current.y,
+                    });
+
+                    pipPositionRef.current = nextPosition;
+                    pipTranslateX.setValue(nextPosition.x);
+                    pipTranslateY.setValue(nextPosition.y);
+                    isDraggingRef.current = false;
+                  }}
+                />
+                <VideoStage
+                  theme={theme}
+                  role={isViewSwapped ? 'remote' : 'local'}
+                  remoteUid={remoteUid}
+                  isVideoOn={isVideoOn}
+                  compact
+                />
                 <TouchableOpacity
                   style={[styles.pipCameraButton, { backgroundColor: theme.surface }]}
                   onPress={() => switchCamera()}
@@ -327,8 +435,16 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
                 >
                   <Icon name="camera-reverse" size={18} color={theme.text} />
                 </TouchableOpacity>
-              </View>
+              </Animated.View>
             </>
+          ) : (
+            <VideoStage
+              theme={theme}
+              role="local"
+              remoteUid={remoteUid}
+              isVideoOn={isVideoOn}
+              compact={false}
+            />
           )}
 
           <View style={styles.videoHeader}>
@@ -343,11 +459,19 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
             </View>
           </View>
 
-          {!accepted && (
-            <View style={styles.videoSideActions}>
+          <View style={styles.videoSideActions}>
+            {accepted ? (
+              <CircleIcon
+                icon="swap-horizontal"
+                small
+                theme={theme}
+                onPress={() => setIsViewSwapped((next) => !next)}
+              />
+            ) : null}
+            {!accepted ? (
               <CircleIcon icon="camera-reverse" theme={theme} onPress={() => switchCamera()} />
-            </View>
-          )}
+            ) : null}
+          </View>
 
           <VideoControlTray theme={theme} bottomInset={SPACING.lg}>
             <TrayButton
@@ -522,6 +646,46 @@ const VideoSurface = ({
   </View>
 );
 
+const VideoStage = ({
+  theme,
+  role,
+  remoteUid,
+  isVideoOn,
+  compact,
+}: {
+  theme: any;
+  role: 'local' | 'remote';
+  remoteUid: number | null;
+  isVideoOn: boolean;
+  compact?: boolean;
+}) => {
+  if (role === 'remote') {
+    if (RtcSurfaceView && remoteUid) {
+      return (
+        <RtcSurfaceView
+          key={`remote-${remoteUid}`}
+          canvas={{ uid: remoteUid }}
+          style={StyleSheet.absoluteFill}
+        />
+      );
+    }
+
+    return <VideoSurface theme={theme} variant="remote" compact={compact} />;
+  }
+
+  if (RtcSurfaceView && isVideoOn) {
+    return (
+      <RtcSurfaceView
+        canvas={{ uid: 0 }}
+        style={StyleSheet.absoluteFill}
+        zOrderMediaOverlay={compact}
+      />
+    );
+  }
+
+  return <VideoSurface theme={theme} variant="local" compact={compact} />;
+};
+
 const VideoControlTray = ({
   children,
   theme,
@@ -626,6 +790,7 @@ const HeaderButton = ({
 
 const CallControl = ({
   icon,
+  label,
   active,
   danger,
   muted,
@@ -633,6 +798,7 @@ const CallControl = ({
   onPress,
 }: {
   icon: string;
+  label?: string;
   active?: boolean;
   danger?: boolean;
   muted?: boolean;
@@ -753,14 +919,22 @@ const styles = StyleSheet.create({
   },
   localPreviewPiP: {
     position: 'absolute',
-    bottom: SPACING.lg + 88,
-    right: SPACING.lg,
+    left: 0,
+    top: 0,
     width: 140,
     height: 200,
     borderRadius: BORDER_RADIUS.md,
     overflow: 'hidden',
     borderWidth: 2,
     zIndex: 10,
+  },
+  pipDragArea: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1,
   },
   pipCameraButton: {
     position: 'absolute',
@@ -772,6 +946,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     opacity: 0.85,
+    zIndex: 2,
   },
   videoTitleBlock: {
     flex: 1,
