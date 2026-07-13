@@ -1,8 +1,9 @@
 // @ts-nocheck
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
 import {
   FlatList,  StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -28,6 +29,8 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
   const [contactsList, setContactsList] = useState<any[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<TextInput>(null);
   useEffect(() => {
     // if matched contacts were passed via navigation, use them; otherwise perform sync
     const matched = route.params?.matched;
@@ -81,6 +84,26 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
     () => new Set(selectedContactIds),
     [selectedContactIds],
   );
+
+  const normalizeSearchValue = (value: string) => value.toLowerCase().replace(/\s+/g, ' ').trim();
+
+  const filteredContacts = useMemo(() => {
+    const query = normalizeSearchValue(searchQuery);
+    if (!query) return contactsList;
+
+    const numericQuery = query.replace(/[^\d+]/g, '');
+
+    return contactsList.filter((contact) => {
+      const title = normalizeSearchValue(contact.title || contact.displayName || '');
+      const phone = normalizeSearchValue(contact.phoneNumber || contact.phone || '');
+      const normalizedPhone = phone.replace(/[^\d+]/g, '');
+      return (
+        title.includes(query) ||
+        phone.includes(query) ||
+        (numericQuery.length > 0 && normalizedPhone.includes(numericQuery))
+      );
+    });
+  }, [contactsList, searchQuery]);
 
   const selectedContacts = useMemo(
     () =>
@@ -232,15 +255,27 @@ const SelectContactScreen: React.FC<{ navigation: any; route: any }> = ({
           </Text>
         </View>
         <TouchableOpacity style={styles.iconButton}>
-          <Icon name="search" size={24} color={theme.primary} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.iconButton}>
           <Icon name="ellipsis-vertical" size={22} color={theme.primary} />
         </TouchableOpacity>
       </View>
 
+      <View style={[styles.searchBar, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
+        <Icon name="search" size={20} color={theme.textSecondary} />
+        <TextInput
+          ref={searchInputRef}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search name or number..."
+          placeholderTextColor={theme.textSecondary}
+          style={[styles.searchInput, { color: theme.text }]}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+        />
+      </View>
+
       <FlatList
-        data={contactsList}
+        data={filteredContacts}
         keyExtractor={(item) => item.id}
         renderItem={renderContact}
         ListHeaderComponent={(
@@ -299,6 +334,22 @@ const styles = StyleSheet.create({
   titleBlock: {
     flex: 1,
     marginLeft: 4,
+  },
+  searchBar: {
+    height: 46,
+    marginHorizontal: SPACING.md,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.sm,
+    borderRadius: 23,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+  },
+  searchInput: {
+    flex: 1,
+    marginLeft: SPACING.sm,
+    fontSize: FONT_SIZES.base,
   },
   title: {
     fontSize: FONT_SIZES.xxl,

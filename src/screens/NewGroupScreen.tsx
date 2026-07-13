@@ -25,6 +25,7 @@ const NewGroupScreen: React.FC<{ navigation: any; route: any }> = ({
   const forwardMessage = route.params?.forwardMessage as Message | undefined;
   const [deviceContacts, setDeviceContacts] = useState<any[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -60,7 +61,7 @@ const NewGroupScreen: React.FC<{ navigation: any; route: any }> = ({
 
   const allContacts = useMemo(() => {
     const seen = new Set<string>();
-    const merged = [];
+    const merged: any[] = [];
     [...chatContacts, ...deviceContacts].forEach((c) => {
       const key = String(c.userId || c.id);
       if (!seen.has(key)) {
@@ -75,12 +76,30 @@ const NewGroupScreen: React.FC<{ navigation: any; route: any }> = ({
     () => allContacts.slice(0, 20),
     [allContacts],
   );
+  const normalizeSearchValue = (value: string) => value.toLowerCase().replace(/\s+/g, ' ').trim();
+  const filteredGroupContacts = useMemo(() => {
+    const query = normalizeSearchValue(searchQuery);
+    if (!query) return groupContacts;
+
+    const numericQuery = query.replace(/[^\d+]/g, '');
+
+    return groupContacts.filter((contact) => {
+      const title = normalizeSearchValue(contact.title || contact.displayName || '');
+      const phone = normalizeSearchValue(contact.phoneNumber || contact.phone || '');
+      const normalizedPhone = phone.replace(/[^\d+]/g, '');
+      return (
+        title.includes(query) ||
+        phone.includes(query) ||
+        (numericQuery.length > 0 && normalizedPhone.includes(numericQuery))
+      );
+    });
+  }, [groupContacts, searchQuery]);
   const contactSections = useMemo(
     () => [
-      { title: 'Recent contacts', data: groupContacts.slice(0, 10) },
-      { title: 'More contacts', data: groupContacts.slice(10, 20) },
+      { title: 'Recent contacts', data: filteredGroupContacts.slice(0, 10) },
+      { title: 'More contacts', data: filteredGroupContacts.slice(10, 20) },
     ],
-    [groupContacts],
+    [filteredGroupContacts],
   );
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
@@ -174,6 +193,11 @@ const NewGroupScreen: React.FC<{ navigation: any; route: any }> = ({
           placeholder="Search name or number..."
           placeholderTextColor={theme.textSecondary}
           style={[styles.searchInput, { color: theme.text }]}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
         />
         <Icon name="keypad" size={24} color={theme.primary} />
       </View>
