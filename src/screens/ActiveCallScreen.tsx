@@ -334,6 +334,8 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
         ],
       },
     ];
+    const mainVideoRole = isViewSwapped ? 'local' : 'remote';
+    const pipVideoRole = isViewSwapped ? 'remote' : 'local';
 
     return (
       <SafeAreaView style={styles.videoSafeArea}>
@@ -348,10 +350,13 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           {/* BEFORE ACCEPTED (Ringing): Show local selfie camera full screen */}
           {accepted ? (
             <>
-              <View style={StyleSheet.absoluteFill}>
+              <View
+                key={`main-${mainVideoRole}-${remoteUid ?? 'none'}-${isVideoOn ? 'on' : 'off'}-${isViewSwapped ? 'swapped' : 'normal'}`}
+                style={StyleSheet.absoluteFill}
+              >
                 <VideoStage
                   theme={theme}
-                  role={isViewSwapped ? 'local' : 'remote'}
+                  role={mainVideoRole}
                   remoteUid={remoteUid}
                   isVideoOn={isVideoOn}
                   compact={false}
@@ -359,6 +364,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               </View>
 
               <Animated.View
+                key={`pip-${pipVideoRole}-${remoteUid ?? 'none'}-${isVideoOn ? 'on' : 'off'}-${isViewSwapped ? 'swapped' : 'normal'}`}
                 style={floatingVideoStyle}
               >
                 <View
@@ -423,7 +429,7 @@ const ActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
                 />
                 <VideoStage
                   theme={theme}
-                  role={isViewSwapped ? 'remote' : 'local'}
+                  role={pipVideoRole}
                   remoteUid={remoteUid}
                   isVideoOn={isVideoOn}
                   compact
