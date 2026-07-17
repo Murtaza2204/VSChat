@@ -42,6 +42,33 @@ type GroupParticipant = {
   cameraFacing?: 'front' | 'rear' | null;
 };
 
+const getParticipantTimeValue = (value?: string | Date | null) => {
+  if (!value) return null;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+};
+
+const areParticipantRecordsEqual = (
+  current?: GroupParticipant | null,
+  next?: GroupParticipant | null,
+) => {
+  if (current === next) return true;
+  if (!current || !next) return false;
+
+  return (
+    current.userId === next.userId &&
+    current.name === next.name &&
+    current.avatar === next.avatar &&
+    current.status === next.status &&
+    getParticipantTimeValue(current.joinedAt) === getParticipantTimeValue(next.joinedAt) &&
+    getParticipantTimeValue(current.leftAt) === getParticipantTimeValue(next.leftAt) &&
+    current.durationSeconds === next.durationSeconds &&
+    current.rtcUid === next.rtcUid &&
+    current.videoEnabled === next.videoEnabled &&
+    current.cameraFacing === next.cameraFacing
+  );
+};
+
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
@@ -163,40 +190,52 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     };
   };
 
-  const mergeParticipants = React.useCallback((incomingList: any[], preferCurrentUser = true) => {
+  const buildMergedParticipant = React.useCallback((
+    existing: GroupParticipant | undefined,
+    normalized: GroupParticipant,
+    isCurrentUser: boolean,
+  ) => {
+    const nextParticipant: GroupParticipant = {
+      ...(existing || {}),
+      ...normalized,
+      name: isCurrentUser ? (existing?.name ?? normalized.name ?? null) : (normalized.name ?? existing?.name ?? null),
+      avatar: isCurrentUser ? (existing?.avatar ?? normalized.avatar ?? null) : (normalized.avatar ?? existing?.avatar ?? null),
+      status: isCurrentUser ? (existing?.status ?? normalized.status ?? 'joined') : (normalized.status ?? existing?.status ?? 'joined'),
+      rtcUid: isCurrentUser
+        ? (existing?.rtcUid ?? normalized.rtcUid ?? null)
+        : (normalized.rtcUid != null ? normalized.rtcUid : existing?.rtcUid ?? null),
+      videoEnabled: isCurrentUser
+        ? (existing?.videoEnabled ?? normalized.videoEnabled ?? null)
+        : (typeof normalized.videoEnabled === 'boolean' ? normalized.videoEnabled : existing?.videoEnabled ?? null),
+      cameraFacing: isCurrentUser
+        ? (existing?.cameraFacing ?? normalized.cameraFacing ?? null)
+        : (normalized.cameraFacing || existing?.cameraFacing || null),
+      joinedAt: isCurrentUser
+        ? (existing?.joinedAt ?? normalized.joinedAt ?? null)
+        : (normalized.joinedAt ?? existing?.joinedAt ?? null),
+      leftAt: isCurrentUser
+        ? (existing?.leftAt ?? normalized.leftAt ?? null)
+        : (normalized.leftAt ?? existing?.leftAt ?? null),
+    };
+
+    return areParticipantRecordsEqual(existing, nextParticipant) ? existing! : nextParticipant;
+  }, []);
+
+  const mergeParticipants = React.useCallback((incomingList: any[]) => {
     const nextParticipants = (current: GroupParticipant[]) => {
+      const currentById = new Map(current.map((participant) => [String(participant.userId), participant] as const));
       const map = new Map<string, GroupParticipant>();
       const add = (participant: any) => {
         const normalized = normalizeParticipant(participant);
         if (!normalized) return;
-        const existing = map.get(normalized.userId);
-        map.set(normalized.userId, {
-          ...(existing || {}),
-          ...normalized,
-          rtcUid: normalized.rtcUid != null ? normalized.rtcUid : existing?.rtcUid ?? null,
-          videoEnabled: typeof normalized.videoEnabled === 'boolean'
-            ? normalized.videoEnabled
-            : existing?.videoEnabled ?? null,
-          cameraFacing: normalized.cameraFacing
-            || existing?.cameraFacing
-            || null,
-        });
+        const existing = map.get(normalized.userId) || currentById.get(normalized.userId);
+        const isCurrentUser = !!currentUserId && String(normalized.userId) === String(currentUserId);
+        const mergedParticipant = buildMergedParticipant(existing, normalized, isCurrentUser);
+        map.set(normalized.userId, mergedParticipant);
       };
 
       current.forEach(add);
       parseParticipantsInput(incomingList).forEach(add);
-
-      if (preferCurrentUser && currentUser?.id) {
-        add({
-          userId: currentUser.id,
-          name: 'You',
-          avatar: currentUser.avatar || null,
-          status: 'joined',
-          rtcUid: localRtcUid,
-          videoEnabled: callType === 'video' ? isVideoOn : false,
-          cameraFacing,
-        });
-      }
 
       const ordered = Array.from(map.values()).filter((participant) => {
         const status = String(participant.status || 'joined').toLowerCase();
@@ -204,8 +243,8 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
       });
 
       ordered.sort((a, b) => {
-        if (String(a.userId) === String(currentUser?.id)) return 1;
-        if (String(b.userId) === String(currentUser?.id)) return -1;
+        if (String(a.userId) === String(currentUserId)) return 1;
+        if (String(b.userId) === String(currentUserId)) return -1;
         const aTime = a.joinedAt ? new Date(a.joinedAt).getTime() : 0;
         const bTime = b.joinedAt ? new Date(b.joinedAt).getTime() : 0;
         return aTime - bTime;
@@ -217,8 +256,14 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     if (callType !== 'video') {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     }
-    setParticipants(nextParticipants);
-  }, [callType, cameraFacing, currentUser?.avatar, currentUser?.id, isVideoOn, localRtcUid]);
+    setParticipants((current) => {
+      const next = nextParticipants(current);
+      if (next.length === current.length && next.every((participant, index) => participant === current[index])) {
+        return current;
+      }
+      return next;
+    });
+  }, [buildMergedParticipant, callType, currentUserId]);
 
   React.useEffect(() => {
     cameraFacingRef.current = cameraFacing;
@@ -234,7 +279,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
       activeParticipantCount: state.activeParticipantCount,
       participantCount: nextParticipants.length,
     });
-    mergeParticipants(nextParticipants, true);
+    mergeParticipants(nextParticipants);
     const nextActive = state.active || state.callStatus === 'active' || state.activeParticipantCount > 1;
     if (nextActive) {
       stopCallTone();
@@ -283,21 +328,48 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   }, [callId, resetAfterCall]);
 
   React.useEffect(() => {
-    mergeParticipants(route.params?.groupParticipants || [], false);
+    mergeParticipants(route.params?.groupParticipants || []);
   }, [mergeParticipants, route.params?.groupParticipants]);
 
   React.useEffect(() => {
-    if (!currentUser?.id) return;
-    mergeParticipants([
-      ...(route.params?.groupParticipants || []),
-      {
-        userId: currentUser.id,
-        name: 'You',
-        avatar: currentUser.avatar || null,
-        status: 'joined',
-      },
-    ]);
-  }, [mergeParticipants, currentUser?.id, currentUser?.avatar, route.params?.groupParticipants]);
+    if (!currentUserId) return;
+    const nextSelfParticipant: GroupParticipant = {
+      userId: currentUserId,
+      name: 'You',
+      avatar: currentUser?.avatar || null,
+      status: 'joined',
+      joinedAt: null,
+      leftAt: null,
+      durationSeconds: null,
+      rtcUid: localRtcUid,
+      videoEnabled: callType === 'video' ? isVideoOn : false,
+      cameraFacing,
+    };
+
+    setParticipants((current) => {
+      const selfIndex = current.findIndex((participant) => String(participant.userId) === currentUserId);
+      const existing = selfIndex >= 0 ? current[selfIndex] : undefined;
+      const mergedSelf: GroupParticipant = {
+        ...(existing || {}),
+        ...nextSelfParticipant,
+        joinedAt: existing?.joinedAt ?? nextSelfParticipant.joinedAt ?? null,
+        durationSeconds: existing?.durationSeconds ?? nextSelfParticipant.durationSeconds ?? null,
+        status: existing?.status ?? nextSelfParticipant.status ?? 'joined',
+      };
+
+      if (selfIndex >= 0) {
+        if (areParticipantRecordsEqual(existing, mergedSelf)) {
+          return current;
+        }
+
+        const next = current.slice();
+        next[selfIndex] = mergedSelf;
+        return next;
+      }
+
+      return [...current, mergedSelf];
+    });
+  }, [buildMergedParticipant, callType, cameraFacing, currentUser?.avatar, currentUserId, isVideoOn, localRtcUid]);
 
   React.useEffect(() => {
     const timer = setInterval(() => {
@@ -381,14 +453,16 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               if (!desiredVideoOnRef.current || !mounted) return;
               const enabled = await muteLocalVideo(false);
               if (!mounted || requestId !== videoActionIdRef.current || !desiredVideoOnRef.current) return;
+              if (enabled === false) {
+                console.warn('[GroupActiveCall] Local preview enable returned false, keeping preview UI active');
+              }
               setCameraFacing('front');
-              setIsVideoOn(enabled);
-              setLocalVideoReady(enabled);
-              if (!enabled) setHasCameraAccess(false);
+              setIsVideoOn(true);
+              setLocalVideoReady(true);
               await publishParticipantState({
                 reason: 'initial-camera-enable',
                 rtcUid: localRtcUidRef.current,
-                videoEnabled: enabled,
+                videoEnabled: true,
                 cameraFacing: 'front',
               });
             });
@@ -441,11 +515,13 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
                     if (!desiredVideoOnRef.current || !mounted) return;
                     const enabled = await muteLocalVideo(false);
                     if (!mounted || requestId !== videoActionIdRef.current || !desiredVideoOnRef.current) return;
-                    localVideoEnabled = enabled;
+                    if (enabled === false) {
+                      console.warn('[GroupActiveCall] Local preview enable returned false, keeping preview UI active');
+                    }
+                    localVideoEnabled = true;
                     setCameraFacing('front');
-                    setIsVideoOn(enabled);
-                    setLocalVideoReady(enabled);
-                    if (!enabled) setHasCameraAccess(false);
+                    setIsVideoOn(true);
+                    setLocalVideoReady(true);
                   });
                 } catch {
                   localVideoEnabled = false;
@@ -557,7 +633,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const handleFlipCamera = React.useCallback(async () => {
-    if (callType !== 'video' || !hasCameraAccess || !isVideoOn) return;
+    if (callType !== 'video' || !hasCameraAccess || (!isVideoOn && !localVideoReady)) return;
     try {
       const nextFacing = cameraFacing === 'front' ? 'rear' : 'front';
       const switched = await switchCamera();
@@ -569,6 +645,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
       cameraFacingRef.current = nextFacing;
       setCameraFacing(nextFacing);
       setLocalVideoReady(true);
+      setIsVideoOn(true);
       await publishParticipantState({
         reason: 'camera-flip',
         rtcUid: localRtcUidRef.current,
@@ -578,7 +655,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
     } catch (error) {
       console.warn('[GroupActiveCall] Camera flip failed:', error);
     }
-  }, [callType, cameraFacing, hasCameraAccess, isVideoOn, publishParticipantState]);
+  }, [callType, cameraFacing, hasCameraAccess, isVideoOn, localVideoReady, publishParticipantState]);
 
   const visibleParticipants = React.useMemo(() => {
     if (participants.length) return participants;
@@ -665,7 +742,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
           {row.map((participant) => {
           const remoteUid = typeof participant.rtcUid === 'number' ? participant.rtcUid : null;
           const showVideo = String(participant.userId) === String(currentUser?.id)
-            ? isVideoOn && hasCameraAccess && localVideoReady
+            ? hasCameraAccess && (isVideoOn || localVideoReady)
             : participant.videoEnabled !== false && !!remoteUid;
 
           if (showVideo) {
@@ -688,6 +765,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
               spotlight={visibleCount === 1}
               callType={callType}
               showVideo={showVideo}
+              canFlipCamera={callType === 'video' && hasCameraAccess && String(participant.userId) === String(currentUser?.id)}
               onFlipCamera={handleFlipCamera}
               cameraFacing={cameraFacing}
             />
@@ -916,13 +994,15 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
                     const requestId = ++videoActionIdRef.current;
                     const enabled = await muteLocalVideo(false);
                     if (requestId !== videoActionIdRef.current || !desiredVideoOnRef.current) return;
-                    setIsVideoOn(enabled);
-                    if (!enabled) setHasCameraAccess(false);
-                    setLocalVideoReady(enabled);
+                    if (enabled === false) {
+                      console.warn('[GroupActiveCall] Local preview enable returned false, keeping preview UI active');
+                    }
+                    setIsVideoOn(true);
+                    setLocalVideoReady(true);
                     await publishParticipantState({
-                      reason: enabled ? 'video-enabled' : 'video-enable-failed',
+                      reason: 'video-enabled',
                       rtcUid: localRtcUidRef.current,
-                      videoEnabled: enabled,
+                      videoEnabled: true,
                       cameraFacing,
                     });
                   });
@@ -972,7 +1052,7 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   );
 };
 
-const ParticipantTile = ({
+const ParticipantTile = React.memo(({
   participant,
   currentUserId,
   theme,
@@ -981,6 +1061,7 @@ const ParticipantTile = ({
   spotlight = false,
   callType,
   showVideo = false,
+  canFlipCamera = false,
   onFlipCamera,
   cameraFacing = 'front',
 }: {
@@ -992,6 +1073,7 @@ const ParticipantTile = ({
   spotlight?: boolean;
   callType?: string;
   showVideo?: boolean;
+  canFlipCamera?: boolean;
   onFlipCamera?: () => void;
   cameraFacing?: 'front' | 'rear';
 }) => {
@@ -1034,7 +1116,7 @@ const ParticipantTile = ({
           <>
               {RtcSurfaceView ? (
                 <RtcSurfaceView
-                key={`participant-video-${participant.userId}-${isSelf ? cameraFacing : 'remote'}`}
+                key={`participant-video-${participant.userId}`}
                 canvas={{ uid: streamUid }}
                 style={StyleSheet.absoluteFill}
                 zOrderMediaOverlay={isSelf}
@@ -1044,7 +1126,7 @@ const ParticipantTile = ({
             )}
             <View pointerEvents="box-none" style={styles.tileOverlay}>
               <View style={styles.tileOverlayTop}>
-                {isSelf ? (
+                {canFlipCamera ? (
                   <TouchableOpacity
                     activeOpacity={0.8}
                     onPress={onFlipCamera}
@@ -1097,12 +1179,54 @@ const ParticipantTile = ({
                 </Text>
               </View>
             )}
+            <View pointerEvents="box-none" style={styles.tileOverlay}>
+              <View style={styles.tileOverlayTop}>
+                {canFlipCamera ? (
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={onFlipCamera}
+                    style={[
+                      styles.tileFlipButton,
+                      {
+                        backgroundColor: cameraFacing === 'rear' ? theme.primary : theme.surface,
+                      },
+                    ]}
+                  >
+                    <Icon
+                      name="camera-reverse"
+                      size={16}
+                      color={cameraFacing === 'rear' ? theme.background : theme.text}
+                    />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              <View style={styles.tileOverlayBottom}>
+                <Text
+                  style={[styles.tileNameOverlay, { color: theme.background }]}
+                  numberOfLines={1}
+                >
+                  {displayName}
+                </Text>
+              </View>
+            </View>
           </>
         )}
       </View>
     </View>
   );
-};
+}, (prev, next) => (
+  prev.participant === next.participant &&
+  prev.currentUserId === next.currentUserId &&
+  prev.theme === next.theme &&
+  prev.width === next.width &&
+  prev.height === next.height &&
+  prev.spotlight === next.spotlight &&
+  prev.callType === next.callType &&
+  prev.showVideo === next.showVideo &&
+  prev.canFlipCamera === next.canFlipCamera &&
+  prev.cameraFacing === next.cameraFacing &&
+  prev.onFlipCamera === next.onFlipCamera
+));
 
 const TrayButton = ({
   icon,
