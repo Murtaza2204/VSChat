@@ -559,30 +559,26 @@ const GroupActiveCallScreen: React.FC<{ navigation: any; route: any }> = ({
   const handleFlipCamera = React.useCallback(async () => {
     if (callType !== 'video' || !hasCameraAccess || !isVideoOn) return;
     try {
-      await runVideoAction(async () => {
-        if (!desiredVideoOnRef.current) return;
-        const requestId = ++videoActionIdRef.current;
-        const nextFacing = cameraFacingRef.current === 'front' ? 'rear' : 'front';
-        const switched = await switchCamera();
-        if (switched && requestId === videoActionIdRef.current && desiredVideoOnRef.current) {
-          cameraFacingRef.current = nextFacing;
-          setCameraFacing(nextFacing);
-          setLocalVideoReady(true);
-          await publishParticipantState({
-            reason: 'camera-flip',
-            rtcUid: localRtcUidRef.current,
-            videoEnabled: true,
-            cameraFacing: nextFacing,
-          });
-          return;
-        }
-
+      const nextFacing = cameraFacing === 'front' ? 'rear' : 'front';
+      const switched = await switchCamera();
+      if (!switched || !desiredVideoOnRef.current) {
         console.warn('[GroupActiveCall] Camera flip was rejected by the engine');
+        return;
+      }
+
+      cameraFacingRef.current = nextFacing;
+      setCameraFacing(nextFacing);
+      setLocalVideoReady(true);
+      await publishParticipantState({
+        reason: 'camera-flip',
+        rtcUid: localRtcUidRef.current,
+        videoEnabled: true,
+        cameraFacing: nextFacing,
       });
     } catch (error) {
       console.warn('[GroupActiveCall] Camera flip failed:', error);
     }
-  }, [callType, hasCameraAccess, isVideoOn, publishParticipantState, runVideoAction]);
+  }, [callType, cameraFacing, hasCameraAccess, isVideoOn, publishParticipantState]);
 
   const visibleParticipants = React.useMemo(() => {
     if (participants.length) return participants;
