@@ -1,6 +1,6 @@
 {
   "name": "WhatsAppClone",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "android": "react-native run-android",
@@ -28,7 +28,7 @@
     "moment": "^2.30.1",
     "react": "19.2.3",
     "react-native": "0.85.3",
-    "react-native-agora": "^4.5.4",
+    "react-native-agora": "4.5.4",
     "react-native-blob-util": "^0.24.10",
     "react-native-camera-kit": "^14.0.0",
     "react-native-contacts": "^8.0.10",

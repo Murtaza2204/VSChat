@@ -7,6 +7,25 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:757781336831:android:8951567381a19a75ee32ca",
+        "android_client_info": {
+          "package_name": "com.vschat.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCoDbxpgWuE25AUVejA93paxoAvoaJkGSo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:757781336831:android:bc2bfbc96901e3a6ee32ca",
         "android_client_info": {
           "package_name": "com.whatsappclone"

@@ -2,6 +2,12 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+def keystorePropertiesFile = rootProject.file("key.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 project.ext.vectoricons = [
     iconFontNames: ["Ionicons.ttf"],
 ]
@@ -64,6 +70,8 @@ react {
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
 def enableProguardInReleaseBuilds = false
+def appVersionCode = (project.findProperty("APP_VERSION_CODE") ?: "1").toString().toInteger()
+def appVersionName = (project.findProperty("APP_VERSION_NAME") ?: "1.0.0").toString()
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -83,13 +91,13 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.whatsappclone"
+    namespace "com.vschat.app"
     defaultConfig {
-        applicationId "com.whatsappclone"
+        applicationId "com.vschat.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode
+        versionName appVersionName
     }
     signingConfigs {
         debug {
@@ -98,24 +106,38 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            if (keystorePropertiesFile.exists()) {
+                storeFile rootProject.file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }
 }
 
+configurations.configureEach {
+    exclude group: "io.agora.rtc", module: "full-screen-sharing-special"
+}
+
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+    implementation "androidx.camera:camera-core:1.4.2"
+    implementation "androidx.camera:camera-camera2:1.4.2"
+    implementation "androidx.camera:camera-lifecycle:1.4.2"
+    implementation "androidx.camera:camera-view:1.4.2"
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
