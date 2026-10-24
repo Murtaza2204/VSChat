@@ -34,13 +34,12 @@ const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     }
 
     const timer = setTimeout(() => {
-      const approvalStatus = user?.approvalStatus || (isAuthenticated ? 'approved' : undefined);
+      // const approvalStatus = user?.approvalStatus || (isAuthenticated ? 'approved' : undefined);
+      // if (approvalStatus === 'pending' || approvalStatus === 'rejected') {
+      //   return;
+      // }
 
-      if (approvalStatus === 'pending' || approvalStatus === 'rejected') {
-        return;
-      }
-
-      if (isAuthenticated && user?.profileCompleted && approvalStatus === 'approved') {
+      if (isAuthenticated && user?.profileCompleted) {
         // User is logged in and profile is complete → Go to Main (Messages)
         navigation.reset({
           index: 0,
@@ -138,4 +137,3 @@ const styles = StyleSheet.create({
 });
 
 export default SplashScreen;
-

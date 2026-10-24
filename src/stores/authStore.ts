@@ -94,7 +94,8 @@ export const useAuthStore = create<AuthStore>((set, get) => {
           };
           set({
             user: normalizedStoredUser,
-            isAuthenticated: normalizedStoredUser.approvalStatus === 'approved' && !!normalizedStoredUser.profileCompleted,
+            // isAuthenticated: normalizedStoredUser.approvalStatus === 'approved' && !!normalizedStoredUser.profileCompleted,
+            isAuthenticated: !!normalizedStoredUser.profileCompleted,
             phoneVerified: true,
             isLoading: false,
             error: null,
@@ -142,7 +143,8 @@ export const useAuthStore = create<AuthStore>((set, get) => {
                   await AsyncStorage.setItem('user', JSON.stringify(latest));
                 } catch (e) { console.warn('Could not save refreshed approval state to storage', e); }
 
-                const isApproved = latest.approvalStatus === 'approved' && !!latest.profileCompleted;
+                // const isApproved = latest.approvalStatus === 'approved' && !!latest.profileCompleted;
+                const isApproved = !!latest.profileCompleted;
                 set({
                   user: latest,
                   isAuthenticated: isApproved,
@@ -405,7 +407,8 @@ export const useAuthStore = create<AuthStore>((set, get) => {
 
           set({
             user: backendUser,
-            isAuthenticated: backendUser.approvalStatus === 'approved',
+            // isAuthenticated: backendUser.approvalStatus === 'approved',
+            isAuthenticated: true,
             phoneVerified: true,
             isLoading: false,
             authFlow: 'login',
@@ -508,7 +511,8 @@ export const useAuthStore = create<AuthStore>((set, get) => {
             set({
               user: updatedUser,
               isLoading: false,
-              isAuthenticated: normalizeApprovalStatus(get().user?.approvalStatus, 'approved') === 'approved',
+              // isAuthenticated: normalizeApprovalStatus(get().user?.approvalStatus, 'approved') === 'approved',
+              isAuthenticated: true,
             });
             try { (useChatStore.getState() as any).updateUserProfilePicture(updatedUser.id, updatedUser.profilePictureUrl); } catch (e) {}
             return updatedUser;
@@ -571,7 +575,7 @@ export const useAuthStore = create<AuthStore>((set, get) => {
           profilePictureUrl: data.user.profilePictureUrl || null,
           profileCompleted: true,
           bio: data.user.bio || '',
-          approvalStatus: normalizeApprovalStatus(data.user.approvalStatus, 'pending'),
+          approvalStatus: normalizeApprovalStatus(data.user.approvalStatus, 'approved'),
           approvalRequestedAt: data.user.approvalRequestedAt || data.user.createdAt || null,
           approvalReviewedAt: data.user.approvalReviewedAt || null,
         };
@@ -594,7 +598,8 @@ export const useAuthStore = create<AuthStore>((set, get) => {
 
         set({
           user: newUser,
-          isAuthenticated: newUser.approvalStatus === 'approved',
+          // isAuthenticated: newUser.approvalStatus === 'approved',
+          isAuthenticated: true,
           isLoading: false,
           authFlow: null,
           phoneVerified: true,
