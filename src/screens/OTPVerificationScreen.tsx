@@ -10,9 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../stores/authStore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore } from '../stores/themeStore';
-import auth from '@react-native-firebase/auth';
 import { SPACING, FONT_SIZES, BORDER_RADIUS } from '../constants/colors';
 import { validateOTP } from '../utils/theme';
 import CustomButton from '../components/CustomButton';
@@ -23,7 +21,7 @@ const OTPVerificationScreen: React.FC<{ navigation: any; route: any }> = ({
   route,
 }) => {
   const { theme } = useThemeStore();
-  const { verifyOTP, setError } = useAuthStore();
+  const { verifyOTP, resendOTP, setError } = useAuthStore();
   const { phone } = route.params;
   
   const inputRefs = useRef<Array<TextInput | null>>([]);
@@ -104,24 +102,24 @@ const OTPVerificationScreen: React.FC<{ navigation: any; route: any }> = ({
   };
 
   const handleResendOTP = async () => {
+    if (!canResend || isLoading) return;
+
     setResendTimer(30);
     setCanResend(false);
     setOtp(['', '', '', '', '', '']);
     setErrorState('');
+    setIsLoading(true);
 
     try {
-      // trigger Firebase to resend SMS
-      const confirmation = await auth().signInWithPhoneNumber(phone);
-      // @ts-ignore
-      const verificationId = confirmation.verificationId || null;
-      if (verificationId) await AsyncStorage.setItem('verificationId', verificationId);
-      // store in-memory confirmation
-      // @ts-ignore
-      (global as any).__pendingPhoneConfirmation = confirmation;
+      await resendOTP(phone);
     } catch (e: any) {
       const msg = e?.message || 'Failed to resend code';
       setErrorState(msg);
       setError(msg);
+      setResendTimer(0);
+      setCanResend(true);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -286,4 +284,3 @@ const styles = StyleSheet.create({
 });
 
 export default OTPVerificationScreen;
-

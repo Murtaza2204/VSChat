@@ -267,6 +267,26 @@ All stored in `constants/mockData.ts`
 - Phone number validation
 - Input sanitization
 
+### Firebase Phone Auth and Google Play releases
+
+The Android package ID is `com.vschat.app`. Firebase Phone Authentication validates
+the signing certificate of the installed app, so the SHA-1 and SHA-256 fingerprints
+for both certificates must be registered in the matching Firebase Android app:
+
+1. Register the local upload/release keystore fingerprints for local release testing.
+2. In Google Play Console, open **Release > Setup > App integrity** and copy the
+   **App signing key certificate** SHA-1 and SHA-256 fingerprints.
+3. Add those Play App Signing fingerprints to the `com.vschat.app` Android app in
+   Firebase Console, then download the updated `google-services.json`.
+4. Confirm that Phone provider is enabled under Firebase Authentication and that
+   the Firebase project is linked to the Play application.
+
+The upload certificate and the Play App Signing certificate are different by
+design. A locally installed release APK can therefore authenticate successfully
+while the Play-installed build fails app verification if only the upload
+certificate has been registered. Rebuild and publish a new Play release after
+changing Firebase configuration.
+
 ## 📦 Dependencies
 
 Main packages used:

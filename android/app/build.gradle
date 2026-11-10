@@ -7,6 +7,9 @@ def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
+def releaseKeystorePath = keystorePropertiesFile.exists() && keystoreProperties['storeFile']
+        ? rootProject.file(keystoreProperties['storeFile'])
+        : null
 
 project.ext.vectoricons = [
     iconFontNames: ["Ionicons.ttf"],
@@ -120,7 +123,12 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+            if (!keystorePropertiesFile.exists() || !releaseKeystorePath.exists()) {
+                throw new GradleException(
+                    "Release builds require android/key.properties and its configured upload keystore."
+                )
+            }
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }

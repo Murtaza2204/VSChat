@@ -12,6 +12,17 @@ type AuthFlow = 'login' | 'register';
 
 type ApprovalStatus = 'approved' | 'pending' | 'rejected';
 
+type PendingPhoneAuthSession = {
+  phoneNumber: string;
+  verificationId: string;
+  requestId: number;
+  userUidBeforeRequest: string | null;
+  autoVerifiedUser: any | null;
+};
+
+const maskVerificationId = (verificationId: string) =>
+  `${verificationId.slice(0, 6)}...${verificationId.slice(-4)}`;
+
 const normalizeApprovalStatus = (value: any, fallback: ApprovalStatus = 'approved'): ApprovalStatus => {
   if (value === 'approved' || value === 'pending' || value === 'rejected') {
     return value;
@@ -59,6 +70,7 @@ const fetchApprovalSnapshot = async () => {
 interface AuthStore extends AuthState {
   authFlow: AuthFlow | null;
   login: (countryCode: string, phoneNumber: string) => Promise<AuthFlow>;
+  resendOTP: (phoneNumber: string) => Promise<void>;
   verifyOTP: (phoneNumber: string, otp: string) => Promise<AuthFlow>;
   setupProfile: (user: Partial<User>) => Promise<User | void>;
   logout: () => Promise<void>;
@@ -69,6 +81,91 @@ interface AuthStore extends AuthState {
 }
 
 export const useAuthStore = create<AuthStore>((set, get) => {
+  let authRequestId = 0;
+  let authRequestInFlight = false;
+  let pendingPhoneAuthSession: PendingPhoneAuthSession | null = null;
+  let removePhoneAuthStateListener: (() => void) | null = null;
+
+  const requestPhoneAuthSession = async (
+    phoneNumber: string,
+    forceResend: boolean,
+  ): Promise<PendingPhoneAuthSession> => {
+    const requestId = ++authRequestId;
+    authRequestInFlight = true;
+    pendingPhoneAuthSession = null;
+    removePhoneAuthStateListener?.();
+    removePhoneAuthStateListener = null;
+    let userUidBeforeRequest = auth().currentUser?.uid || null;
+    let autoVerifiedUser: any | null = null;
+    console.info('[PhoneAuth] request started', { requestId, phoneNumber, forceResend });
+
+    try {
+      // Phone verification must start from a signed-out Firebase state.
+      // Otherwise Android can auto-verify the new SMS into the existing user,
+      // making it impossible to distinguish that result from the old session.
+      if (auth().currentUser) {
+        const previousUid = userUidBeforeRequest;
+        await auth().signOut();
+        userUidBeforeRequest = null;
+        console.info('[PhoneAuth] cleared existing Firebase user before request', {
+          requestId,
+          previousUid,
+        });
+      }
+      removePhoneAuthStateListener = auth().onAuthStateChanged((user) => {
+        const userPhone = user?.phoneNumber?.replace(/\s/g, '');
+        if (
+          requestId === authRequestId &&
+          user &&
+          userPhone === phoneNumber
+        ) {
+          autoVerifiedUser = user;
+          if (pendingPhoneAuthSession?.requestId === requestId) {
+            pendingPhoneAuthSession.autoVerifiedUser = user;
+          }
+          console.info('[PhoneAuth] native auto-verification observed', { requestId });
+        }
+      });
+      const confirmation = await auth().signInWithPhoneNumber(phoneNumber, forceResend);
+      const verificationId = confirmation.verificationId;
+      if (!verificationId) {
+        throw new Error('Firebase did not return a verification session. Please try again.');
+      }
+
+      const session: PendingPhoneAuthSession = {
+        phoneNumber,
+        verificationId,
+        requestId,
+        userUidBeforeRequest,
+        autoVerifiedUser,
+      };
+
+      // An older request may resolve after a newer request. It must never become
+      // the session used by the OTP screen.
+      if (requestId !== authRequestId) {
+        console.warn('[PhoneAuth] stale request ignored', {
+          requestId,
+          currentRequestId: authRequestId,
+        });
+        throw new Error('A newer verification request is already active. Please use its code.');
+      }
+
+      pendingPhoneAuthSession = session;
+      console.info('[PhoneAuth] session activated', {
+        requestId,
+        verificationId: maskVerificationId(verificationId),
+      });
+      authRequestInFlight = false;
+      return session;
+    } catch (error) {
+      if (requestId === authRequestId) {
+        authRequestInFlight = false;
+      }
+      console.error('[PhoneAuth] request failed', { requestId, error });
+      throw error;
+    }
+  };
+
   return {
     user: null,
     isAuthenticated: false,
@@ -324,14 +421,8 @@ export const useAuthStore = create<AuthStore>((set, get) => {
     login: async (countryCode: string, phoneNumber: string) => {
       set({ isLoading: true, error: null });
       try {
-        const fullPhone = `${countryCode}${phoneNumber}`;
-        const confirmation = await auth().signInWithPhoneNumber(fullPhone);
-        // @ts-ignore
-        const verificationId = confirmation.verificationId || null;
-        if (verificationId) await AsyncStorage.setItem('verificationId', verificationId);
-        try { await AsyncStorage.setItem('phone', fullPhone); } catch (e) { console.warn('Could not save phone to storage'); }
-        // @ts-ignore
-        (global as any).__pendingPhoneConfirmation = confirmation;
+        const fullPhone = `${countryCode}${phoneNumber}`.replace(/\s/g, '');
+        await requestPhoneAuthSession(fullPhone, false);
         set({ isLoading: false, authFlow: 'register' });
         return 'register';
       } catch (error: any) {
@@ -340,23 +431,72 @@ export const useAuthStore = create<AuthStore>((set, get) => {
       }
     },
 
+    resendOTP: async (phoneNumber: string) => {
+      set({ isLoading: true, error: null });
+      try {
+        await requestPhoneAuthSession(phoneNumber.replace(/\s/g, ''), true);
+        set({ isLoading: false });
+      } catch (error: any) {
+        set({ error: error.message || 'Failed to resend verification code', isLoading: false });
+        throw error;
+      }
+    },
+
     verifyOTP: async (phoneNumber: string, otp: string) => {
       set({ isLoading: true, error: null });
       try {
-        // Try in-memory confirmation first
-        // @ts-ignore
-        let confirmation = (global as any).__pendingPhoneConfirmation;
-        let userCredential: any = null;
-
-        if (confirmation && typeof confirmation.confirm === 'function') {
-          userCredential = await confirmation.confirm(otp);
-        } else {
-          const verificationId = await AsyncStorage.getItem('verificationId');
-          if (!verificationId) throw new Error('Verification session missing. Please resend the code.');
-          // @ts-ignore
-          const credential = auth.PhoneAuthProvider.credential(verificationId, otp);
-          userCredential = await auth().signInWithCredential(credential);
+        const normalizedPhone = phoneNumber.replace(/\s/g, '');
+        if (pendingPhoneAuthSession?.phoneNumber !== normalizedPhone) {
+          pendingPhoneAuthSession = null;
         }
+
+        const session = pendingPhoneAuthSession;
+        if (!session && authRequestInFlight) {
+          throw new Error('A verification request is still in progress. Please wait for the latest code.');
+        }
+
+        if (!session) {
+          throw new Error('Verification session missing. Please resend the code.');
+        }
+
+        const requestIdAtVerification = session.requestId;
+        console.info('[PhoneAuth] verification started', {
+          requestId: requestIdAtVerification,
+          verificationId: maskVerificationId(session.verificationId),
+        });
+        const autoVerifiedUser = auth().currentUser;
+        const verifiedUser = session.autoVerifiedUser || autoVerifiedUser;
+        const autoVerifiedPhone = verifiedUser?.phoneNumber?.replace(/\s/g, '');
+        const wasAutoVerifiedForThisRequest =
+          !!verifiedUser &&
+          verifiedUser.uid !== session.userUidBeforeRequest &&
+          autoVerifiedPhone === normalizedPhone;
+        const userCredential = wasAutoVerifiedForThisRequest
+          ? { user: verifiedUser }
+          : await auth().signInWithCredential(
+            auth.PhoneAuthProvider.credential(session.verificationId, otp),
+          );
+        removePhoneAuthStateListener?.();
+        removePhoneAuthStateListener = null;
+        if (wasAutoVerifiedForThisRequest) {
+          console.info('[PhoneAuth] using native auto-verification result', {
+            requestId: requestIdAtVerification,
+          });
+        }
+        if (
+          requestIdAtVerification !== authRequestId ||
+          pendingPhoneAuthSession?.requestId !== requestIdAtVerification
+        ) {
+          console.warn('[PhoneAuth] verification result rejected as stale', {
+            requestId: requestIdAtVerification,
+            currentRequestId: authRequestId,
+          });
+          throw new Error('A newer verification code was requested. Please use the latest code.');
+        }
+        console.info('[PhoneAuth] verification accepted', {
+          requestId: requestIdAtVerification,
+          verificationId: maskVerificationId(session.verificationId),
+        });
 
         const idToken = await userCredential.user.getIdToken();
 
@@ -400,9 +540,7 @@ export const useAuthStore = create<AuthStore>((set, get) => {
           }
 
           try {
-            // @ts-ignore
-            delete (global as any).__pendingPhoneConfirmation;
-            await AsyncStorage.removeItem('verificationId');
+            pendingPhoneAuthSession = null;
           } catch (e) {}
 
           set({
@@ -420,14 +558,17 @@ export const useAuthStore = create<AuthStore>((set, get) => {
         try { await AsyncStorage.setItem('phone', phoneNumber); await AsyncStorage.setItem('authFlow', data.flow); } catch (e) { console.warn('Could not save auth details to storage'); }
 
         try {
-          // @ts-ignore
-          delete (global as any).__pendingPhoneConfirmation;
+          pendingPhoneAuthSession = null;
           await AsyncStorage.removeItem('verificationId');
         } catch (e) {}
 
         set({ user: null, isAuthenticated: false, phoneVerified: true, isLoading: false, authFlow: data.flow });
         return data.flow as AuthFlow;
       } catch (error: any) {
+        console.error('[PhoneAuth] verification failed', {
+          requestId: pendingPhoneAuthSession?.requestId ?? authRequestId,
+          error,
+        });
         set({ error: error.message || 'OTP verification failed', isLoading: false });
         throw error;
       }
@@ -615,6 +756,15 @@ export const useAuthStore = create<AuthStore>((set, get) => {
     logout: async () => {
       set({ isLoading: true });
       try {
+        authRequestId += 1;
+        authRequestInFlight = false;
+        pendingPhoneAuthSession = null;
+        removePhoneAuthStateListener?.();
+        removePhoneAuthStateListener = null;
+        console.info('[PhoneAuth] session invalidated on logout', {
+          requestId: authRequestId,
+        });
+        await auth().signOut();
         try {
           const state = useAuthStore.getState();
           const currentUser = state.user;
@@ -636,6 +786,8 @@ export const useAuthStore = create<AuthStore>((set, get) => {
             AsyncStorage.removeItem('authFlow'),
             AsyncStorage.removeItem('accessToken'),
             AsyncStorage.removeItem('refreshToken'),
+            AsyncStorage.removeItem('verificationId'),
+            AsyncStorage.removeItem('phoneAuthSession'),
           ]);
         } catch (e) { console.warn('Could not clear storage'); }
         set({
@@ -661,6 +813,11 @@ export const useAuthStore = create<AuthStore>((set, get) => {
     },
 
     clearAuth: () => {
+      authRequestId += 1;
+      authRequestInFlight = false;
+      pendingPhoneAuthSession = null;
+      removePhoneAuthStateListener?.();
+      removePhoneAuthStateListener = null;
       set({
         user: null,
         isAuthenticated: false,
