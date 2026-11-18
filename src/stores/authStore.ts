@@ -527,6 +527,9 @@ export const useAuthStore = create<AuthStore>((set, get) => {
             await AsyncStorage.setItem('user', JSON.stringify(backendUser));
             await AsyncStorage.setItem('accessToken', data.accessToken);
             await AsyncStorage.setItem('refreshToken', data.refreshToken);
+            if (backendUser.phone) {
+              await AsyncStorage.setItem('phone', backendUser.phone);
+            }
           } catch (e) { console.warn('Could not save user or tokens to storage'); }
 
           try {
@@ -577,11 +580,20 @@ export const useAuthStore = create<AuthStore>((set, get) => {
     setupProfile: async (profileData: Partial<User>) => {
       set({ isLoading: true, error: null });
       try {
-        const phone = (await AsyncStorage.getItem('phone')) || profileData.phone;
-        if (!phone) throw new Error('Phone number missing');
-
         // If user is authenticated (has access token), call profile update endpoint
         const token = await AsyncStorage.getItem('accessToken');
+        let phone = get().user?.phone || (await AsyncStorage.getItem('phone')) || profileData.phone;
+        if (!phone && token) {
+          const currentProfile = await fetchApprovalSnapshot();
+          phone = currentProfile?.phoneNumber;
+          if (phone) {
+            const currentUser = get().user;
+            const refreshedUser = currentUser ? { ...currentUser, phone } : currentUser;
+            set({ user: refreshedUser });
+          }
+        }
+        if (!phone && !token) throw new Error('Phone number missing');
+
         console.info('setupProfile: checking for token...', !!token);
         if (token) {
           console.info('setupProfile: token exists, calling PATCH /users/me');
